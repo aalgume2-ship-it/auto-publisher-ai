@@ -1277,9 +1277,9 @@ model OutboxEvent {
   orgId         String?   @map("organization_id") @db.Uuid
   aggregateType String    @map("aggregate_type")
   aggregateId   String    @map("aggregate_id")
-  type          String                                  // aca.<domain>.<entity>.<verb>
+  type          String                                  // aca.<domain>.<verb-path>
   version       Int       @default(1)
-  payload       Json
+  payload       Json                                    // FULL EventEnvelope v1.1 JSON (payload nested) — replay/DLQ truth format (ADR-024)
   traceId       String?   @map("trace_id")
   occurredAt    DateTime  @default(now()) @map("occurred_at")
   publishedAt   DateTime? @map("published_at")
@@ -1335,7 +1335,7 @@ model DeadLetterEvent {
 model ConsumerCursor {
   consumer         String                              // consumer group identity
   stream           String                              // events:<domain>
-  lastCommittedId  String   @map("last_committed_id")  // last XACKed stream entry id
+  lastCommittedId  String   @map("last_committed_id")  // JSON map { "<slot>": "<redis entry id>" } — last XACKed per shard (ADR-024)
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@id([consumer, stream])
