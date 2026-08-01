@@ -9,7 +9,9 @@
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
     "./contracts/*": { "types": "./dist/contracts/*.d.ts", "import": "./dist/contracts/*.js" },
-    "./constants/*": { "types": "./dist/constants/*.d.ts", "import": "./dist/constants/*.js" }
+    "./contracts/*.js": { "types": "./dist/contracts/*.d.ts", "import": "./dist/contracts/*.js" },
+    "./constants/*": { "types": "./dist/constants/*.d.ts", "import": "./dist/constants/*.js" },
+    "./constants/*.js": { "types": "./dist/constants/*.d.ts", "import": "./dist/constants/*.js" }
   },
   "files": ["dist"],
   "scripts": {
