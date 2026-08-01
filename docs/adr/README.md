@@ -233,6 +233,46 @@ by the same PR. Statuses: **Accepted** (normative) · **Proposed** (under review
 
 ---
 
+## ADR-024 · Events backbone guarantees: envelope v1.1 (correlation/causation/producer/metadata), PG-only truth, durable DLQ, replay & cursors  *(v2.2)*
+
+- **Why:** the events package must carry full causal chains (trace any video from
+  idea to publish) and honest exactly-once semantics. Four additive envelope fields
+  (`correlationId` default = own id, `causationId` nullable, `producer` injected at
+  outbox write, `metadata` default `{}`) close the chain without breaking C1 consumers.
+  Redis Streams remains **transport only**: truth is PG — `outbox_events` (write-side
+  journal), `processed_events` (inbox dedup, same tx as consumer domain writes),
+  `dead_letter_events` (durable DLQ — supersedes §7.3 `events:dlx:{domain}` stream as
+  the source of truth; the stream MAY remain as a notification surface), and the new
+  `consumer_cursors` (per `(consumer, stream)` last committed stream id checkpointed
+  in the same tx as the dedup insert — Redis group state becomes disposable cache,
+  re-bootstrapped from cursors after a Redis flush).
+- **Exactly-once budget (the honest line):** per `(consumer, eventId)`, state
+  transitions are exactly-once (dedup row + domain writes share one tx). External
+  side effects (YouTube upload, email send, webhook delivery) are at-least-once;
+  mitigated by provider-side idempotency keys where the vendor supports them plus
+  pull-based reconciliation (publisher/email/webhooks-out owners listed in
+  docs/Events-Guarantees.md). Nothing else in the industry guarantees more.
+- **Retry/DLQ:** defaults `maxAttempts=10` (matches §7.3), exp backoff 1 s→15 min
+  with ±20 % jitter, per-consumer override; DLQ replay returns the ORIGINAL envelope
+  (same id) to the stream — dedup never hides a replay because the operator either
+  replays to a NEW consumer group or scopes a rebuild (delete projection + dedup rows)
+  first; both procedures are scripted in `packages/events/src/replay/`.
+- **Catalog & versioning:** the machine-readable catalog of all 60 event types
+  (`contracts/event-catalog/*` in `@aca/shared`: name, version, producer, consumers,
+  zod payload) is frozen C1 material; `docs/Event-Catalog.md` is CI-generated from it;
+  any breaking payload change → new envelope `version` dual-emitted (C1 policy) —
+  never mutate v1.
+- **Rejected:** DLQ as Redis stream only (violates "Redis is transport") · new
+  envelope v2 for the four fields (no consumer exists yet to protect; additive wins) ·
+  Kafka now (§15 stage B stays the flip — the port is unchanged) · consumer offsets
+  only in Redis (flush = full re-delivery storm).
+- **Implemented by:** `packages/events` (outbox writer/relay, bus adapter, consumer
+  runner, replay, metrics) · `contracts/event-catalog/*` · `dead_letter_events` +
+  `consumer_cursors` tables · docs/Events-Guarantees.md, docs/Event-Catalog.md,
+  docs/Event-Flows.md, docs/Event-Capacity.md.
+
+---
+
 ### How to write a new ADR
 
 1. Copy the format above into `docs/adr/NNNN-title.md`.
@@ -248,3 +288,4 @@ by the same PR. Statuses: **Accepted** (normative) · **Proposed** (under review
 | 001–008 | v1 foundation | Accepted |
 | 009–021 | Phase 0.5 expansion | Accepted |
 | 022–023 | v2.1 validation amendments | Accepted (machine-verified design) |
+| 024 | v2.2 events backbone guarantees | Accepted |

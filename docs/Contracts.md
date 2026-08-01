@@ -28,22 +28,30 @@ export interface EventEnvelope<T = unknown> {
   aggregateType: string;
   aggregateId: string;
   occurredAt: string;            // RFC3339 UTC
-  traceId?: string;
-  payload: T;                    // zod-typed per event in the catalog
+  traceId?: string;              // W3C trace-id of the producing span tree
+  // ── ADR-024 (v1.1 additive) — tracing the full causal chain ──
+  correlationId?: string;        // chain root id (defaults to envelope.id at write)
+  causationId?: string | null;   // id of the event/command that directly caused this one
+  producer?: string;             // service/agent identity, injected at outbox write
+  metadata?: Record<string, unknown>;  // extensibility bag (replay markers, hints)
+  payload: T;                    // zod-typed per event in the catalog (contracts/event-catalog/*)
 }
 
 export interface IEventBus {
-  publish(events: EventEnvelope[]): Promise<void>;           // via outbox only, in-tx
-  subscribe(opts: { stream: string; group: string; shardOf?: (env: EventEnvelope) => number },
-            handler: (env: EventEnvelope) => Promise<void>): Promise<void>;
-  ack(streamId: string): Promise<void>;
+  appendToStream(stream: string, env: EventEnvelope): Promise<void>;  // relay-internal
+  subscribe(opts: SubscribeOptions, handler: (env: EventEnvelope) => Promise<void>): Promise<void>;
+  ack(stream: string, group: string, streamEntryId: string, consumer: string): Promise<void>;
 }
 ```
 
 Rules: producers write `outbox_events` inside the domain transaction (never direct);
-consumers are inbox-deduped (`(consumer, event.id)`); replay tools exist per stream;
-payloads are versioned per event type — breaking payload change ⇒ `version: 2` envelope
-emitted alongside.
+`appendToStream` is reserved to the outbox relay; consumers are inbox-deduped
+(`(consumer, event.id)`, inserted in the SAME tx as their domain writes) and checkpoint
+`consumer_cursors` in that tx — Redis consumer-group state is disposable cache.
+DLQ truth lives in `dead_letter_events` (ADR-024); replay re-delivers the ORIGINAL
+envelope id. Payloads are versioned per event type in the catalog — breaking payload
+change ⇒ `version: 2` envelope emitted alongside; the catalog is frozen C1 material
+and `docs/Event-Catalog.md` is CI-generated from it.
 
 ## C2 · Plugin Manifest (`contracts/plugin-manifest.ts`)
 
