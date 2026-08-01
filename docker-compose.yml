@@ -1,0 +1,80 @@
+name: autocreator-ai
+
+# Local development data plane (docs/Deployment.md §2). Apps (web/api/worker)
+# run natively via `turbo dev` for HMR; this stack provides dependencies only.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: aca
+      POSTGRES_PASSWORD: aca_dev_pw
+      POSTGRES_DB: autocreator
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U aca"], interval: 5s, retries: 10 }
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "768mb", "--maxmemory-policy", "noeviction"]
+    ports: ["6379:6379"]
+    volumes: ["redisdata:/data"]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, retries: 10 }
+
+  minio:
+    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment: { MINIO_ROOT_USER: aca, MINIO_ROOT_PASSWORD: aca_dev_secret }
+    ports: ["9000:9000", "9001:9001"]
+    volumes: ["miniodata:/data"]
+    healthcheck: { test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"], interval: 5s, retries: 10 }
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-07-21T05-28-08Z
+    depends_on: { minio: { condition: service_healthy } }
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        mc alias set local http://minio:9000 aca aca_dev_secret
+        mc mb -p local/aca-assets local/aca-renders local/aca-logs
+
+  mailpit:
+    image: axllent/mailpit:v1.21
+    ports: ["8025:8025", "1025:1025"]
+
+  clamav:
+    image: clamav/clamav:1.4
+    ports: ["3310:3310"]
+    volumes: ["clamdb:/var/lib/clamav"]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    environment: { COLLECTOR_OTLP_ENABLED: "true" }
+    ports: ["16686:16686", "4318:4318"]
+
+  bullboard:
+    image: deadly0/bull-board:3.2.12
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports: ["3030:3000"]
+    depends_on: { redis: { condition: service_healthy } }
+
+  # Optional: stage-B event bus work (ADR-009). Run with: docker compose --profile kafka up
+  kafka-local:
+    image: apache/kafka:3.8.0
+    profiles: ["kafka"]
+    ports: ["9092:9092"]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9092"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@localhost:9093"
+      CLUSTER_ID: acaLocalKafkaCluster1
+
+volumes:
+  pgdata: {}
+  redisdata: {}
+  miniodata: {}
+  clamdb: {}

@@ -1,0 +1,39 @@
+{
+  "name": "autocreator-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AutoCreator AI — autonomous AI-native platform for YouTube/TikTok/Instagram channel operations",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.15.0"
+  },
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "test:e2e": "turbo test:e2e --concurrency=1",
+    "eval": "turbo eval --filter @aca/ai",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md,yaml,yml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,json,md,yaml,yml}\"",
+    "dev:bootstrap": "bash infra/scripts/dev-bootstrap.sh",
+    "db:generate": "pnpm --filter @aca/database exec prisma generate",
+    "db:migrate": "pnpm --filter @aca/database exec prisma migrate deploy",
+    "db:dev": "pnpm --filter @aca/database exec prisma migrate dev",
+    "db:seed": "pnpm --filter @aca/database seed"
+  },
+  "devDependencies": {
+    "@aca/eslint-config": "workspace:*",
+    "@aca/typescript-config": "workspace:*",
+    "prettier": "^3.4.2",
+    "turbo": "^2.5.0",
+    "typescript": "^5.6.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "zod": "^3.23.8"
+    }
+  }
+}
