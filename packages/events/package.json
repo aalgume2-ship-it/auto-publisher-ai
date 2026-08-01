@@ -1,0 +1,33 @@
+{
+  "name": "@aca/events",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AutoCreator AI — event backbone: transactional outbox writer/relay, Redis Streams bus, inbox-dedup consumer runner, durable DLQ, replay, metrics, OTel tracing (ADR-024). PostgreSQL is the only source of truth; Redis is transport.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "lint": "eslint .",
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run --config vitest.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
+  },
+  "dependencies": {
+    "@aca/database": "workspace:*",
+    "@aca/shared": "workspace:*",
+    "@opentelemetry/api": "^1.9.0",
+    "ioredis": "^5.4.2"
+  },
+  "devDependencies": {
+    "@aca/typescript-config": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
