@@ -33,6 +33,12 @@ closed-loop AI optimizer that improves every future video.
 | 8 | [Roadmap.md](./Roadmap.md) | Phases 0–6 (Aug 2026 → May 2027), deliverables per phase, exit criteria, external dependencies (platform API approvals), team plan, KPIs, risk register |
 | 9 | [Business-Model.md](./Business-Model.md) | Market & competitor analysis, pricing tiers, AI credit economics, unit economics & gross margin, 3-year projections, GTM strategy, compliance-as-a-moat |
 | 10 | [Validation-Report.md](./Validation-Report.md) | Adversarial architecture validation: cross-doc consistency audit, schema machine-verification (Prisma CLI), workflow scale math, plugin simulation, tenant leak analysis, performance/cost models, 12-attack red team — 25 amendments applied in v2.1 |
+| 11 | [adr/README.md](./adr/README.md) | Master ADR index (001–023): decision · rationale · rejected alternatives · implementing code paths |
+| 12 | [Dependency-Audit.md](./Dependency-Audit.md) | Layered workspace graph, machine-enforced acyclicity & drift gate, contracts-only import policy + transcripts |
+| 13 | [Contracts.md](./Contracts.md) | **Frozen v1.0 public contracts** (events, plugins, AI providers, payments, storage, publisher, workflow, agents) + change/versioning policy |
+| 14 | [Failover-Plan.md](./Failover-Plan.md) | Failure-injection playbooks for AI/Redis/PG/FFmpeg/S3/OAuth/payments with recovery semantics and chaos schedule |
+| 15 | [Testing-Strategy.md](./Testing-Strategy.md) | Risk-weighted coverage gates, 12 golden e2e journeys, load/chaos/security batteries, honest non-100% policy |
+| 16 | [Engineering-Standards.md](./Engineering-Standards.md) | Definition of Done (12 boxes), the 9 merge-blocking CI gates, branch protection, commit conventions |
 
 ---
 
