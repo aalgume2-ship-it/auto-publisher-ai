@@ -65,7 +65,14 @@ const GateConditionNodeSchema = z.object({
   }),
 });
 
-export const WorkflowNodeSchema = z.discriminatedUnion('kind', [
+/**
+ * NOTE: a plain union, NOT z.discriminatedUnion — the plugin node kind
+ * (`plugin.<slug>`, an open string grammar) cannot yield the discrete literal
+ * values a discriminator requires; zod threw at module load. Parse order is
+ * safe: agent kinds are a closed enum, gate kinds are literals, plugin kinds
+ * are prefix-guarded, so exactly one branch can match any valid input.
+ */
+export const WorkflowNodeSchema = z.union([
   AgentNodeSchema,
   PluginNodeSchema,
   GateReviewNodeSchema,
