@@ -1,0 +1,43 @@
+{
+  "name": "@aca/database",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AutoCreator AI — Prisma schema, tenant-scoped client factory, partitioning helpers",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "prisma"],
+  "scripts": {
+    "build": "prisma generate && tsc -b",
+    "dev": "tsc -b --watch",
+    "lint": "eslint .",
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "db:push:test": "prisma db push --skip-generate --accept-data-loss",
+    "db:dev": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:diff": "prisma migrate diff --from-migrations ./prisma/migrations --to-schema-datamodel ./prisma/schema.prisma --shadow-database-url $SHADOW_DATABASE_URL --exit-code",
+    "seed": "tsx ./prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "catalog:"
+  },
+  "devDependencies": {
+    "@aca/typescript-config": "workspace:*",
+    "@types/node": "catalog:",
+    "prisma": "catalog:",
+    "tsx": "^4.19.2",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "prisma": {
+    "seed": "tsx ./prisma/seed.ts"
+  }
+}
