@@ -87,7 +87,7 @@ erDiagram
 
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["clientExtensions", "postgresqlExtensions"]
+  previewFeatures = ["postgresqlExtensions"] // clientExtensions is GA in 5.x — no flag needed
 }
 
 datasource db {
