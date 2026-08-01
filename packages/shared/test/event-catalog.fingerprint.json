@@ -1,0 +1,620 @@
+{
+  "_note": "CI contract fingerprint — regenerate ONLY with the contract-change label + ADR (docs/Contracts.md governance). Command: pnpm --filter @aca/shared run fingerprint:update",
+  "catalog": "b67f035efbbd0235",
+  "events": {
+    "aca.ai_team.message.posted": {
+      "fingerprint": "7c085ccc928fbf0c",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "ws-bridge",
+        "notifications"
+      ],
+      "description": "Crew message on the run/project thread (ADR-017)."
+    },
+    "aca.analytics.channel.metrics_updated": {
+      "fingerprint": "3bc5d0bde3d61fe4",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "analytics-projections",
+        "memory-writer"
+      ],
+      "description": "Fresh per-channel platform metrics ingested."
+    },
+    "aca.analytics.video.metrics_updated": {
+      "fingerprint": "b8201ed8afdf9053",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "analytics-projections",
+        "memory-writer"
+      ],
+      "description": "Fresh per-video platform metrics ingested."
+    },
+    "aca.auth.user.registered": {
+      "fingerprint": "9b9b950f12773ce6",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "notifications",
+        "analytics-projections",
+        "audit"
+      ],
+      "description": "Account created with its owning organization."
+    },
+    "aca.billing.checkout.completed": {
+      "fingerprint": "f8fa30ebcefa6108",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "billing-projection",
+        "notifications",
+        "analytics-projections"
+      ],
+      "description": "Checkout finished; activates subscription at period start."
+    },
+    "aca.billing.credits.depleted": {
+      "fingerprint": "f840b4eee1d66baf",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "notifications",
+        "quota-guard",
+        "autopilot"
+      ],
+      "description": "Ledger hit zero — runs block until top-up (never surprise bills)."
+    },
+    "aca.billing.credits.granted": {
+      "fingerprint": "19c4d8482a4d01e4",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "notifications",
+        "analytics-projections"
+      ],
+      "description": "Credits landed in the org ledger (grant/purchase/refund)."
+    },
+    "aca.billing.credits.low": {
+      "fingerprint": "31bab911ba66cd46",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "notifications",
+        "autopilot"
+      ],
+      "description": "Ledger crossed the configured low threshold (80%/95%)."
+    },
+    "aca.billing.invoice.failed": {
+      "fingerprint": "9ca5faed985f0c08",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "billing-projection",
+        "notifications"
+      ],
+      "description": "Invoice payment attempt failed."
+    },
+    "aca.billing.invoice.paid": {
+      "fingerprint": "bd7f225a58d82bd2",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "billing-projection",
+        "audit"
+      ],
+      "description": "Invoice settled."
+    },
+    "aca.billing.subscription.activated": {
+      "fingerprint": "a093eac8cc7e66cc",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "billing-projection",
+        "quota-guard",
+        "notifications",
+        "analytics-projections"
+      ],
+      "description": "Subscription active; plan limits and monthly credit grant apply."
+    },
+    "aca.billing.subscription.canceled": {
+      "fingerprint": "5fad8a857d3f43ad",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "billing-projection",
+        "quota-guard",
+        "notifications"
+      ],
+      "description": "Subscription canceled (effective now or at period end)."
+    },
+    "aca.billing.subscription.past_due": {
+      "fingerprint": "0ef842abd93f6cfb",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "billing-projection",
+        "quota-guard",
+        "notifications"
+      ],
+      "description": "Payment failed; org enters dunning window."
+    },
+    "aca.channel.connected": {
+      "fingerprint": "3292b22a1785abc5",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "notifications",
+        "analytics-projections",
+        "autopilot"
+      ],
+      "description": "OAuth channel connected and profile resolved."
+    },
+    "aca.channel.disconnected": {
+      "fingerprint": "9f02f1759462bea0",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "notifications",
+        "autopilot",
+        "analytics-projections"
+      ],
+      "description": "Channel detached (user action or revoked token)."
+    },
+    "aca.channel.health_changed": {
+      "fingerprint": "967e8455d34db8af",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "notifications",
+        "analytics-projections",
+        "autopilot"
+      ],
+      "description": "Channel health transition from scheduled health probes."
+    },
+    "aca.channel.token_expired": {
+      "fingerprint": "f246905c4a3364f1",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "notifications",
+        "autopilot"
+      ],
+      "description": "Stored token expired; refresh failed — reconnect nudge."
+    },
+    "aca.flags.changed": {
+      "fingerprint": "54970606c94f5be2",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "audit",
+        "analytics-projections"
+      ],
+      "description": "Feature flag or override changed (global/org/plan/user scope)."
+    },
+    "aca.idea.approved": {
+      "fingerprint": "52f0b241302c228e",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "autopilot"
+      ],
+      "description": "Idea(s) approved for production."
+    },
+    "aca.idea.generated": {
+      "fingerprint": "f2ddbf1ef53071da",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "autopilot",
+        "notifications",
+        "ws-bridge",
+        "analytics-projections"
+      ],
+      "description": "Idea batch produced by trend analysis."
+    },
+    "aca.marketplace.install.completed": {
+      "fingerprint": "278df314d3e10ed7",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "notifications",
+        "analytics-projections"
+      ],
+      "description": "Artifact materialized into the buyer org."
+    },
+    "aca.marketplace.listing.published": {
+      "fingerprint": "2c981c89d1f655f1",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "search-indexer",
+        "analytics-projections"
+      ],
+      "description": "Seller listing published to the marketplace."
+    },
+    "aca.marketplace.purchase.completed": {
+      "fingerprint": "4915cbe2e8ed85c4",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "billing-projection",
+        "notifications",
+        "analytics-projections"
+      ],
+      "description": "Purchase settled (revenue split booked)."
+    },
+    "aca.memory.entry.created": {
+      "fingerprint": "c98195c50e5d0eff",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "analytics-projections",
+        "ws-bridge"
+      ],
+      "description": "Durable memory fact added to the channel/project/org scope."
+    },
+    "aca.memory.entry.superseded": {
+      "fingerprint": "9ad23715cbff5822",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "analytics-projections"
+      ],
+      "description": "A memory truth was replaced by newer evidence."
+    },
+    "aca.optimizer.actions.applied": {
+      "fingerprint": "281fd481cc37edf3",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "audit",
+        "analytics-projections",
+        "memory-writer"
+      ],
+      "description": "Approved optimizer actions applied (auto or user-driven)."
+    },
+    "aca.optimizer.report.completed": {
+      "fingerprint": "4dda9c4d6aa047f5",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "notifications",
+        "analytics-projections"
+      ],
+      "description": "Optimization report produced for a project window."
+    },
+    "aca.pipeline.run.awaiting_review": {
+      "fingerprint": "e96c079bf17d998d",
+      "version": 1,
+      "producer": "apps/worker (workflow executor)",
+      "consumers": [
+        "notifications",
+        "ws-bridge",
+        "analytics-projections"
+      ],
+      "description": "Review gate reached; run halts for a human decision."
+    },
+    "aca.pipeline.run.canceled": {
+      "fingerprint": "b50234b1fe9a6191",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "orchestrator",
+        "analytics-projections"
+      ],
+      "description": "Run canceled by user or gate timeout policy."
+    },
+    "aca.pipeline.run.completed": {
+      "fingerprint": "c4866ab1cc1b10cd",
+      "version": 1,
+      "producer": "apps/worker (workflow executor)",
+      "consumers": [
+        "notifications",
+        "analytics-projections",
+        "webhooks-out",
+        "autopilot"
+      ],
+      "description": "All nodes done; video ready for scheduling."
+    },
+    "aca.pipeline.run.failed": {
+      "fingerprint": "194c651d17303770",
+      "version": 1,
+      "producer": "apps/worker (workflow executor)",
+      "consumers": [
+        "notifications",
+        "analytics-projections",
+        "webhooks-out"
+      ],
+      "description": "Run aborted (budget, unrecoverable step, or guardrail)."
+    },
+    "aca.pipeline.run.review_approved": {
+      "fingerprint": "16422b0bcf20bf81",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "orchestrator",
+        "ws-bridge",
+        "analytics-projections"
+      ],
+      "description": "Human approved the gate; run resumes."
+    },
+    "aca.pipeline.run.review_rejected": {
+      "fingerprint": "31d71669cdda2f4a",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "orchestrator",
+        "notifications",
+        "analytics-projections"
+      ],
+      "description": "Human rejected; loopback or abort per workflow."
+    },
+    "aca.pipeline.run.started": {
+      "fingerprint": "c658298234edb053",
+      "version": 1,
+      "producer": "apps/worker (workflow executor)",
+      "consumers": [
+        "orchestrator",
+        "ws-bridge",
+        "notifications",
+        "analytics-projections"
+      ],
+      "description": "Run began executing its pinned workflow version."
+    },
+    "aca.pipeline.run.step_completed": {
+      "fingerprint": "50ff9c2c5f1118af",
+      "version": 1,
+      "producer": "apps/worker (workflow executor)",
+      "consumers": [
+        "orchestrator",
+        "analytics-projections",
+        "ws-bridge"
+      ],
+      "description": "One DAG node finished (metered)."
+    },
+    "aca.pipeline.run.step_failed": {
+      "fingerprint": "e24a9eb7e8f52aa5",
+      "version": 1,
+      "producer": "apps/worker (workflow executor)",
+      "consumers": [
+        "orchestrator",
+        "notifications",
+        "analytics-projections"
+      ],
+      "description": "Node failed; willRetry reflects backoff budget."
+    },
+    "aca.plugin.disabled": {
+      "fingerprint": "85fc7e4361614b8d",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "audit",
+        "orchestrator"
+      ],
+      "description": "Plugin disabled; router excludes it."
+    },
+    "aca.plugin.enabled": {
+      "fingerprint": "2002b05628a75f4a",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "audit",
+        "orchestrator"
+      ],
+      "description": "Plugin enabled after config validation + healthcheck."
+    },
+    "aca.plugin.failed": {
+      "fingerprint": "3f94b316572a70ec",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "notifications",
+        "audit"
+      ],
+      "description": "Plugin operation failed (install/health/invoke)."
+    },
+    "aca.plugin.installed": {
+      "fingerprint": "8add417cd0c741dd",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "audit",
+        "ws-bridge"
+      ],
+      "description": "Plugin installed into the org (config pending)."
+    },
+    "aca.project.automation.disabled": {
+      "fingerprint": "63d1fc11dc9de126",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "autopilot",
+        "analytics-projections"
+      ],
+      "description": "Autopilot disarmed; in-flight runs continue."
+    },
+    "aca.project.automation.enabled": {
+      "fingerprint": "6bb170011d898573",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "autopilot",
+        "notifications",
+        "analytics-projections"
+      ],
+      "description": "Autopilot armed for the project."
+    },
+    "aca.project.created": {
+      "fingerprint": "9190ab7c49df9f3d",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "analytics-projections",
+        "search-indexer",
+        "ws-bridge"
+      ],
+      "description": "Project shell created."
+    },
+    "aca.publishing.publish.completed": {
+      "fingerprint": "f7b42ae87376ca6d",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "notifications",
+        "analytics-projections",
+        "webhooks-out",
+        "memory-writer",
+        "autopilot"
+      ],
+      "description": "Video live (or scheduled) on the platform — the north-star event."
+    },
+    "aca.publishing.publish.failed": {
+      "fingerprint": "300ad06c9a9f24d5",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "notifications",
+        "analytics-projections",
+        "webhooks-out"
+      ],
+      "description": "Upload failed within retry budget."
+    },
+    "aca.publishing.publish.started": {
+      "fingerprint": "f8d2f5c5460b48f0",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "analytics-projections",
+        "ws-bridge"
+      ],
+      "description": "Upload to the platform began."
+    },
+    "aca.publishing.task.rescheduled": {
+      "fingerprint": "49249ba86804a4c3",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "notifications",
+        "analytics-projections"
+      ],
+      "description": "Task moved to a new slot."
+    },
+    "aca.publishing.task.scheduled": {
+      "fingerprint": "17ddc9b4c64370c4",
+      "version": 1,
+      "producer": "apps/worker (workflow executor)",
+      "consumers": [
+        "notifications",
+        "analytics-projections",
+        "ws-bridge"
+      ],
+      "description": "Publish task queued for a channel/slot."
+    },
+    "aca.security.membership.revoked": {
+      "fingerprint": "090cc3eaf4bf383b",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "audit",
+        "notifications"
+      ],
+      "description": "Org membership revoked."
+    },
+    "aca.security.session.reuse_detected": {
+      "fingerprint": "f284c746eb941a0b",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "audit",
+        "notifications"
+      ],
+      "description": "Refresh-token reuse detected; session family revoked."
+    },
+    "aca.security.sso.enforced": {
+      "fingerprint": "6a30a0babbee4a00",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "audit",
+        "notifications"
+      ],
+      "description": "SSO enforcement switched on for a domain."
+    },
+    "aca.system.quota.threshold": {
+      "fingerprint": "00116e1c7559f94f",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "notifications",
+        "analytics-projections"
+      ],
+      "description": "A plan quota crossed a configured threshold."
+    },
+    "aca.video.created": {
+      "fingerprint": "7c2b99d94c813c92",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "analytics-projections",
+        "search-indexer",
+        "ws-bridge"
+      ],
+      "description": "Video row exists (pipeline target or upload)."
+    },
+    "aca.video.deleted": {
+      "fingerprint": "a2a3474674e07e67",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "analytics-projections",
+        "search-indexer",
+        "audit"
+      ],
+      "description": "Video soft-deleted per retention policy."
+    },
+    "aca.video.generated": {
+      "fingerprint": "248b4b81792338fb",
+      "version": 1,
+      "producer": "apps/worker (workflow executor)",
+      "consumers": [
+        "notifications",
+        "analytics-projections",
+        "ws-bridge",
+        "autopilot"
+      ],
+      "description": "Render finished; media package ready."
+    },
+    "aca.webhook.endpoint.autodisabled": {
+      "fingerprint": "06fcf07805677cb6",
+      "version": 1,
+      "producer": "apps/worker",
+      "consumers": [
+        "notifications",
+        "audit"
+      ],
+      "description": "Endpoint auto-disabled after consecutive delivery failures."
+    },
+    "aca.workflow.deprecated": {
+      "fingerprint": "d579cb3ba36752a6",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "orchestrator",
+        "audit"
+      ],
+      "description": "Workflow version deprecated for new runs."
+    },
+    "aca.workflow.published": {
+      "fingerprint": "2add7f713f6e13b2",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "orchestrator",
+        "search-indexer",
+        "audit"
+      ],
+      "description": "Workflow version published (immutable from now on)."
+    }
+  }
+}

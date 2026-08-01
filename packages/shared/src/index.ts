@@ -5,6 +5,8 @@ export * from './agent-kinds.js';
 export * from './permissions.js';
 export * from './constants/tenancy.js';
 export * from './contracts/events.js';
+export * from './contracts/event-catalog.js';
+export * from './contracts/event-fingerprint.js';
 export * from './contracts/workflow.js';
 export * from './contracts/plugin-manifest.js';
 export * from './contracts/ai-providers.js';

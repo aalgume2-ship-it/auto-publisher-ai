@@ -25,6 +25,15 @@ export const EventEnvelopeSchema = z.object({
   aggregateId: z.string().min(1).max(64),
   occurredAt: z.string().datetime({ offset: false }),
   traceId: z.string().optional(),
+  /* ── ADR-024 (v1.1 additive) — the full causal chain ──
+     correlationId: root of the chain; the outbox writer defaults it to envelope.id.
+     causationId:   id of the event/command that DIRECTLY caused this one (null at chain start).
+     producer:      service/agent identity, injected at outbox write time.
+     metadata:      extensibility bag (replay markers, routing hints) — never business data. */
+  correlationId: z.string().min(8).max(128).optional(),
+  causationId: z.string().min(8).max(128).nullable().optional(),
+  producer: z.string().min(1).max(128).optional(),
+  metadata: z.record(z.unknown()).optional(),
   payload: z.unknown(),
 });
 export type EventEnvelope<T = unknown> = Omit<z.infer<typeof EventEnvelopeSchema>, 'payload'> & {
@@ -115,7 +124,7 @@ export interface IEventBus {
   ack(stream: string, group: string, streamEntryId: string, consumer: string): Promise<void>;
 }
 
-/** Outbox write descriptor consumed by the relay. */
+/** Outbox write descriptor consumed by the outbox writer (ADR-024 defaults applied there). */
 export interface OutboxWriteInput {
   type: EventName | string;
   orgId: string | null;
@@ -123,4 +132,9 @@ export interface OutboxWriteInput {
   aggregateId: string;
   payload: unknown;
   traceId?: string;
+  correlationId?: string;
+  causationId?: string | null;
+  /** Service identity — the writer fills this from its config when omitted. */
+  producer?: string;
+  metadata?: Record<string, unknown>;
 }

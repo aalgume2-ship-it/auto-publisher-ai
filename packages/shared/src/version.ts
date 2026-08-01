@@ -3,7 +3,7 @@
  * MINOR, breaking changes require a V2 contract namespace, never mutation.
  */
 export const CONTRACT_MAJOR = 1 as const;
-export const CONTRACT_MINOR = 0 as const;
+export const CONTRACT_MINOR = 1 as const;
 export const CONTRACT_PATCH = 0 as const;
 export const CONTRACT_VERSION = `${CONTRACT_MAJOR}.${CONTRACT_MINOR}.${CONTRACT_PATCH}` as const;
 
