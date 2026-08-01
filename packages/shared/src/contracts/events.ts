@@ -13,11 +13,14 @@ export const UuidV7Schema = z.string().regex(UUID_V7_REGEX, 'expected uuidv7');
 
 export const EventEnvelopeSchema = z.object({
   id: UuidV7Schema,
+  // Grammar: aca.<domain>.<verb-path> — verb parts are snake_case (step_completed,
+  // past_due), depth 2..4 dotted segments after "aca". The catalog (not this
+  // regex) is the normative type registry.
   type: z
     .string()
     .regex(
-      /^aca\.[a-z0-9-]+\.[a-z0-9-]+\.[a-z0-9.-]+$/,
-      'event type must be aca.<domain>.<entity>.<verb>',
+      /^aca\.[a-z0-9_-]+(\.[a-z0-9_-]+){1,3}$/,
+      'event type must be aca.<domain>.<verb-path> (e.g. aca.video.created, aca.optimizer.report.completed)',
     ),
   version: z.literal(1),
   orgId: UuidSchema.nullable(),

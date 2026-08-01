@@ -45,6 +45,22 @@ describe('event catalog completeness', () => {
     expect(assertCatalogComplete(EventNames)).toEqual([]);
   });
 
+  it('every catalog type is grammatically valid for EventEnvelopeSchema (regression: aca.video.deleted depth)', () => {
+    for (const name of EventNames) {
+      const probe = {
+        id: '0190844f-9f2e-7c3a-9b1d-2f8f6a1c4e55',
+        type: name,
+        version: 1,
+        orgId: null,
+        aggregateType: 'X',
+        aggregateId: 'x',
+        occurredAt: '2026-08-01T12:00:00Z',
+        payload: {},
+      };
+      expect(EventEnvelopeSchema.safeParse(probe).success, name).toBe(true);
+    }
+  });
+
   it('every entry declares version 1, a producer, >=1 known consumer, and a description', () => {
     const consumers = new Set<string>(ConsumerIds);
     for (const name of EventNames) {
