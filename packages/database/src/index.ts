@@ -16,6 +16,7 @@
  * memory) are excluded here on purpose: they are read through system paths.
  */
 import { Prisma, PrismaClient } from '@prisma/client';
+import { tenantFieldFor } from '@aca/shared/constants/tenancy.js';
 import { generateId } from './id.js';
 
 export { generateId, idTimestamp } from './id.js';
@@ -23,39 +24,6 @@ export { generateId, idTimestamp } from './id.js';
 export interface TenantContext {
   organizationId: string;
 }
-
-/** Models with a direct tenant column → the exact field name (most are `organizationId`). */
-const TENANT_FIELD: Readonly<Record<string, string>> = {
-  Organization: 'id',
-  OrganizationMember: 'organizationId',
-  OrganizationInvitation: 'organizationId',
-  Team: 'organizationId',
-  CustomRole: 'organizationId',
-  OrganizationBrand: 'organizationId',
-  CustomDomain: 'organizationId',
-  SsoConnection: 'organizationId',
-  ScimToken: 'organizationId',
-  IpAllowListEntry: 'organizationId',
-  Subscription: 'organizationId',
-  Invoice: 'organizationId',
-  AiCreditTransaction: 'organizationId',
-  UsageRecord: 'organizationId',
-  ProviderCredential: 'organizationId',
-  Channel: 'organizationId',
-  Project: 'organizationId',
-  Asset: 'organizationId',
-  Video: 'organizationId',
-  PipelineRun: 'organizationId',
-  PublishingTask: 'organizationId',
-  MemoryEntry: 'organizationId',
-  AiMessage: 'organizationId',
-  PluginInstallation: 'organizationId',
-  MarketplacePurchase: 'buyerOrgId',
-  DeveloperApp: 'ownerOrgId',
-  ApiKey: 'organizationId',
-  WebhookEndpoint: 'organizationId',
-  AuditLog: 'organizationId',
-} as const;
 
 const WRITE_OPS = new Set(['create', 'createMany', 'update', 'updateMany', 'upsert', 'delete', 'deleteMany']);
 const READ_OPS = new Set(['findMany', 'findFirst', 'findFirstOrThrow', 'count', 'aggregate', 'groupBy']);
@@ -112,7 +80,7 @@ export function forOrganization<T extends PrismaClient>(client: T, ctx: TenantCo
       $allModels: {
         async $allOperations({ model, operation, args, query }) {
           injectIdsForModelOperation(operation, (args as AnyArgs) ?? {});
-          const field = model ? TENANT_FIELD[model] : undefined;
+          const field = model ? tenantFieldFor(model) : undefined;
           if (!field) return query(args); // global or relation-scoped model
 
           const a = (args ?? {}) as AnyArgs;

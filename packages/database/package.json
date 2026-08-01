@@ -27,6 +27,7 @@
     "seed": "tsx ./prisma/seed.ts"
   },
   "dependencies": {
+    "@aca/shared": "workspace:*",
     "@prisma/client": "catalog:"
   },
   "devDependencies": {
