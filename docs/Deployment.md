@@ -393,7 +393,7 @@ criterion, so beta never outgrows the VM.
 |-----------|------|----------|
 | Metrics | Prometheus (kube-prometheus-stack) + recording rules for SLOs | Helm |
 | Dashboards | Grafana: `API SLO`, `Pipeline Health`, `AI Provider Cost & Latency`, `Render Farm`, `Business (signups/MRR/credits)` | Provisioned as code (`infra/grafana/*.json`) |
-| Traces | OTel SDK → Collector → Tempo; trace-per-pipeline-run across queues | Helm |
+| Traces | OTel SDK → Collector → **Jaeger** (ADR-021); trace-per-pipeline-run across queues and event-envelope hops | Helm |
 | Logs | Pino → stdout → Promtail → Loki (30d) + S3 archive (13mo) | Helm |
 | Errors | Sentry SaaS (api/worker/web projects, release & sourcemap upload in CI) | SaaS |
 | Queues | Bull Board at `/ops/queues` behind Cloudflare Access (SSO) | sidecar deployment |

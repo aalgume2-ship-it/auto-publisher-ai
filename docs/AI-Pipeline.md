@@ -139,7 +139,15 @@ these additions:
 Node specs: see v1 sections (trend-analyzer, idea-generator, script-writer,
 fact-checker, seo-optimizer, voice-generator, scene-planner, asset-collector,
 video-generator, subtitle-generator, thumbnail-generator, quality-checker,
-publisher, analytics-collector, ai-optimizer) — unchanged budgets/timeouts/QA
+publisher, analytics-collector, ai-optimizer) — unchanged budgets/timeouts/QA.
+
+**Optional registered node (v2.1, not in the default template):**
+`agent.localizer` — per-video localization (titles/descriptions/captions/subtitle
+tracks into N target languages, locale-aware hashtags). Insert anywhere after
+`seo-optimizer`; users add it via workflow editor or the "multilingual" template.
+Rationale for not merging it into SEO Optimizer: different cost profile and
+invocation fan-out (per language), and it's opt-in.
+
 — plus three deltas:
 
 - **idea-generator, script-writer, seo-optimizer, thumbnail-generator** now

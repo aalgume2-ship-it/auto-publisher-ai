@@ -2,6 +2,16 @@
 
 **Engine:** PostgreSQL 16.4 (+ **pgvector 0.8**) · **ORM:** Prisma 5.22 · **Status:** Approved v2.0 (Phase 0.5)
 
+**v2.1 validation amendments** (from `docs/Validation-Report.md` adversarial review):
+- Removed invalid `@map` on a relation field (would have failed `prisma validate`).
+- Removed stray never-referenced enum.
+- `Platform` demoted from PG enum to **registry-driven String** (ADR-022) — plugin publishers add platforms with zero schema changes.
+- Added FK relations on previously dangling `@db.Uuid` pointers: project.defaultVoice/workflow, workflow.currentVersion, aiMessage.project, experimentVariant.thumbnail, webhook.developerApp, brand assets (×3), voice.previewAsset, providerCredential.pluginInstall — all `onDelete: SetNull`.
+- `pipeline_runs.stateVersion` added (OCC token for the workflow executor, ADR-023).
+- Raw-SQL CHECK tier now normative (0006_checks.sql: rating 1–5, confidence 0–1, ctr/avgPercentWatched 0–100, postsPerDay 1–20, timeoutHours > 0, non-negative money/share/invoice fields, `platform_share_pct` 0–100).
+- System-template slug uniqueness: partial unique index `WHERE organization_id IS NULL` (PG treats NULLs as distinct — plain unique was insufficient).
+- `trend_snapshots.capturedAt` uniqueness normalized: writers truncate to the minute before upsert (documented in Trend Analyzer spec).
+
 **v2.0 evolution notes** (design-level; no code exists yet):
 - Billing de-Stripe-ified (`provider` + `external_*`, org `billing_customer_refs` JSON).
 - `pipeline_step_runs.step` is now a **plugin-extensible agent-kind string** (+ `node_id`), not a fixed enum — required by the Workflow Engine.
@@ -88,75 +98,345 @@ datasource db {
 
 // ═══════════════ ENUMS ═══════════════
 
-enum AuthProvider { GOOGLE EMAIL OIDC SSO_SAML }
-enum UserStatus { ACTIVE SUSPENDED DELETED }
-enum MemberRole { OWNER ADMIN EDITOR VIEWER }
-enum MemberStatus { INVITED ACTIVE REMOVED }
-enum OrgStatus { ACTIVE SUSPENDED }
-enum ProjectVisibility { ORG_WIDE TEAM_ONLY }
-
-enum Platform { YOUTUBE TIKTOK INSTAGRAM FACEBOOK X LINKEDIN SNAPCHAT }
-enum ChannelStatus { CONNECTED TOKEN_EXPIRED REVOKED SYNC_ERROR DISCONNECTED }
-
-enum AssetType { VIDEO_CLIP IMAGE AUDIO MUSIC VOICEOVER THUMBNAIL SUBTITLE RENDER_LOG BRAND }
-enum AssetSource { UPLOADED GENERATED STOCK SYSTEM MARKETPLACE }
-
-enum VideoStatus { DRAFT QUEUED GENERATING AWAITING_REVIEW READY SCHEDULED PUBLISHING PUBLISHED FAILED ARCHIVED }
-enum AspectRatio { RATIO_9_16 RATIO_16_9 RATIO_1_1 RATIO_4_5 }
-enum ReviewMode { FULL_AUTO REVIEW_SCRIPT REVIEW_MEDIA REVIEW_FINAL }
-
-enum RunStatus { PENDING RUNNING AWAITING_REVIEW PAUSED COMPLETED FAILED CANCELLED }
-enum StepRunStatus { PENDING ACTIVE COMPLETED FAILED SKIPPED CANCELLED }
-enum RunTrigger { MANUAL AUTOPILOT RETRY API OPTIMIZER WORKFLOW }
-
-enum PublishTaskStatus { SCHEDULED QUEUED UPLOADING PUBLISHED FAILED CANCELLED }
-enum JobStatus { QUEUED ACTIVE COMPLETED FAILED DELAYED CANCELLED }
-
-enum IdeaSource { TREND MANUAL OPTIMIZER API WORKFLOW }
-enum IdeaStatus { NEW APPROVED REJECTED USED }
-
-enum SubscriptionStatus { ACTIVE TRIALING PAST_DUE CANCELED UNPAID }
-enum InvoiceStatus { DRAFT OPEN PAID VOID UNCOLLECTIBLE }
-enum CreditReason { MONTHLY_GRANT PURCHASE PIPELINE_CONSUMPTION STORAGE_CONSUMPTION ADJUSTMENT REFUND MARKETPLACE_FEE }
-enum RenderStatus { PENDING RENDERING COMPLETED FAILED }
-
-enum NotificationType { PIPELINE PUBLISHING BILLING SECURITY SYSTEM MARKETPLACE TEAM }
-enum AuditActorType { USER API_KEY SYSTEM OAUTH_APP SCIM }
-enum ApiKeyStatus { ACTIVE REVOKED }
-enum ExperimentType { THUMBNAIL_AB METADATA_AB }
-enum ExperimentStatus { RUNNING CONCLUDED CANCELLED }
-enum ProviderCapability { LLM TTS IMAGE STOCK_VIDEO STOCK_IMAGE MUSIC TRANSCRIPTION SEARCH PUBLISHER VIDEO_ENGINE STORAGE ANALYTICS }
-enum IdeaNoop { _ } // reserved-enum guard
-
+enum AuthProvider {
+  GOOGLE
+  EMAIL
+  OIDC
+  SSO_SAML
+}
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+enum MemberRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+enum MemberStatus {
+  INVITED
+  ACTIVE
+  REMOVED
+}
+enum OrgStatus {
+  ACTIVE
+  SUSPENDED
+}
+enum ProjectVisibility {
+  ORG_WIDE
+  TEAM_ONLY
+}
+// Platform is intentionally NOT a PG enum (ADR-022): platform ids are registry-driven
+// Strings so publisher plugins can add platforms (e.g. pinterest) with zero schema/core
+// changes. Core ids: youtube · tiktok · instagram · facebook · x · linkedin · snapchat.
+// App-layer validation via the @aca/shared platform registry; raw-SQL CHECK allowlists
+// apply only to core-only tables (trend_snapshots core sources) — migration 0006_checks.sql.
+enum ChannelStatus {
+  CONNECTED
+  TOKEN_EXPIRED
+  REVOKED
+  SYNC_ERROR
+  DISCONNECTED
+}
+enum AssetType {
+  VIDEO_CLIP
+  IMAGE
+  AUDIO
+  MUSIC
+  VOICEOVER
+  THUMBNAIL
+  SUBTITLE
+  RENDER_LOG
+  BRAND
+}
+enum AssetSource {
+  UPLOADED
+  GENERATED
+  STOCK
+  SYSTEM
+  MARKETPLACE
+}
+enum VideoStatus {
+  DRAFT
+  QUEUED
+  GENERATING
+  AWAITING_REVIEW
+  READY
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  ARCHIVED
+}
+enum AspectRatio {
+  RATIO_9_16
+  RATIO_16_9
+  RATIO_1_1
+  RATIO_4_5
+}
+enum ReviewMode {
+  FULL_AUTO
+  REVIEW_SCRIPT
+  REVIEW_MEDIA
+  REVIEW_FINAL
+}
+enum RunStatus {
+  PENDING
+  RUNNING
+  AWAITING_REVIEW
+  PAUSED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+enum StepRunStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  FAILED
+  SKIPPED
+  CANCELLED
+}
+enum RunTrigger {
+  MANUAL
+  AUTOPILOT
+  RETRY
+  API
+  OPTIMIZER
+  WORKFLOW
+}
+enum PublishTaskStatus {
+  SCHEDULED
+  QUEUED
+  UPLOADING
+  PUBLISHED
+  FAILED
+  CANCELLED
+}
+enum JobStatus {
+  QUEUED
+  ACTIVE
+  COMPLETED
+  FAILED
+  DELAYED
+  CANCELLED
+}
+enum IdeaSource {
+  TREND
+  MANUAL
+  OPTIMIZER
+  API
+  WORKFLOW
+}
+enum IdeaStatus {
+  NEW
+  APPROVED
+  REJECTED
+  USED
+}
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+  UNPAID
+}
+enum InvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  VOID
+  UNCOLLECTIBLE
+}
+enum CreditReason {
+  MONTHLY_GRANT
+  PURCHASE
+  PIPELINE_CONSUMPTION
+  STORAGE_CONSUMPTION
+  ADJUSTMENT
+  REFUND
+  MARKETPLACE_FEE
+}
+enum RenderStatus {
+  PENDING
+  RENDERING
+  COMPLETED
+  FAILED
+}
+enum NotificationType {
+  PIPELINE
+  PUBLISHING
+  BILLING
+  SECURITY
+  SYSTEM
+  MARKETPLACE
+  TEAM
+}
+enum AuditActorType {
+  USER
+  API_KEY
+  SYSTEM
+  OAUTH_APP
+  SCIM
+}
+enum ApiKeyStatus {
+  ACTIVE
+  REVOKED
+}
+enum ExperimentType {
+  THUMBNAIL_AB
+  METADATA_AB
+}
+enum ExperimentStatus {
+  RUNNING
+  CONCLUDED
+  CANCELLED
+}
+enum ProviderCapability {
+  LLM
+  TTS
+  IMAGE
+  STOCK_VIDEO
+  STOCK_IMAGE
+  MUSIC
+  TRANSCRIPTION
+  SEARCH
+  PUBLISHER
+  VIDEO_ENGINE
+  STORAGE
+  ANALYTICS
+}
 // v2 enums
-enum DomainType { PORTAL EMAIL_FROM }
-enum DomainStatus { PENDING_DNS VERIFYING ACTIVE FAILED SUSPENDED }
-enum SsoProtocol { SAML OIDC }
-enum SsoStatus { ACTIVE DISABLED }
-
-enum FlagType { BOOLEAN PERCENTAGE VARIANT }
-
-enum WorkflowStatus { DRAFT PUBLISHED ARCHIVED }
-
-enum PluginKind { BUILTIN NPM REMOTE }
-enum PluginStatus { ACTIVE DEPRECATED SUSPENDED }
-
-enum ListingKind { TEMPLATE VOICE PROMPT AGENT PLUGIN WORKFLOW BRAND_PACK }
-enum ListingStatus { DRAFT IN_REVIEW PUBLISHED SUSPENDED REJECTED }
-enum PriceType { FREE ONE_TIME SUBSCRIPTION REVENUE_SHARE }
-enum PurchaseStatus { COMPLETED REFUNDED DISPUTED }
-
-enum MemoryScope { CHANNEL PROJECT ORG }
-enum MemorySubject { HOOK_STYLE WRITING_STYLE DURATION POST_TIME THUMBNAIL_STYLE TOPIC MUSIC VOICE HASHTAG FORMAT FREQUENCY AUDIENCE }
-enum MemoryStatus { ACTIVE DECAYED SUPERSEDED ARCHIVED }
-enum MemorySource { OPTIMIZER ANALYST USER SYSTEM }
-
-enum EmployeeRole { CONTENT_MANAGER RESEARCHER SCRIPT_WRITER SEO_EXPERT THUMBNAIL_DESIGNER VOICE_DIRECTOR VIDEO_EDITOR PUBLISHER ANALYST GROWTH_MANAGER }
-enum MessageKind { BRIEF HANDOFF FEEDBACK APPROVAL_REQUEST REPORT NOTE }
-
-enum DeveloperAppStatus { ACTIVE SUSPENDED }
-enum RoutingObjective { QUALITY_FIRST BALANCED CHEAPEST FASTEST PINNED }
-
+enum DomainType {
+  PORTAL
+  EMAIL_FROM
+}
+enum DomainStatus {
+  PENDING_DNS
+  VERIFYING
+  ACTIVE
+  FAILED
+  SUSPENDED
+}
+enum SsoProtocol {
+  SAML
+  OIDC
+}
+enum SsoStatus {
+  ACTIVE
+  DISABLED
+}
+enum FlagType {
+  BOOLEAN
+  PERCENTAGE
+  VARIANT
+}
+enum WorkflowStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+enum PluginKind {
+  BUILTIN
+  NPM
+  REMOTE
+}
+enum PluginStatus {
+  ACTIVE
+  DEPRECATED
+  SUSPENDED
+}
+enum ListingKind {
+  TEMPLATE
+  VOICE
+  PROMPT
+  AGENT
+  PLUGIN
+  WORKFLOW
+  BRAND_PACK
+}
+enum ListingStatus {
+  DRAFT
+  IN_REVIEW
+  PUBLISHED
+  SUSPENDED
+  REJECTED
+}
+enum PriceType {
+  FREE
+  ONE_TIME
+  SUBSCRIPTION
+  REVENUE_SHARE
+}
+enum PurchaseStatus {
+  COMPLETED
+  REFUNDED
+  DISPUTED
+}
+enum MemoryScope {
+  CHANNEL
+  PROJECT
+  ORG
+}
+enum MemorySubject {
+  HOOK_STYLE
+  WRITING_STYLE
+  DURATION
+  POST_TIME
+  THUMBNAIL_STYLE
+  TOPIC
+  MUSIC
+  VOICE
+  HASHTAG
+  FORMAT
+  FREQUENCY
+  AUDIENCE
+}
+enum MemoryStatus {
+  ACTIVE
+  DECAYED
+  SUPERSEDED
+  ARCHIVED
+}
+enum MemorySource {
+  OPTIMIZER
+  ANALYST
+  USER
+  SYSTEM
+}
+enum EmployeeRole {
+  CONTENT_MANAGER
+  RESEARCHER
+  SCRIPT_WRITER
+  SEO_EXPERT
+  THUMBNAIL_DESIGNER
+  VOICE_DIRECTOR
+  VIDEO_EDITOR
+  PUBLISHER
+  ANALYST
+  GROWTH_MANAGER
+}
+enum MessageKind {
+  BRIEF
+  HANDOFF
+  FEEDBACK
+  APPROVAL_REQUEST
+  REPORT
+  NOTE
+}
+enum DeveloperAppStatus {
+  ACTIVE
+  SUSPENDED
+}
+enum RoutingObjective {
+  QUALITY_FIRST
+  BALANCED
+  CHEAPEST
+  FASTEST
+  PINNED
+}
 // ═══════════════ IDENTITY ═══════════════
 
 model User {
@@ -381,6 +661,9 @@ model OrganizationBrand {
   updatedAt          DateTime @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  logoAsset    Asset? @relation("BrandLogo", fields: [logoAssetId], references: [id], onDelete: SetNull)
+  logoDarkAsset Asset? @relation("BrandLogoDark", fields: [logoDarkAssetId], references: [id], onDelete: SetNull)
+  faviconAsset Asset? @relation("BrandFavicon", fields: [faviconAssetId], references: [id], onDelete: SetNull)
 
   @@map("organization_brands")
 }
@@ -571,7 +854,8 @@ model ProviderCredential {
   createdAt    DateTime           @default(now()) @map("created_at")
   revokedAt    DateTime?          @map("revoked_at")
 
-  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  organization  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  pluginInstall PluginInstallation? @relation(fields: [pluginInstallId], references: [id], onDelete: SetNull)
 
   @@unique([orgId, capability, provider, label])
   @@map("provider_credentials")
@@ -582,7 +866,7 @@ model ProviderCredential {
 model Channel {
   id                String        @id @db.Uuid
   orgId             String        @map("organization_id") @db.Uuid
-  platform          Platform
+  platform          String        // platform-registry id (ADR-022), e.g. "youtube" or plugin-provided
   platformChannelId String        @map("platform_channel_id")
   displayName       String        @map("display_name")
   handle            String?
@@ -636,7 +920,7 @@ model Project {
   description     String?
   niche           String?
   language        String            @default("en")
-  targetPlatforms Platform[]        @map("target_platforms")
+  targetPlatforms String[]   @map("target_platforms") // registry ids
   aspectRatio     AspectRatio       @default(RATIO_9_16)
   stylePreset     Json
   defaultVoiceId  String?           @map("default_voice_id") @db.Uuid
@@ -648,11 +932,14 @@ model Project {
 
   organization        Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
   team                Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  defaultVoice        Voice?               @relation("ProjectDefaultVoice", fields: [defaultVoiceId], references: [id], onDelete: SetNull)
+  workflow            Workflow?            @relation(fields: [workflowId], references: [id], onDelete: SetNull)
   automationConfig    AutomationConfig?
   ideas               Idea[]
   videos              Video[]
   optimizationReports OptimizationReport[]
   memories            MemoryEntry[]
+  aiMessages          AiMessage[]
 
   @@index([orgId, isArchived])
   @@index([teamId])
@@ -681,7 +968,7 @@ model AutomationConfig {
 
 model TrendSnapshot {
   id         String   @id @db.Uuid
-  platform   Platform
+  platform   String   // registry id; core-only sources (see 0006_checks.sql)
   region     String
   keyword    String
   category   String?
@@ -730,7 +1017,7 @@ model Video {
   description      String?
   language         String       @default("en")
   aspectRatio      AspectRatio  @default(RATIO_9_16)
-  targetPlatforms  Platform[]   @map("target_platforms")
+  targetPlatforms  String[]    @map("target_platforms") // registry ids
   status           VideoStatus  @default(DRAFT)
   durationMs       Int?         @map("duration_ms")
   seo              Json?
@@ -818,7 +1105,9 @@ model Voice {
   previewAssetId  String?  @map("preview_asset_id") @db.Uuid
   createdAt       DateTime @default(now()) @map("created_at")
 
-  voiceovers Voiceover[]
+  previewAsset    Asset?   @relation("VoicePreview", fields: [previewAssetId], references: [id], onDelete: SetNull)
+  voiceovers      Voiceover[]
+  projectDefaults Project[]  @relation("ProjectDefaultVoice")
 
   @@unique([provider, providerVoiceId])
   @@map("voices")
@@ -864,10 +1153,14 @@ model Asset {
   embedding   Unsupported("vector(1536)")?      // semantic library match (Asset Collector)
   createdAt   DateTime    @default(now()) @map("created_at")
 
-  organization Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  usage        AssetUsage[]
-  scenes       Scene[]
-  voiceovers   Voiceover[]
+  organization   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  usage          AssetUsage[]
+  scenes         Scene[]
+  voiceovers     Voiceover[]
+  voicePreviews  Voice[]      @relation("VoicePreview")
+  brandLogoUses      OrganizationBrand[] @relation("BrandLogo")
+  brandLogoDarkUses  OrganizationBrand[] @relation("BrandLogoDark")
+  brandFaviconUses   OrganizationBrand[] @relation("BrandFavicon")
 
   @@index([orgId, type, createdAt(sort: Desc)])
   @@index([checksum])
@@ -933,7 +1226,8 @@ model Thumbnail {
   ctr        Float?
   createdAt  DateTime @default(now()) @map("created_at")
 
-  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  video              Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  experimentVariants ExperimentVariant[]
 
   @@unique([videoId, variant])
   @@map("thumbnails")
@@ -955,8 +1249,10 @@ model Workflow {
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @updatedAt @map("updated_at")
 
-  organization Organization?      @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  versions     WorkflowVersion[]
+  organization    Organization?   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  versions        WorkflowVersion[]
+  currentVersion  WorkflowVersion? @relation("WorkflowCurrent", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  projects        Project[]
 
   @@unique([orgId, slug])
   @@index([isTemplate, status])
@@ -975,6 +1271,7 @@ model WorkflowVersion {
 
   workflow     Workflow       @relation(fields: [workflowId], references: [id], onDelete: Cascade)
   runs         PipelineRun[]
+  currentOf    Workflow[]     @relation("WorkflowCurrent")
 
   @@unique([workflowId, version])
   @@map("workflow_versions")
@@ -988,6 +1285,7 @@ model PipelineRun {
   triggerSource     RunTrigger  @map("trigger_source")
   triggeredById     String?     @map("triggered_by_id") @db.Uuid
   status            RunStatus   @default(PENDING)
+  stateVersion      Int         @default(0) @map("state_version") // OCC token — executor advance is compare-and-set (ADR-023)
   currentNodeId     String?     @map("current_node_id")
   reviewMode        ReviewMode  @map("review_mode")
   routingObjective  RoutingObjective @default(BALANCED) @map("routing_objective") // snapshot
@@ -1001,6 +1299,7 @@ model PipelineRun {
 
   video           Video           @relation(fields: [videoId], references: [id], onDelete: Cascade)
   workflowVersion WorkflowVersion @relation(fields: [workflowVersionId], references: [id])
+  triggeredBy     User?           @relation(fields: [triggeredById], references: [id], onDelete: SetNull)
   stepRuns        PipelineStepRun[]
 
   @@index([orgId, status, createdAt(sort: Desc)])
@@ -1093,7 +1392,7 @@ model PublishingTask {
   videoId             String            @map("video_id") @db.Uuid
   channelId           String            @map("channel_id") @db.Uuid
   renditionProfile    String            @map("rendition_profile")
-  platform            Platform
+  platform            String            // registry id (publisher plugin may own it)
   scheduledAt         DateTime?         @map("scheduled_at")
   status              PublishTaskStatus @default(SCHEDULED)
   platformVideoId     String?           @map("platform_video_id")
@@ -1120,7 +1419,7 @@ model PublishingTask {
 model ChannelAnalyticsDaily {
   id              String   @id @db.Uuid
   channelId       String   @map("channel_id") @db.Uuid
-  platform        Platform
+  platform        String   // registry id
   date            DateTime @db.Date
   views           BigInt   @default(0)
   followers       BigInt?
@@ -1140,7 +1439,7 @@ model VideoAnalyticsDaily {
   id                 String   @id @db.Uuid
   videoId            String   @map("video_id") @db.Uuid
   publishingTaskId   String?  @map("publishing_task_id") @db.Uuid
-  platform           Platform
+  platform           String // registry id
   date               DateTime @db.Date
   views              BigInt   @default(0)
   likes              Int      @default(0)
@@ -1207,6 +1506,7 @@ model ExperimentVariant {
   watchSeconds BigInt? @map("watch_seconds")
 
   experiment Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  thumbnail  Thumbnail? @relation(fields: [thumbnailId], references: [id], onDelete: SetNull)
 
   @@unique([experimentId, label])
   @@map("experiment_variants")
@@ -1280,6 +1580,7 @@ model AiMessage {
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   video        Video?       @relation(fields: [videoId], references: [id], onDelete: SetNull)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   @@index([orgId, threadId, createdAt])
   @@index([orgId, videoId])
@@ -1322,6 +1623,7 @@ model PluginInstallation {
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   plugin       PluginRecord @relation(fields: [pluginId], references: [id])
+  credentials  ProviderCredential[]
 
   @@unique([orgId, pluginId])
   @@map("plugin_installations")
@@ -1371,7 +1673,7 @@ model MarketplacePurchase {
   createdAt         DateTime       @default(now()) @map("created_at")
 
   listing     MarketplaceListing @relation(fields: [listingId], references: [id])
-  buyerOrg    Organization       @relation(fields: [buyerOrgId], references: [id]) @map("buyer_organizations") 
+  buyerOrg    Organization       @relation(fields: [buyerOrgId], references: [id])
 
   @@unique([listingId, buyerOrgId])
   @@map("marketplace_purchases")
@@ -1407,9 +1709,10 @@ model DeveloperApp {
   createdAt        DateTime          @default(now()) @map("created_at")
   updatedAt        DateTime          @updatedAt @map("updated_at")
 
-  ownerOrg Organization           @relation(fields: [ownerOrgId], references: [id], onDelete: Cascade)
-  codes    OauthAuthorizationCode[]
-  grants   OauthGrant[]
+  ownerOrg         Organization           @relation(fields: [ownerOrgId], references: [id], onDelete: Cascade)
+  codes            OauthAuthorizationCode[]
+  grants           OauthGrant[]
+  webhookEndpoints WebhookEndpoint[]
 
   @@map("developer_apps")
 }
@@ -1516,8 +1819,9 @@ model WebhookEndpoint {
   status         ApiKeyStatus @default(ACTIVE)
   createdAt      DateTime     @default(now()) @map("created_at")
 
-  organization Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  deliveries   WebhookDelivery[]
+  organization  Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  developerApp  DeveloperApp?  @relation(fields: [developerAppId], references: [id], onDelete: SetNull)
+  deliveries    WebhookDelivery[]
 
   @@map("webhook_endpoints")
 }
@@ -1618,6 +1922,7 @@ model NotificationPreference {
 | SCIM provisioning by token | unique `token_hash` |
 | Domain resolution (hot path) | unique `domain` (Redis-cached 60 s) |
 | Flags eval | `(flag_id, org_id, plan_code, user_id)` then cascade dedupe in app |
+| System workflow templates | partial unique `UNIQUE (slug) WHERE organization_id IS NULL` (raw SQL — Prisma can't express) |
 
 ## 5. Partitioning (unchanged policy + one addition)
 
@@ -1638,7 +1943,9 @@ webhook secret hashes).
 Same expand-and-contract policy. Baseline structure: `0001_init.sql` (schema
 above), `0002_extensions.sql` (`CREATE EXTENSION vector`), `0003_vector_indexes.sql`
 (ivfflat, created CONCURRENTLY after data exists — idempotent guard), `0004_partitions.sql`,
-`0005_rls.sql`.
+`0005_rls.sql`, `0006_checks.sql` (CHECK constraints enumerated in the v2.1 amendment
+note above), `0007_platform_registry_seed.sql`-equivalent handled by TypeScript seed
+instead (registry lives in `@aca/shared`, not DDL).
 
 **Seeds are data, not code** (my addition — white-label and marketplace reuse
 the same artifact-loading mechanism):

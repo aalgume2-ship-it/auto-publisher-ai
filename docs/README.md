@@ -32,6 +32,7 @@ closed-loop AI optimizer that improves every future video.
 | 7 | [Deployment.md](./Deployment.md) | Environments, local docker-compose stack, production topology (K8s + KEDA), Dockerfiles, GitHub Actions CI/CD, migrations, secrets, monitoring, backups/DR, monthly cost estimates |
 | 8 | [Roadmap.md](./Roadmap.md) | Phases 0–6 (Aug 2026 → May 2027), deliverables per phase, exit criteria, external dependencies (platform API approvals), team plan, KPIs, risk register |
 | 9 | [Business-Model.md](./Business-Model.md) | Market & competitor analysis, pricing tiers, AI credit economics, unit economics & gross margin, 3-year projections, GTM strategy, compliance-as-a-moat |
+| 10 | [Validation-Report.md](./Validation-Report.md) | Adversarial architecture validation: cross-doc consistency audit, schema machine-verification (Prisma CLI), workflow scale math, plugin simulation, tenant leak analysis, performance/cost models, 12-attack red team — 25 amendments applied in v2.1 |
 
 ---
 

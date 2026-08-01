@@ -217,6 +217,10 @@ EDITOR/VIEWER).
    interleaves orgs; KEDA scales globally.
 6. **Branding/domain layer:** host→org resolution is read-only + cache; a
    poisoned host header can never grant data access (auth remains JWT-bound).
+7. **Cache layer (v2.1 addition):** every Redis cache key holding org-scoped data
+   embeds the orgId segment (`aca:cache:{orgId}:…`) — a missing segment fails
+   code-review lint `tenant-cache-key` in the shared cache helper; global caches
+   (trend snapshots, brand-resolve, public plans) are an explicit allowlist.
 
 ### 6.3 White Label
 
@@ -352,6 +356,10 @@ PluginManifest = {
   parameters (e.g. presigned S3 PUT), never DB credentials.
 - Remote plugins get HMAC-signed requests with org pseudonymization (orgId
   hashed per plugin) — plugins cannot enumerate tenants.
+- **(v2.1) Plugin outputs are DATA-ONLY:** steps consume structured results and
+  asset **ids**; media bytes move through short-lived presigned **staging keys**
+  minted per call by core. A plugin can never hand a fetch URL to another worker
+  (kills the URL-injection/exfil path found in Red-Team item RT-06).
 - Every plugin passes the **conformance kit** (§8.4) before publish in
   marketplace; runtime health probes feed the router's circuit breaker —
   misbehaving plugins are automatically shadowed by fallback providers.
@@ -414,6 +422,12 @@ Details: Business-Model.md §11, Database.md §3 (marketplace_*).
   via events; `pipeline_step_runs.node_id` tracks graph position; `step` holds
   the agent-kind string (core values enumerated in `packages/shared`, plugins
   add their own).
+- **(v2.1) Concurrency control (ADR-023):** run-state transitions are
+  apply-only-if-`state_version` matches (update … where state_version = read
+  value, then affect-check). Two near-simultaneous step completions on parallel
+  branches can't double-advance the run; the loser re-reads state and re-plans.
+  Multiple orchestrator replicas partition work by `runId` hash at subscription
+  time (same ordering guarantees as single instance).
 - **Default system workflow "autopilot-v1"** = the exact 15-step pipeline from
   AI-Pipeline.md — seeded as a template; existing docs/UX remain truthful.
   Users clone & edit; orgs own private workflows; marketplace sells them.
@@ -625,12 +639,12 @@ packages. Kill-switch flags reserved: `publisher.youtube`, `plugins.{slug}`,
 Principle: **shard key = orgId everywhere** (all tenant tables, events,
 queues, storage prefixes) — sharding/シells never require schema surgery.
 
-| Stage | Org scale | Changes (purely operational — no domain rewrites) |
-|-------|-----------|---------------------------------------------------|
-| A (now) | ≤ 10k orgs | single PG primary + replica; Redis HA; worker autoscaling (KEDA) |
-| B | 10k–100k | PgBouncer everywhere + **Prisma read/write splitting** (replica router); event streams → **Kafka** via bus port; analytics reads via **OLAP read port → ClickHouse** (nightly CDC from PG, domain reads untouched); render fleet spot + scale-to-zero lanes; multi-AZ everywhere |
-| C | 100k–1M (**cells**) | partition orgs into **cells** (each: PG cluster + Redis + workers + queue), global thin control plane keeps auth/org→cell routing/marketplace; async cross-cell replication for global entities (marketplace catalog, trend cache); read-only multi-region replicas; back-pressure via credit budgets + fairness scheduler already in place |
-| D | multi-year | optional Citus/Yugabyte evaluation for the control plane; archival lakehouse for分析 history |
+| Stage | Org scale (guidance) | **Measured trigger (v2.1 — stages flip on metrics, not vanity counts)** | Changes (purely operational — no domain rewrites) |
+|-------|-----------|------------------------------------------------------------|---------------------------------------------------|
+| A (now) | ≤ 10k orgs | — | single PG primary + replica; Redis HA; worker autoscaling (KEDA) |
+| B | 10k–100k | PG primary CPU > 65% sustained 14d · eventbus publish lag p95 > 2s · analytics p95 > 1.5s on overview rollups | PgBouncer everywhere + **Prisma read/write splitting** (replica router); event streams → **Kafka** via bus port; analytics reads via **OLAP read port → ClickHouse** (nightly CDC from PG, domain reads untouched); render fleet spot + scale-to-zero lanes; WS gateway split into a dedicated tier (HPA on open connections) |
+| C | 100k–1M (**cells**) | any single PG write TPS > 20k · Redis streams commands > 150k/s · failover RTO at risk per GameDay | partition orgs into **cells** (each: PG cluster + Redis + workers + queue), global thin control plane keeps auth/org→cell routing/marketplace; async cross-cell replication for global entities (marketplace catalog, trend cache); read-only multi-region replicas; back-pressure via credit budgets + fairness scheduler already in place |
+| D | multi-year | cross-region latency complaints > 5% of MAU | optional Citus/Yugabyte evaluation for the control plane; archival lakehouse for analytics history; active-active reads per region |
 
 Capacity targets per cell: 50k orgs, 2k videos/day steady (burst 10k), ≤ 3
 render pods steady. Why no rewrite: tenants never span cells; global entities
@@ -688,6 +702,13 @@ memory-writer), plugins pool.
   at guard level (cache-busted evaluate ≤ 60 s); SCIM token scope
   `scim.provision` only; secrets: nothing beyond `.env.example` *names* in the
   repo — CI gitleaks + boundary check `no-secret-literals`.
+- **(v2.1) WebSocket session hygiene:** WS connections re-authenticate every
+  12 h (server-issued `security.session.reauth`), hard cap 24 h, and membership
+  is re-verified at join *and* on org-membership-revocation events (removed
+  members are disconnected within seconds — a gap found in Red-Team RT-12).
+- **(v2.1) Abuse scoring is identity-wide:** quotas/buckets are aggregated per
+  org across all auth modes (session, API key, OAuth app) so rotating modes
+  can't multiply effective rate limits (RT-11).
 - Throttling adds per-developer-app buckets; OAuth tokens get per-app quotas.
 
 ---
@@ -710,6 +731,8 @@ memory-writer), plugins pool.
 | 019 | CDN-first media; origin never client-visible | Accepted |
 | 020 | Analytics OLAP read port (ClickHouse path at scale) | Accepted |
 | 021 | Observability on OTel → Jaeger backend, vendor-neutral | Accepted |
+| 022 | **Platform ids are registry-driven Strings, not a PG enum** — publisher plugins must be able to add platforms without schema/core changes (found during plugin simulation, Validation-Report §5) | Accepted (v2.1) |
+| 023 | **Workflow executor advances state via optimistic concurrency** (`pipeline_runs.state_version` compare-and-set) so parallel-branch completions can never double-advance a run; orchestrator replicas shard by run-id hash (found during workflow scale review, Validation-Report §4) | Accepted (v2.1) |
 
 ---
 

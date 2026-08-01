@@ -264,11 +264,50 @@ outside the CIDRs with `IP_NOT_ALLOWED` (guard-level, §17).
 
 ## 13. Channels / Assets / Voices / Publishing / Analytics / Webhooks-out
 
-Unchanged from v1 (§§6, 9, 10, 11, 12.2) with these wire deltas only:
-- Asset & rendition responses: `url` fields are **CDN URLs**; upload flow (intent/PUT/confirm) unchanged.
-- `GET /videos/{id}` gains `expand` support (§1) and includes `workflow` info of active run.
-- Publishing: `POST /videos/{id}/publish` accepts **no change**; responses include rescheduling events already covered by WS/webhooks.
-- Webhooks-out catalog **adds**: `workflow.version_published · memory.entry_created memory.entry_superseded · plugin.installed plugin.failed · marketplace.purchase_completed · sso.enforced security.session_reuse_detected · optimizer.report_completed`.
+This section is normative and self-contained (v2.1 closes the dangling "see v1"
+reference found in validation).
+
+### 13.1 Channel connect flows
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/organizations/{orgId}/channels/connect/{platform}` | 🛡 ADMIN | `platform` is a **platform-registry id** — core ids (`youtube\|tiktok\|instagram`) **or an id registered by an installed publisher plugin** (ADR-022). One generic flow renders the provider's OAuth descriptor (authorize URL template, scopes, PKCE support) from the registry/plugin manifest. → `{ authorizeUrl }` |
+| GET | `/channels/connect/{platform}/callback` | 🔓 (state-bound) | Provider redirect target: validates `state` (signed JWT{orgId, nonce, platform}, one-time nonce in Redis), exchanges code (+PKCE), stores **vault-encrypted** credentials, upserts channel, triggers profile sync → `302` web `/channels?connected=…` |
+| GET | `/organizations/{orgId}/channels` | 🛡 VIEWER | List incl. `status`, `followers`, `lastSyncAt` |
+| GET | `/organizations/{orgId}/channels/{id}` | 🛡 VIEWER | Detail + 30-day followers series |
+| POST | `/organizations/{orgId}/channels/{id}/refresh` | 🛡 ADMIN | Force profile/stats resync |
+| POST | `/organizations/{orgId}/channels/{id}/reconnect` | 🛡 ADMIN | Dead tokens → new `authorizeUrl` bound to the same row (history preserved) |
+| DELETE | `/organizations/{orgId}/channels/{id}` | 🛡 ADMIN | Soft-disconnect: purges vault credentials, cancels pending publishes; `?purgeHistory=true` removes analytics (owner confirm) |
+
+Minimal scopes: YouTube `youtube.upload youtube.readonly yt-analytics.readonly` ·
+TikTok `user.info.basic video.upload video.publish` · Instagram
+`instagram_basic instagram_content_publish pages_show_list business_management`.
+Publisher plugins declare their own scopes in the manifest; the consent UI
+renders them explicitly (Security §15).
+
+### 13.2 Assets & voices (unchanged from platform v1 design)
+
+Two-phase upload (`upload-intent` → presigned PUT → `confirm` with magic-byte
+sniff + ClamAV + ffprobe), list/detail/delete, `assets/stock:search` + `stock:import`,
+voice catalog + `POST /voices/{id}/preview`. **v2 wire delta:** every returned
+`url`/`previewUrl` is an absolute **CDN URL** (origin never client-visible).
+
+### 13.3 Publishing & calendar (unchanged from platform v1 design)
+
+`POST /videos/{id}/publish` (`{ channelIds[], scheduledAt?, perChannelOverrides? }`),
+`:now`, tasks list/patch/delete, `GET /calendar?from&to` day buckets. Quota-aware
+auto-shift to the next posting window on cap exhaustion (`publish.rescheduled`
+event — never a silent failure).
+
+### 13.4 Analytics
+
+Overview/channel/video series (`from,to,granularity`), optimization reports list
++ `apply`, `POST /analytics/export` (CSV, async via notification). All heavy
+GETs support ETag/If-None-Match.
+
+### 13.5 Webhooks-out catalog — v2 additions
+
+`workflow.version_published · memory.entry_created memory.entry_superseded · plugin.installed plugin.failed · marketplace.purchase_completed · sso.enforced security.session_reuse_detected · optimizer.report_completed · team.message_posted`.
 
 ---
 
@@ -276,7 +315,9 @@ Unchanged from v1 (§§6, 9, 10, 11, 12.2) with these wire deltas only:
 
 Adds: `workflow.version.published` · `memory.entry.created` ·
 `plugin.installation.status` · `gate.review.requested` · `team.message.created`
-(team room live feed).
+(team room live feed) · `security.session.reauth` (client must re-present a valid
+token; enforced 12 h cycle, 24 h hard cap — Architecture §18) ·
+`security.session.revoked` (membership revoked → socket closed).
 
 ---
 

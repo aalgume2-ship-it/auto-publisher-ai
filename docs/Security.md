@@ -153,6 +153,14 @@ SVG uploads rejected (script vector) — thumbnails are server-rendered to PNG.
 - **Economic abuse controls:** pipeline-start endpoints consume estimated credits *before* run (`creditBudget` reservation pattern: hold → settle actual on completion, release remainder); failure settles consumed steps only. Prevents credit-drain race via N parallel starts.
 - Scheduler per-org fairness: autopilot jobs interleave organizations (weighted round-robin at enqueue) so one org can't flood queue capacity.
 - Disposable-email domain blocklist at registration; optional email verification enforcement before first pipeline run.
+- **(v2.1) Identity-wide abuse scoring:** all auth modes (session, API key, OAuth app token) increment the same per-org counters — rotating credentials cannot multiply limits; cross-mode bursts trigger progressive throttling before hard 429s.
+
+### 7.5 Plugin supply-chain hardening (v2.1)
+
+- NPM plugins install only from the registry allowlist, pinned by **exact version + integrity hash**, verified with **npm provenance / sigstore** attestation at publish time; `worker-plugins` image builds fail closed on any missing attestation.
+- Remote-plugin endpoints pass through the same **safe-fetch** rules as §7.2 (scheme/IP/redirect checks); manifests declaring internal-range hosts are rejected at publish.
+- **Plugin outputs are data-only** (Architecture §8.3): media moves via short-lived presigned staging keys minted by core per call — plugin-produced URLs are never fetched by other workers.
+- TOTP: codes are single-use per 30 s window per device (replay cache). SAML: assertion IDs single-use + strict XML-DSig validation (wrapping-attack-resistant library, no raw XPath on untrusted XML).
 
 ---
 
@@ -182,7 +190,14 @@ member.{invite,role_change,remove} · channel.{connect,disconnect,reconnect,toke
 project.automation.{enable,disable} · video.{create,delete,publish} ·
 pipeline.{start,cancel,approve,reject} · billing.{plan_change,credits_purchase}
 · apikey.{create,revoke} · webhook.{create,delete,disabled} ·
-admin.{org_s suspended,credits_adjusted}.
+admin.{org_suspended,credits_adjusted}.
+**v2.1 additions (platform surface grew):** sso.{configured,enforced,domain_verified} ·
+scim.{user_provisioned,user_deactivated,group_synced} · security.{policy_changed,ip_blocked} ·
+flags.{override_created,override_removed} · plugin.{installed,enabled,disabled,quarantined,suspended} ·
+marketplace.{listing_created,purchase_completed,install_completed,refund_issued} ·
+memory.{manual_fact_created,entry_deleted} · developer.app.{created,secret_rotated,review_submitted} ·
+oauth.{grant_consented,grant_revoked} · domain.{added,verified,suspended} ·
+team.{created,member_added,member_removed} · role.custom.{created,updated,deleted}.
 
 Each row: actor (user/api-key/system), ip, userAgent, entity, before/after
 diff metadata (PII-scrubbed), requestId joined to traces. Read API:
