@@ -6,3 +6,8 @@ export * from './permissions.js';
 export * from './constants/tenancy.js';
 export * from './contracts/events.js';
 export * from './contracts/workflow.js';
+export * from './contracts/plugin-manifest.js';
+export * from './contracts/ai-providers.js';
+export * from './contracts/payment-provider.js';
+export * from './contracts/storage-port.js';
+export * from './contracts/publisher-client.js';
