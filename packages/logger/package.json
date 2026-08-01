@@ -1,0 +1,33 @@
+{
+  "name": "@aca/logger",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AutoCreator AI — structured JSON logging port (pino behind our Logger interface): service-bound loggers, request-context bindings (trace correlation), structural secret redaction (L2).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "lint": "eslint .",
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aca/config": "workspace:*",
+    "@aca/shared": "workspace:*",
+    "@opentelemetry/api": "^1.9.0",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.0.0"
+  },
+  "devDependencies": {
+    "@aca/typescript-config": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
