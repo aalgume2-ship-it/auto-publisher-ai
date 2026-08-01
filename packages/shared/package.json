@@ -1,0 +1,31 @@
+{
+  "name": "@aca/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AutoCreator AI — the frozen public contracts (events, plugins, AI providers, ports, workflow) + platform constants. Zero workspace/vendor deps.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./contracts/*": { "types": "./dist/contracts/*.d.ts", "import": "./dist/contracts/*.js" },
+    "./constants/*": { "types": "./dist/constants/*.d.ts", "import": "./dist/constants/*.js" }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "lint": "eslint .",
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@aca/typescript-config": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
