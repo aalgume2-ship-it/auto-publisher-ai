@@ -1,0 +1,22 @@
+{
+  "$comment": "Feature flags for every gated capability (docs/Roadmap.md release policy) + kill-switches (docs/Architecture.md §feature-flags: 'publisher.<platform>' and 'plugins.<slug>' reserved patterns). Release-gated flags default false; kill-switches default true. Plugin kill-switch rows are generated for every seeded plugin slug.",
+  "flags": [
+    { "key": "channel.oauth.youtube", "description": "YouTube channel connect + publish path. Dark until Google OAuth app verification completes; ops flips per Roadmap Phase 1.", "flagType": "BOOLEAN", "defaultValue": false },
+    { "key": "workflow.builder.json", "description": "Workflow JSON editor + publish/validate flow (Phase 2).", "flagType": "BOOLEAN", "defaultValue": false },
+    { "key": "workflow.builder.visual", "description": "Visual node editor (React Flow) (Phase 3).", "flagType": "BOOLEAN", "defaultValue": false },
+    { "key": "marketplace", "description": "Marketplace listings/purchases/installs surface (Phase 5).", "flagType": "BOOLEAN", "defaultValue": false },
+    { "key": "api.public", "description": "Public developer platform: API keys + OAuth AS + webhooks (Phase 4).", "flagType": "BOOLEAN", "defaultValue": false },
+    { "key": "byok", "description": "Bring-your-own-key provider credentials (Business plan and up).", "flagType": "BOOLEAN", "defaultValue": false },
+    { "key": "sso.saml", "description": "SAML SSO connections (Enterprise).", "flagType": "BOOLEAN", "defaultValue": false },
+    { "key": "sso.oidc", "description": "OIDC SSO connections (Enterprise).", "flagType": "BOOLEAN", "defaultValue": false },
+    { "key": "scim", "description": "SCIM directory provisioning tokens (Enterprise).", "flagType": "BOOLEAN", "defaultValue": false },
+    { "key": "thumbnail.experiments", "description": "Thumbnail A/B experiments on Pro and up (Phase 3).", "flagType": "BOOLEAN", "defaultValue": false },
+    { "key": "optimizer.auto-apply", "description": "AI optimizer auto-applies approved action classes without per-run confirmation.", "flagType": "BOOLEAN", "defaultValue": false },
+    { "key": "queue.priority-lanes", "description": "Priority queue lanes for Business/Enterprise runs.", "flagType": "BOOLEAN", "defaultValue": false },
+    { "key": "node.agent.localizer", "description": "Optional agent.localizer workflow node + multilingual template (v2.1).", "flagType": "BOOLEAN", "defaultValue": false },
+    { "key": "kafka.eventbus", "description": "Scale stage B: flip event bus from Redis Streams to Kafka (same IEventBus contract).", "flagType": "BOOLEAN", "defaultValue": false },
+    { "key": "publisher.youtube", "description": "Kill-switch: YouTube publisher adapter (platform incidents / quota abuse).", "flagType": "BOOLEAN", "defaultValue": true },
+    { "key": "publisher.tiktok", "description": "Kill-switch: TikTok publisher adapter.", "flagType": "BOOLEAN", "defaultValue": true },
+    { "key": "publisher.instagram", "description": "Kill-switch: Instagram publisher adapter.", "flagType": "BOOLEAN", "defaultValue": true }
+  ]
+}

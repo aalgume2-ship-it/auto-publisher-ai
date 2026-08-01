@@ -1,0 +1,255 @@
+{
+  "$comment": "First-party plugin registry (docs/Database.md §7 — docs-first source). Slugs are the adapter ids used end-to-end (ProviderCredential.provider, step rows, kill-switch flags 'plugins.<slug>'). capabilityBindings follow the C2 PluginCapability shape (validated at seed time via @aca/shared). Entry points are resolved inside packages/ai at adapter build time. publisher.* adapters are platform clients (ADR-022); their OAuth descriptors live in the platform registry inside @aca/shared, not DDL.",
+  "plugins": [
+    {
+      "slug": "openai",
+      "version": "1.0.0",
+      "displayName": "OpenAI",
+      "capabilityBindings": [
+        { "capability": "llm.chat", "entry": "./dist/openai/llm.js", "costClass": "medium", "models": ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "o4-mini"] },
+        { "capability": "llm.json", "entry": "./dist/openai/llm.js", "costClass": "medium", "models": ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "o4-mini"] },
+        { "capability": "llm.vision", "entry": "./dist/openai/vision.js", "costClass": "medium", "models": ["gpt-4.1", "gpt-4o"] }
+      ],
+      "secretKeys": ["apiKey"],
+      "configSchema": {}
+    },
+    {
+      "slug": "anthropic",
+      "version": "1.0.0",
+      "displayName": "Anthropic",
+      "capabilityBindings": [
+        { "capability": "llm.chat", "entry": "./dist/anthropic/llm.js", "costClass": "medium", "models": ["claude-opus-4-1", "claude-sonnet-4-5", "claude-haiku-4-5"] },
+        { "capability": "llm.json", "entry": "./dist/anthropic/llm.js", "costClass": "medium", "models": ["claude-opus-4-1", "claude-sonnet-4-5", "claude-haiku-4-5"] },
+        { "capability": "llm.vision", "entry": "./dist/anthropic/vision.js", "costClass": "medium", "models": ["claude-opus-4-1", "claude-sonnet-4-5"] }
+      ],
+      "secretKeys": ["apiKey"],
+      "configSchema": {}
+    },
+    {
+      "slug": "google",
+      "version": "1.0.0",
+      "displayName": "Google Gemini",
+      "capabilityBindings": [
+        { "capability": "llm.chat", "entry": "./dist/google/llm.js", "costClass": "low", "models": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"] },
+        { "capability": "llm.json", "entry": "./dist/google/llm.js", "costClass": "low", "models": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"] },
+        { "capability": "llm.vision", "entry": "./dist/google/vision.js", "costClass": "low", "models": ["gemini-2.5-pro", "gemini-2.5-flash"] }
+      ],
+      "secretKeys": ["apiKey"],
+      "configSchema": {}
+    },
+    {
+      "slug": "openrouter",
+      "version": "1.0.0",
+      "displayName": "OpenRouter",
+      "capabilityBindings": [
+        { "capability": "llm.chat", "entry": "./dist/openrouter/llm.js", "costClass": "low" },
+        { "capability": "llm.json", "entry": "./dist/openrouter/llm.js", "costClass": "low" }
+      ],
+      "secretKeys": ["apiKey"],
+      "configSchema": { "type": "object", "properties": { "siteUrl": { "type": "string" }, "appName": { "type": "string" } }, "additionalProperties": false }
+    },
+    {
+      "slug": "deepseek",
+      "version": "1.0.0",
+      "displayName": "DeepSeek",
+      "capabilityBindings": [
+        { "capability": "llm.chat", "entry": "./dist/deepseek/llm.js", "costClass": "low", "models": ["deepseek-chat", "deepseek-reasoner"] },
+        { "capability": "llm.json", "entry": "./dist/deepseek/llm.js", "costClass": "low", "models": ["deepseek-chat", "deepseek-reasoner"] }
+      ],
+      "secretKeys": ["apiKey"],
+      "configSchema": {}
+    },
+    {
+      "slug": "elevenlabs",
+      "version": "1.0.0",
+      "displayName": "ElevenLabs",
+      "capabilityBindings": [
+        {
+          "capability": "tts.synthesize",
+          "entry": "./dist/elevenlabs/tts.js",
+          "costClass": "high",
+          "models": ["eleven_multilingual_v2", "eleven_v3", "eleven_flash_v2_5"],
+          "languages": ["en", "ar", "es", "fr", "de", "it", "pt", "hi", "ja", "ko", "zh", "nl", "pl", "tr", "ru", "sv", "id", "uk", "cs", "el", "fi", "ro", "da", "bg", "hr", "sk", "ta", "ms", "vi"]
+        }
+      ],
+      "secretKeys": ["apiKey"],
+      "configSchema": {}
+    },
+    {
+      "slug": "openai-tts",
+      "version": "1.0.0",
+      "displayName": "OpenAI TTS",
+      "capabilityBindings": [
+        {
+          "capability": "tts.synthesize",
+          "entry": "./dist/openai-tts/tts.js",
+          "costClass": "medium",
+          "models": ["gpt-4o-mini-tts", "tts-1", "tts-1-hd"],
+          "languages": ["en", "ar", "es", "fr", "de", "it", "pt", "hi", "ja", "ko", "zh", "nl", "pl", "tr", "ru"]
+        }
+      ],
+      "secretKeys": ["apiKey"],
+      "configSchema": {}
+    },
+    {
+      "slug": "google-tts",
+      "version": "1.0.0",
+      "displayName": "Google Cloud TTS",
+      "capabilityBindings": [
+        {
+          "capability": "tts.synthesize",
+          "entry": "./dist/google-tts/tts.js",
+          "costClass": "low",
+          "languages": ["en-US", "en-GB", "ar-XA", "es-ES", "fr-FR", "de-DE", "it-IT", "pt-BR", "hi-IN", "ja-JP", "ko-KR", "cmn-CN", "nl-NL", "pl-PL", "tr-TR", "ru-RU"]
+        }
+      ],
+      "secretKeys": ["serviceAccount"],
+      "configSchema": {}
+    },
+    {
+      "slug": "openai-images",
+      "version": "1.0.0",
+      "displayName": "OpenAI Images",
+      "capabilityBindings": [
+        { "capability": "image.generate", "entry": "./dist/openai-images/image.js", "costClass": "medium", "models": ["gpt-image-1", "gpt-image-1-mini", "dall-e-3"] }
+      ],
+      "secretKeys": ["apiKey"],
+      "configSchema": {}
+    },
+    {
+      "slug": "stability",
+      "version": "1.0.0",
+      "displayName": "Stability AI",
+      "capabilityBindings": [
+        { "capability": "image.generate", "entry": "./dist/stability/image.js", "costClass": "medium", "models": ["sd3.5-large", "sd3.5-large-turbo", "sd3.5-medium"] }
+      ],
+      "secretKeys": ["apiKey"],
+      "configSchema": {}
+    },
+    {
+      "slug": "flux-replicate",
+      "version": "1.0.0",
+      "displayName": "FLUX (via Replicate)",
+      "capabilityBindings": [
+        { "capability": "image.generate", "entry": "./dist/flux-replicate/image.js", "costClass": "medium", "models": ["black-forest-labs/flux-1.1-pro", "black-forest-labs/flux-dev", "black-forest-labs/flux-schnell"] }
+      ],
+      "secretKeys": ["apiToken"],
+      "configSchema": {}
+    },
+    {
+      "slug": "pexels",
+      "version": "1.0.0",
+      "displayName": "Pexels",
+      "capabilityBindings": [
+        { "capability": "stock.video.search", "entry": "./dist/pexels/stock.js", "costClass": "low" },
+        { "capability": "stock.image.search", "entry": "./dist/pexels/stock.js", "costClass": "low" }
+      ],
+      "secretKeys": ["apiKey"],
+      "configSchema": {}
+    },
+    {
+      "slug": "pixabay",
+      "version": "1.0.0",
+      "displayName": "Pixabay",
+      "capabilityBindings": [
+        { "capability": "stock.video.search", "entry": "./dist/pixabay/stock.js", "costClass": "low" },
+        { "capability": "stock.image.search", "entry": "./dist/pixabay/stock.js", "costClass": "low" }
+      ],
+      "secretKeys": ["apiKey"],
+      "configSchema": {}
+    },
+    {
+      "slug": "whisper",
+      "version": "1.0.0",
+      "displayName": "OpenAI Transcribe",
+      "capabilityBindings": [
+        { "capability": "transcription.transcribe", "entry": "./dist/whisper/transcribe.js", "costClass": "low", "models": ["whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe"] }
+      ],
+      "secretKeys": ["apiKey"],
+      "configSchema": {}
+    },
+    {
+      "slug": "groq-whisper",
+      "version": "1.0.0",
+      "displayName": "Whisper on Groq",
+      "capabilityBindings": [
+        { "capability": "transcription.transcribe", "entry": "./dist/groq-whisper/transcribe.js", "costClass": "low", "models": ["whisper-large-v3", "whisper-large-v3-turbo", "distil-whisper-large-v3-en"] }
+      ],
+      "secretKeys": ["apiKey"],
+      "configSchema": {}
+    },
+    {
+      "slug": "tavily",
+      "version": "1.0.0",
+      "displayName": "Tavily",
+      "capabilityBindings": [
+        { "capability": "search.web", "entry": "./dist/tavily/search.js", "costClass": "low" }
+      ],
+      "secretKeys": ["apiKey"],
+      "configSchema": {}
+    },
+    {
+      "slug": "serpapi",
+      "version": "1.0.0",
+      "displayName": "SerpApi",
+      "capabilityBindings": [
+        { "capability": "search.web", "entry": "./dist/serpapi/search.js", "costClass": "low" }
+      ],
+      "secretKeys": ["apiKey"],
+      "configSchema": {}
+    },
+    {
+      "slug": "publisher.youtube",
+      "version": "1.0.0",
+      "displayName": "YouTube Publisher",
+      "capabilityBindings": [
+        { "capability": "publisher", "entry": "./dist/publishers/youtube.js", "costClass": "low" },
+        { "capability": "analytics.collector", "entry": "./dist/publishers/youtube-analytics.js", "costClass": "low" }
+      ],
+      "secretKeys": [],
+      "configSchema": {}
+    },
+    {
+      "slug": "publisher.tiktok",
+      "version": "1.0.0",
+      "displayName": "TikTok Publisher",
+      "capabilityBindings": [
+        { "capability": "publisher", "entry": "./dist/publishers/tiktok.js", "costClass": "low" },
+        { "capability": "analytics.collector", "entry": "./dist/publishers/tiktok-analytics.js", "costClass": "low" }
+      ],
+      "secretKeys": [],
+      "configSchema": {}
+    },
+    {
+      "slug": "publisher.instagram",
+      "version": "1.0.0",
+      "displayName": "Instagram Publisher",
+      "capabilityBindings": [
+        { "capability": "publisher", "entry": "./dist/publishers/instagram.js", "costClass": "low" },
+        { "capability": "analytics.collector", "entry": "./dist/publishers/instagram-analytics.js", "costClass": "low" }
+      ],
+      "secretKeys": [],
+      "configSchema": {}
+    },
+    {
+      "slug": "video-engine.ffmpeg",
+      "version": "1.0.0",
+      "displayName": "FFmpeg Render Engine",
+      "capabilityBindings": [
+        { "capability": "video-engine", "entry": "./dist/ffmpeg/engine.js", "costClass": "low" }
+      ],
+      "secretKeys": [],
+      "configSchema": {}
+    },
+    {
+      "slug": "storage.s3",
+      "version": "1.0.0",
+      "displayName": "S3-Compatible Object Storage",
+      "capabilityBindings": [
+        { "capability": "storage.object", "entry": "./dist/s3/storage.js", "costClass": "low" }
+      ],
+      "secretKeys": [],
+      "configSchema": {}
+    }
+  ]
+}

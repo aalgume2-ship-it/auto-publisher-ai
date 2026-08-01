@@ -1,0 +1,19 @@
+{
+  "$comment": "System voice catalog baseline (docs/Database.md §7). 'provider' is the plugin-registry slug; 'providerVoiceId' is the provider-side id. Only publicly documented, real voice ids are seeded — adapters resolve voices through these rows, never hardcoded in code.",
+  "voices": [
+    { "provider": "elevenlabs", "providerVoiceId": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel", "gender": "female", "languages": ["en"], "style": "calm narration", "isPremium": true },
+    { "provider": "elevenlabs", "providerVoiceId": "pNInz6obpgDQGcFmaJgB", "name": "Adam", "gender": "male", "languages": ["en"], "style": "deep narrative", "isPremium": true },
+    { "provider": "elevenlabs", "providerVoiceId": "EXAVITQu4vr4xnSDxMaL", "name": "Bella", "gender": "female", "languages": ["en"], "style": "soft conversational", "isPremium": true },
+    { "provider": "openai-tts", "providerVoiceId": "alloy", "name": "Alloy", "gender": "neutral", "languages": ["en", "ar", "es", "fr", "de", "it", "pt", "hi", "ja", "ko", "zh"], "style": "balanced neutral", "isPremium": false },
+    { "provider": "openai-tts", "providerVoiceId": "echo", "name": "Echo", "gender": "male", "languages": ["en", "ar", "es", "fr", "de", "it", "pt", "hi", "ja", "ko", "zh"], "style": "warm male", "isPremium": false },
+    { "provider": "openai-tts", "providerVoiceId": "fable", "name": "Fable", "gender": "male", "languages": ["en", "ar", "es", "fr", "de", "it", "pt", "hi", "ja", "ko", "zh"], "style": "storyteller", "isPremium": false },
+    { "provider": "openai-tts", "providerVoiceId": "onyx", "name": "Onyx", "gender": "male", "languages": ["en", "ar", "es", "fr", "de", "it", "pt", "hi", "ja", "ko", "zh"], "style": "deep authoritative", "isPremium": false },
+    { "provider": "openai-tts", "providerVoiceId": "nova", "name": "Nova", "gender": "female", "languages": ["en", "ar", "es", "fr", "de", "it", "pt", "hi", "ja", "ko", "zh"], "style": "energetic female", "isPremium": false },
+    { "provider": "openai-tts", "providerVoiceId": "shimmer", "name": "Shimmer", "gender": "female", "languages": ["en", "ar", "es", "fr", "de", "it", "pt", "hi", "ja", "ko", "zh"], "style": "bright warm", "isPremium": false },
+    { "provider": "google-tts", "providerVoiceId": "en-US-Neural2-A", "name": "US Male A", "gender": "male", "languages": ["en-US"], "style": "news anchor", "isPremium": false },
+    { "provider": "google-tts", "providerVoiceId": "en-US-Neural2-C", "name": "US Female C", "gender": "female", "languages": ["en-US"], "style": "conversational", "isPremium": false },
+    { "provider": "google-tts", "providerVoiceId": "en-GB-Neural2-B", "name": "UK Male B", "gender": "male", "languages": ["en-GB"], "style": "documentary", "isPremium": false },
+    { "provider": "google-tts", "providerVoiceId": "ar-XA-Wavenet-A", "name": "Arabic Female A", "gender": "female", "languages": ["ar-XA"], "style": "standard arabic", "isPremium": false },
+    { "provider": "google-tts", "providerVoiceId": "ar-XA-Wavenet-B", "name": "Arabic Male B", "gender": "male", "languages": ["ar-XA"], "style": "standard arabic", "isPremium": false }
+  ]
+}

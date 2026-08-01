@@ -1,0 +1,15 @@
+{
+  "$comment": "10 system AI employee personas (docs/AI-Pipeline.md §3.1 roster — orgId null = system default). Personas are identity + prompt preamble + responsibility, not services; prompt preambles live in packages/ai (prompt assets), personaNotes here are per-org overrides and stay null for system rows.",
+  "employees": [
+    { "key": "content-manager", "role": "CONTENT_MANAGER", "displayName": "Content Manager" },
+    { "key": "researcher", "role": "RESEARCHER", "displayName": "Researcher" },
+    { "key": "script-writer", "role": "SCRIPT_WRITER", "displayName": "Script Writer" },
+    { "key": "seo-expert", "role": "SEO_EXPERT", "displayName": "SEO Expert" },
+    { "key": "thumbnail-designer", "role": "THUMBNAIL_DESIGNER", "displayName": "Thumbnail Designer" },
+    { "key": "voice-director", "role": "VOICE_DIRECTOR", "displayName": "Voice Director" },
+    { "key": "video-editor", "role": "VIDEO_EDITOR", "displayName": "Video Editor" },
+    { "key": "publisher", "role": "PUBLISHER", "displayName": "Publisher" },
+    { "key": "analyst", "role": "ANALYST", "displayName": "Analyst" },
+    { "key": "growth-manager", "role": "GROWTH_MANAGER", "displayName": "Growth Manager" }
+  ]
+}

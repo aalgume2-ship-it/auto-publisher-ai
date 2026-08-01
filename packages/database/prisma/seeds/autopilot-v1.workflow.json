@@ -1,0 +1,36 @@
+{
+  "$comment": "System template 'autopilot-v1' — the exact 15-step pipeline from docs/AI-Pipeline.md (docs-first source). Gates are NOT planted here: review modes compile gate nodes at run launch (AI-Pipeline §2). Validated at seed time via validateWorkflow() from @aca/shared — a seed that fails validation aborts the transaction.",
+  "schema": "aca.workflow/1",
+  "trigger": {
+    "kind": "autopilot",
+    "inputs": {
+      "niche": { "type": "string", "required": true },
+      "language": { "type": "string", "required": true },
+      "region": { "type": "string", "required": false }
+    }
+  },
+  "nodes": [
+    { "id": "trend-research", "kind": "agent.trend-analyzer", "needs": [] },
+    { "id": "ideation", "kind": "agent.idea-generator", "needs": ["trend-research"] },
+    { "id": "script", "kind": "agent.script-writer", "needs": ["ideation"] },
+    { "id": "fact-check", "kind": "agent.fact-checker", "needs": ["script"] },
+    { "id": "seo", "kind": "agent.seo-optimizer", "needs": ["fact-check"] },
+    { "id": "voice", "kind": "agent.voice-generator", "needs": ["seo"] },
+    { "id": "scenes", "kind": "agent.scene-planner", "needs": ["voice"] },
+    { "id": "assets", "kind": "agent.asset-collector", "needs": ["scenes"] },
+    { "id": "render", "kind": "agent.video-generator", "needs": ["assets"] },
+    { "id": "subtitles", "kind": "agent.subtitle-generator", "needs": ["render"] },
+    { "id": "thumbnails", "kind": "agent.thumbnail-generator", "needs": ["subtitles"] },
+    { "id": "qc", "kind": "agent.quality-checker", "needs": ["thumbnails"] },
+    { "id": "publish", "kind": "agent.publisher", "needs": ["qc"] },
+    { "id": "analytics", "kind": "agent.analytics-collector", "needs": ["publish"] },
+    { "id": "optimize", "kind": "agent.ai-optimizer", "needs": ["analytics"] }
+  ],
+  "loopbacks": [{ "from": "qc", "to": "script", "max": 2 }],
+  "defaults": {
+    "routingObjective": "BALANCED",
+    "creditBudget": 120,
+    "language": "en",
+    "timezone": "UTC"
+  }
+}
