@@ -1,0 +1,7 @@
+{
+  "name": "@aca/typescript-config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": ["base.json", "node.json", "nextjs.json"]
+}
