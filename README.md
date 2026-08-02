@@ -11,9 +11,14 @@ workflow executor, plugin runtime, and all shared packages of the monorepo.
 
 ## Status
 
-**Phase 2 — build in progress** (design v2.0 approved; see [`docs/`](./docs)).
-Architecture is documented and frozen under ADR governance; consult
-[`docs/Architecture.md`](./docs/Architecture.md) before making design-level changes.
+**Phase 2 — build in progress.** Baseline [`v1.0-foundation`](./docs/releases/v1.0-foundation.md)
+(Foundation Phase closed: design corpus + 5 packages + API platform substrate +
+green CI) is tagged; feature modules are being built per [`docs/Roadmap.md`](./docs/Roadmap.md).
+What is scaffolded **today**: `apps/api` + `packages/{shared,config,logger,database,events}`
+— everything else is designed-only (honest status in the
+[dependency diagram](./docs/diagrams/dependencies.md)). Consult
+[`docs/DEVELOPER-GUIDE.md`](./docs/DEVELOPER-GUIDE.md) before first run and
+[`CHANGELOG.md`](./CHANGELOG.md) for tagged history.
 
 ## Stack
 
@@ -21,7 +26,7 @@ Architecture is documented and frozen under ADR governance; consult
 |------|--------|
 | Monorepo | Turborepo + pnpm workspaces |
 | Web | Next.js 15 · React 19 · Tailwind 4 · shadcn/ui · TanStack Query · next-intl (en/ar) |
-| API | NestJS 10 (Fastify) · REST /v1 · OpenAPI 3.1 · Socket.IO · OAuth 2.0 AS · SCIM |
+| API | NestJS 11 (Fastify 5) · REST /v1 · OpenAPI 3.1 · Socket.IO · OAuth 2.0 AS · SCIM (ADR-026 uplift) |
 | Data | PostgreSQL 16 (+pgvector) · Prisma 5 · Redis 7 (BullMQ + event streams + cache) · S3 behind CloudFront |
 | AI | Plugin-bound multi-provider capabilities (OpenAI · Anthropic · Google · OpenRouter · DeepSeek · ElevenLabs …) with cost-optimizing router |
 | Video | FFmpeg 7 behind `IVideoEngine` (RTL captions, −14 LUFS) |
@@ -33,9 +38,11 @@ Architecture is documented and frozen under ADR governance; consult
 ```bash
 pnpm install
 docker compose up -d              # postgres+pgvector, redis, minio, mailpit, clamav, jaeger, bull-board
-pnpm dev:bootstrap                # migrate + seed (plans, system workflow, personas, voices, plugins, flags)
-pnpm dev                          # web :3000 · api :4000 · worker · worker-plugins
+pnpm dev:bootstrap                # db push (until migrations land) + prisma client + plan seeds
+pnpm dev                          # apps/api (:3000) today; web/worker boot lines land with those apps
 ```
+
+Full, honest instructions (incl. what does **not** run yet): [`docs/DEVELOPER-GUIDE.md`](./docs/DEVELOPER-GUIDE.md).
 
 Convenience: Jaeger UI `:16686` · MinIO console `:9001` · Mailpit `:8025` · Bull Board `:3030`.
 

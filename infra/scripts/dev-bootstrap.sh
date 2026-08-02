@@ -29,8 +29,11 @@ export KMS_KEY_ID="${KMS_KEY_ID:-dev-key-1}"
 echo "▸ Generating Prisma client…"
 pnpm --filter @aca/database exec prisma generate
 
-echo "▸ Applying migrations…"
-pnpm --filter @aca/database exec prisma migrate deploy
+echo "▸ Applying schema…"
+# No migration files exist yet (Database.md §3 is the source of truth; CI
+# enforces byte-parity). The honest bootstrap against a fresh database is
+# db push; this flips to 'migrate deploy' when real migrations land.
+pnpm --filter @aca/database exec prisma db push --skip-generate
 
 echo "▸ Seeding platform data (plans, system workflow, personas, voices, first-party plugin registry, feature flags)…"
 pnpm --filter @aca/database seed

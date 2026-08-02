@@ -43,6 +43,9 @@ closed-loop AI optimizer that improves every future video.
 | 18 | [Event-Flows.md](./Event-Flows.md) | Event flow, idea→publish sequence (single-trace), and failure-recovery diagrams (Mermaid) |
 | 19 | [Event-Catalog.md](./Event-Catalog.md) | GENERATED from `contracts/event-catalog.ts` — all 58 event types with producer/consumers/payload/version (CI drift-checked) |
 | 20 | [Event-Capacity.md](./Event-Capacity.md) | Capacity model at 10k/100k/1M jobs-day with declared assumptions, saturation table, scaling inflection points, load-test acceptance plan |
+| 21 | [DEVELOPER-GUIDE.md](./DEVELOPER-GUIDE.md) | Run the project/tests/services, project structure, extension recipes: new API module, AI provider, publisher, plugin |
+| 22 | [diagrams/](./diagrams) | Baseline diagram set: architecture, dependencies (generated), database ER (generated), event flow, workflow |
+| 23 | [releases/v1.0-foundation.md](./releases/v1.0-foundation.md) | v1.0-foundation release notes: completed / not started / final decisions / requirements |
 
 ---
 
@@ -58,6 +61,9 @@ closed-loop AI optimizer that improves every future video.
 
 ## Document Status
 
-| Document | Status |
-|----------|--------|
-| All 9 documents | ✅ Complete — awaiting owner approval to start Phase 2 (build) |
+| Set | Status |
+|-----|--------|
+| Design docs (1–20) | ✅ v2.x approved; changes via ADR only |
+| Developer Guide, diagrams, release notes (21–23) | ✅ v1.0-foundation baseline (2026-08-02) |
+| Generated docs (Event-Catalog, diagrams/dependencies, diagrams/database-er) | 🔒 CI drift-gated — regenerate, never hand-edit |
+| Phase 2 (build) | ✅ Foundation Phase closed at tag `v1.0-foundation`; feature modules in progress per roadmap |

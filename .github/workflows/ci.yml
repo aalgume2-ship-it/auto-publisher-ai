@@ -28,6 +28,12 @@ jobs:
           diff -u /tmp/schema.from-docs.prisma packages/database/prisma/schema.prisma
           echo "byte-parity OK"
 
+      - name: dependency-diagram check (docs/diagrams/dependencies.md == generated from dependency-graph.json)
+        run: node infra/scripts/generate-dependency-diagram.mjs --check
+
+      - name: ER-diagram check (docs/diagrams/database-er.md == generated from schema.prisma)
+        run: node infra/scripts/generate-er-diagram.mjs --check
+
   # ── Build + typecheck + unit tests (the heavy gate) ───────────────────────
   build-test:
     runs-on: ubuntu-latest

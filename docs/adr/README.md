@@ -9,6 +9,39 @@ by the same PR. Statuses: **Accepted** (normative) · **Proposed** (under review
 
 ---
 
+## Final Index (v1.0-foundation, 2026-08-02)
+
+| ADR | Decision (short) | Status |
+|---|---|---|
+| 001 | NestJS + Fastify modular monolith (framework) | Accepted — version pin superseded by 026 |
+| 002 | Turborepo 2 + pnpm workspaces monorepo | Accepted |
+| 003 | BullMQ + central Orchestrator; Temporal-ready seam | Accepted |
+| 004 | REST /v1 + OpenAPI, public-API-first | Accepted |
+| 005 | FFmpeg 7 behind `IVideoEngine` | Accepted |
+| 006 | One monolith + worker fleets; extract on measured pain | Accepted |
+| 007 | Token vault: envelope encryption (AES-256-GCM, KMS KEK) | Accepted |
+| 008 | Stripe default inside `IPaymentProvider` port | Accepted |
+| 009 | Redis Streams + transactional outbox + inbox dedup | Accepted (extended by 024) |
+| 010 | Plugins: capability-bound adapters; untrusted code never in core | Accepted |
+| 011 | Workflow engine: versioned DAG definitions; pipeline is data | Accepted |
+| 012 | Tenancy v2: org-rooted + Teams + capability RBAC + brand/domains | Accepted |
+| 013 | Public platform: URI versioning + OAuth 2.0 AS + SDK-from-OpenAPI | Accepted |
+| 014 | Billing engine: provider port with normalized events | Accepted |
+| 015 | Feature flags: OpenFeature + DB provider, cascade resolution | Accepted |
+| 016 | AI Memory: durable knowledge with confidence/decay/supersede | Accepted |
+| 017 | AI Employees: persona layer + `ai_messages` artifacts | Accepted |
+| 018 | Scale path: orgId shard key invariant → cells | Accepted |
+| 019 | Media: CDN-first; origin never client-visible | Accepted |
+| 020 | Analytics: PG partitions now; OLAP port at measured pain | Accepted |
+| 021 | Observability: OpenTelemetry everywhere; Jaeger backend | Accepted |
+| 022 | Platform ids: registry Strings, not PG enums | Accepted |
+| 023 | Executor concurrency: optimistic `state_version` + run-hash sharding | Accepted |
+| 024 | Events guarantees: envelope v1.1, PG-only truth, durable DLQ, replay cursors | Accepted |
+| 025 | apps/api foundation: infra-before-controllers, RFC 9457, cumulative wiring | Accepted |
+| 026 | Framework uplift forced by security gate (Nest 11/Fastify 5/OTel 0.217/vitest 3) | Accepted — supersedes 001 version pin |
+
+---
+
 ## ADR-001 · Backend framework: NestJS 10 + Fastify  *(superseded to NestJS 11 + Fastify 5 by ADR-026 — the module/DI-decision stands)*
 
 - **Decision:** API is a NestJS modular monolith on the Fastify adapter.
