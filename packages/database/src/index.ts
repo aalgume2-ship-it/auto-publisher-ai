@@ -1,23 +1,28 @@
 /**
- * @aca/database — Prisma client factory + tenant enforcement extension.
+ * @aca/database — Prisma client factory + tenant-scoped client extension.
  *
- * Two hard rules (docs/Architecture.md §6.2):
- *   1. Every tenant-scoped model query MUST go through `forOrganization(...)`.
- *   2. Ids are minted by `generateId()` (UUIDv7) at write time — schema provides
- *      no DB-side defaults.
+ * Tenant isolation has two layers, deliberately:
+ *   1. THIS extension: every read/update for direct-org models gets an orgId
+ *      predicate injected; unique-key writes are pre-verified tenant-owned
+ *      (jump ball to loud TenantViolationError, never silent cross-org data);
+ *      creates auto-fill orgId (or reject mismatches) and always carry
+ *      app-owned UUIDv7 ids.
+ *   2. RLS in Postgres (docs/Database.md §6) as defense in depth — the app
+ *      role never owns the bypass.
  *
- * The extension enforces org predicates for models that carry the tenant key
- * DIRECTLY. Models whose tenancy is inherited through a relation (TeamMember→Team,
- * Script→Video, PipelineStepRun→PipelineRun, analytics day-rows, …) must be
- * reached through an org-scoped parent query — domain services own that rule and
- * the CI suite `test/tenancy.spec.ts` locks it in against regressions.
- *
- * Models with NULLABLE orgId (Workflow/AiEmployee system defaults, global
- * memory) are excluded here on purpose: they are read through system paths.
+ * TRANSACTION SEMANTICS (load-bearing): Prisma hands interactive-transaction
+ * callbacks a client WITHOUT $extends (runtime-verified on 5.22: tx.$extends
+ * === undefined), so an extended client's $transaction would deliver a RAW,
+ * unfiltered tx — silently dropping tenant isolation and pre-commit read
+ * visibility inside the very blocks meant to be atomic. forOrganization
+ * therefore overrides $transaction: the callback receives a tenant-scoped
+ * PROXY over the real interactive tx (same connection, same BEGIN/COMMIT,
+ * with the identical scoping rules applied per call via
+ * executeTenantScoped — the single source of truth for both paths).
  */
-import { Prisma, PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
+import { generateId, idTimestamp } from './id.js';
 import { tenantFieldFor } from '@aca/shared/constants/tenancy.js';
-import { generateId } from './id.js';
 
 export { generateId, idTimestamp } from './id.js';
 
@@ -63,6 +68,93 @@ export function createPrismaClient(options?: { log?: Array<'query' | 'info' | 'w
   });
 }
 
+/** Anything the tenant rules can execute against — pool client or interactive tx. */
+type TenantUnderlying = PrismaClient | Prisma.TransactionClient;
+
+type RunOp = (nextArgs: unknown) => Promise<unknown>;
+
+/**
+ * THE tenant-scoping rules — single implementation shared by the $extends
+ * query interception (pool-level client) and the interactive-tx proxy. Any
+ * behavioral change to isolation lives EXACTLY here.
+ */
+async function executeTenantScoped(
+  underlying: TenantUnderlying,
+  orgId: string,
+  model: string,
+  operation: string,
+  args: AnyArgs | undefined,
+  run: RunOp,
+): Promise<unknown> {
+  injectIdsForModelOperation(operation, args ?? {});
+  const field = tenantFieldFor(model);
+  if (field === undefined) return run(args); // global or relation-scoped model
+
+  const a = args ?? {};
+
+  if (READ_OPS.has(operation) || operation === 'updateMany' || operation === 'deleteMany') {
+    return run(withOrgPredicate(a, field, orgId));
+  }
+
+  if (operation === 'create' || operation === 'createMany') {
+    assertOrgOnCreate(operation, a, field, orgId);
+    return run(args);
+  }
+
+  if (operation === 'upsert') {
+    await assertExistingRowIsTenantOwned(underlying, model, a.where ?? {}, field, orgId);
+    assertOrgOnCreate(operation, a, field, orgId, 'create');
+    // Prisma upsert `where` is WhereUniqueInput: it REQUIRES a top-level
+    // unique key and rejects a bare root AND (caught live by the HTTP
+    // integration suite — organizationBrand.upsert validation error). Merge
+    // the tenant predicate as a SAME-LEVEL filter instead; a mismatched
+    // caller-supplied tenant key in where is a loud violation, never silent.
+    const where = { ...(a.where ?? {}) };
+    if (where[field] !== undefined && where[field] !== orgId) {
+      throw new TenantViolationError(`upsert where with mismatched tenant key on field "${field}"`);
+    }
+    where[field] = orgId;
+    return run({ ...a, where });
+  }
+
+  if (UNIQUE_OPS.has(operation)) {
+    await assertExistingRowIsTenantOwned(underlying, model, a.where ?? {}, field, orgId);
+    return run(args);
+  }
+
+  return run(args);
+}
+
+/**
+ * Tenant-scoped proxy over an INTERACTIVE transaction client. Prisma gives no
+ * $extends here, so delegates are wrapped manually: every model delegate call
+ * funnels through executeTenantScoped with `run = the real tx delegate`, so
+ * in-tx reads see uncommitted state AND stay inside the tenant predicate.
+ * $-prefixed members ($executeRaw etc.) pass through — raw SQL is the
+ * documented escape hatch (same as the $extends path, which never saw them).
+ */
+function wrapInteractiveTransaction(tx: Prisma.TransactionClient, orgId: string): Prisma.TransactionClient {
+  return new Proxy(tx, {
+    get(target, prop, receiver) {
+      const delegate: unknown = Reflect.get(target, prop, receiver);
+      if (typeof prop !== 'string' || prop.startsWith('$') || delegate === null || typeof delegate !== 'object') {
+        return delegate;
+      }
+      const model = prop.charAt(0).toUpperCase() + prop.slice(1); // organizationMember -> OrganizationMember
+      return new Proxy(delegate as Record<string | symbol, unknown>, {
+        get(dTarget, op, dReceiver) {
+          const original: unknown = Reflect.get(dTarget, op, dReceiver);
+          if (typeof op !== 'string' || typeof original !== 'function') return original;
+          return (args?: unknown): Promise<unknown> =>
+            executeTenantScoped(target, orgId, model, op, args as AnyArgs | undefined, (nextArgs) =>
+              (original as (a: unknown) => Promise<unknown>).call(dTarget, nextArgs),
+            );
+        },
+      });
+    },
+  });
+}
+
 /**
  * Returns a tenant-bound client. Two protections, layered:
  *  - ids are injected on writes (UUIDv7, app-owned);
@@ -71,48 +163,41 @@ export function createPrismaClient(options?: { log?: Array<'query' | 'info' | 'w
  *    are pre-verified with a findFirst(org-scoped) so a cross-org id can never
  *    be mutated — attempted violations throw TenantViolationError (they are a
  *    programming error or an attack, both must be loud).
+ *
+ * The extension changes BEHAVIOR only (predicate/id injection, tx wrapping) —
+ * no new typed members. Returning PrismaClient keeps delegate types intact
+ * for feature code (callbacks receive Prisma.TransactionClient).
  */
 export function forOrganization<T extends PrismaClient>(client: T, ctx: TenantContext): PrismaClient {
   const orgId = ctx.organizationId;
-  // The extension changes BEHAVIOR only (predicate/id injection) — no new
-  // typed members. Returning PrismaClient keeps delegate types intact for
-  // feature code (incl. $transaction -> Prisma.TransactionClient).
-  return client.$extends({
+  const extended = client.$extends({
     name: 'tenant-scope',
     query: {
       $allModels: {
-        async $allOperations({ model, operation, args, query }) {
-          injectIdsForModelOperation(operation, (args as AnyArgs) ?? {});
-          const field = model ? tenantFieldFor(model) : undefined;
-          if (!field) return query(args); // global or relation-scoped model
-
-          const a = (args ?? {}) as AnyArgs;
-
-          if (READ_OPS.has(operation) || operation === 'updateMany' || operation === 'deleteMany') {
-            return query(withOrgPredicate(a, field, orgId));
-          }
-
-          if (operation === 'create' || operation === 'createMany') {
-            assertOrgOnCreate(operation, a, field, orgId);
-            return query(args);
-          }
-
-          if (operation === 'upsert') {
-            await assertExistingRowIsTenantOwned(client, model!, a.where ?? {}, field, orgId);
-            assertOrgOnCreate(operation, a, field, orgId, 'create');
-            return query(withOrgPredicate(a, field, orgId));
-          }
-
-          if (UNIQUE_OPS.has(operation)) {
-            await assertExistingRowIsTenantOwned(client, model!, a.where ?? {}, field, orgId);
-            return query(args);
-          }
-
-          return query(args);
+        $allOperations({ model, operation, args, query }: { model?: string; operation: string; args: unknown; query: RunOp }) {
+          if (model === undefined) return query(args);
+          return executeTenantScoped(client, orgId, model, operation, args as AnyArgs | undefined, query);
         },
       },
     },
   }) as unknown as PrismaClient;
+
+  const originalTransaction = extended.$transaction.bind(extended) as (...callArgs: unknown[]) => Promise<unknown>;
+  (extended as unknown as { $transaction: unknown }).$transaction = (arg: unknown, options?: unknown): Promise<unknown> => {
+    if (typeof arg !== 'function') {
+      // batch/interactive-array/raw forms: operations were already built
+      // through the scoped delegates (filters injected at construction) —
+      // unchanged behavior, routed to the original implementation.
+      return originalTransaction(arg, options);
+    }
+    // Interactive form: run the callback against a tenant-scoped proxy of the
+    // REAL interactive tx (BEGIN/COMMIT semantics untouched, isolation kept).
+    return (client.$transaction as unknown as (cb: (tx: Prisma.TransactionClient) => unknown, opts?: unknown) => Promise<unknown>)(
+      (rawTx) => (arg as (tx: Prisma.TransactionClient) => unknown)(wrapInteractiveTransaction(rawTx, orgId)),
+      options,
+    );
+  };
+  return extended;
 }
 
 function injectIdsForModelOperation(operation: string, args: AnyArgs): void {
@@ -145,7 +230,7 @@ function assertOrgOnCreate(
 }
 
 async function assertExistingRowIsTenantOwned(
-  client: PrismaClient,
+  underlying: TenantUnderlying,
   model: string,
   where: Record<string, unknown>,
   field: string,
@@ -153,7 +238,7 @@ async function assertExistingRowIsTenantOwned(
 ): Promise<void> {
   const id = where.id as string | undefined;
   if (id === undefined) return; // non-id unique lookups are covered by caller-side org filters
-  const delegate = (client as unknown as Record<string, { findFirst: Function }>)[uncapitalize(model)];
+  const delegate = (underlying as unknown as Record<string, { findFirst: Function }>)[uncapitalize(model)];
   const existing = (await delegate?.findFirst({ where: { id }, select: { [field]: true } })) as
     | Record<string, unknown>
     | null;
