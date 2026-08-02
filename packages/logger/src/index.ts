@@ -9,14 +9,27 @@
  * credentials-in-URLs.
  *
  * Satisfies the Logger port declared by @aca/events ({debug,info,warn,error}(obj,msg)).
+ *
+ * pino interop note: pino ships `export = pino` (CJS). Under NodeNext the
+ * shape of named/default type imports DRIFTED between 9.x releases (CI proved
+ * 9.6 vs 9.14 disagree), so we take the runtime-stable default import and
+ * bind it through ONE explicit factory interface — runtime behavior is
+ * identical on every 9.x (module.exports IS the factory with statics).
  */
-import {
-  pino,
+import pinoPkg, {
   type DestinationStream,
   type Level,
   type Logger as PinoLogger,
 } from 'pino';
 import { trace, context } from '@opentelemetry/api';
+
+interface PinoFactory {
+  (options?: Record<string, unknown>, stream?: DestinationStream): PinoLogger;
+  transport(opts: { target: string; options?: Record<string, unknown> }): DestinationStream;
+  stdSerializers: { err: (e: unknown) => unknown };
+  stdTimeFunctions: { isoTime: unknown };
+}
+const pino = pinoPkg as unknown as PinoFactory;
 
 export type LogFields = Record<string, unknown>;
 
