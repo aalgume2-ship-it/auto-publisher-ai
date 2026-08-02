@@ -16,6 +16,7 @@ import { loadConfig } from '@aca/config';
 import { createLogger } from '@aca/logger';
 import { AppModule } from './app.module.js';
 import { initTelemetry } from './common/telemetry/telemetry.js';
+import { registerLenientJsonBodyParser } from './common/http/json-body.js';
 
 async function bootstrap(): Promise<void> {
   const config = loadConfig(); // throws ConfigError listing ALL problems
@@ -36,6 +37,9 @@ async function bootstrap(): Promise<void> {
     }),
     { logger: false, rawBody: true }, // our own logger everywhere; rawBody for webhook signature checks
   );
+  // empty-body + json content-type → 200-class handling (public-API interop);
+  // malformed payloads stay strict 400 (see common/http/json-body.ts)
+  registerLenientJsonBodyParser(app, { bodyLimitBytes: config.http.requestBodyLimitMb * 1024 * 1024 });
 
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
   app.enableShutdownHooks();
