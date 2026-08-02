@@ -49,6 +49,10 @@ jobs:
         run: pnpm install --no-frozen-lockfile
 
       - name: prisma validate (schema must be valid on its own)
+        # prisma validate still requires the datasource env VAR to exist
+        # (value is never connected to in this step)
+        env:
+          DATABASE_URL: postgresql://aca:aca@localhost:5432/aca
         run: pnpm --filter @aca/database exec prisma validate --schema prisma/schema.prisma
 
       - name: prisma generate (client types for tsc)
