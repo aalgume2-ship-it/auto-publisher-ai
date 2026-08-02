@@ -1425,6 +1425,31 @@ model ConsumerCursor {
   @@map("consumer_cursors")
 }
 
+model IdempotencyRecord {
+  id           String           @id @db.Uuid
+  scope        String                                                // route namespace, e.g. "POST /v1/orgs/{orgId}/projects"
+  key          String                                                // client Idempotency-Key value
+  actorHash    String           @map("actor_hash")                   // sha256 of principal id — keys never cross actors
+  orgId        String?          @map("organization_id") @db.Uuid     // tenant mirror for admin purge (infra table — not tenant-scoped)
+  requestHash  String           @map("request_hash")                 // sha256 of canonical body+params — mismatch on replay → IDEMPOTENCY_CONFLICT
+  state        IdempotencyState @default(IN_FLIGHT)
+  statusCode   Int?             @map("status_code")
+  responseBody Json?            @map("response_body")                // stored response for byte-identical replay
+  lockedUntil  DateTime?        @map("locked_until")                 // IN_FLIGHT lease — concurrent duplicate → 409 IDEMPOTENCY_CONFLICT
+  expiresAt    DateTime         @map("expires_at")                   // TTL purge horizon (default 24h after completion)
+  createdAt    DateTime         @default(now()) @map("created_at")
+  completedAt  DateTime?        @map("completed_at")
+
+  @@unique([scope, actorHash, key])
+  @@index([expiresAt])
+  @@map("idempotency_records")
+}
+
+enum IdempotencyState {
+  IN_FLIGHT
+  COMPLETED
+}
+
 // ═══════════════ PUBLISHING & ANALYTICS ═══════════════
 
 model PublishingTask {

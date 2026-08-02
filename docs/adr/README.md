@@ -273,6 +273,67 @@ by the same PR. Statuses: **Accepted** (normative) · **Proposed** (under review
 
 ---
 
+## ADR-025 · apps/api platform foundation: infra-before-controllers, RFC 9457 everywhere, cumulative graph wiring  *(v2.3)*
+
+- **Why:** `apps/api` is the only public HTTP surface; every guarantee of the
+  contract (docs/API.md §1/§15) must hold structurally, not by discipline. The build
+  order is therefore enforced as layers that exist BEFORE any controller: middleware
+  → exception filter → validation → logging → OTel → request context → guards →
+  controllers. Each layer is its own commit; a controller cannot compile without the
+  layers below it (module import graph).
+- **Request invariants (structural):** every request carries
+  `{ requestId (uuidv7, echoed as X-Request-Id), correlationId (X-Correlation-Id or
+  = requestId), organizationId (after TenantGuard), userId (after AuthGuard),
+  traceId (W3C traceparent, extracted or minted) }` in an AsyncLocalStorage
+  `RequestContext` — controllers/services read it, they never re-derive it from
+  headers. Every error, thrown anywhere, exits through ONE
+  `ProblemDetailsFilter` producing RFC 9457 bodies with the platform `code` enum
+  (shared/errors.ts, append-only); no route may shape its own errors.
+- **Guard chain order (fixed):** `IpAllowList → AuthN (session JWT HS256 or
+  X-API-Key sha256) → Tenant (org membership ACTIVE + path/header org match,
+  TENANT_VIOLATION on mismatch) → RBAC (capability check via shared
+  ROLE_CAPABILITIES + CustomRole grants — never role names, ADR-012) → Entitlements
+  (Subscription.status ∈ {ACTIVE, TRIALING} + Plan.features flag, else FLAG_LOCKED /
+  QUOTA_EXCEEDED) → Credits (estimated-cost pre-check against latest
+  AiCreditTransaction.balanceAfter, else CREDIT_INSUFFICIENT; the debit itself is a
+  service-layer transaction with the domain write)`. Rate limiting (Redis
+  sliding-window, per bucket config from API.md §16) and idempotency (below) wrap
+  mutations only.
+- **Idempotency (mutations):** `Idempotency-Key` + `(scope, actorHash)` unique in
+  Postgres `idempotency_records` (source of truth — survives Redis flush by design,
+  same doctrine as ADR-024). IN_FLIGHT lease rejects concurrent duplicates with
+  `IDEMPOTENCY_CONFLICT`; completed records replay the stored response
+  byte-identically; `requestHash` mismatch → `IDEMPOTENCY_CONFLICT`.
+- **AuthN interim:** until `@aca/auth` (L2) lands, the API verifies first-party
+  session JWTs directly (HS256, key from config secrets section) and API keys via
+  `api_keys.keyHash` sha256 lookup. This is the REAL verification path, not a stand-in;
+  `@aca/auth` will swap the issuer/verifier implementation without touching guards'
+  contracts.
+- **Cumulative wiring policy (graph):** `docs/dependency-graph.json` reflects
+  packages that EXIST today. `edges["@aca/api"]` therefore starts as
+  `[shared, config, logger, database, events]` and each unbuilt dependency
+  (`auth, billing, email, storage, search, feature-flags, workflows` — kept in
+  `plannedEdges`) is added in the same commit that first wires it. The drift gate
+  stays strict-equality against the REAL state at all times.
+- **Observability:** OTel NodeSDK at bootstrap (OTLP/HTTP from config observability
+  section; no-op when unconfigured) + middleware mints the server span per request;
+  prom-client exposes `/metrics` (default + `aca_http_*` histograms); health surface
+  `/health`, `/health/live`, `/health/ready` (PG `SELECT 1` + Redis `PING` for
+  ready). OpenAPI is generated (`@nestjs/swagger`) from the same decorators that
+  enforce validation — docs can never drift from behavior; contract tests snapshot
+  the generated document.
+- **Rejected:** controllers before infrastructure (the entire failure mode this ADR
+  exists to prevent) · idempotency in Redis only (eviction loses keys; PG is truth) ·
+  waiting for all 12 planned `@aca/*` deps before starting apps/api (serializes the
+  whole roadmap; cumulative wiring keeps the gate honest) · role-name guards
+  (violates ADR-012 capability model) · hand-written OpenAPI yaml (drifts from code;
+  generation makes drift impossible).
+- **Implemented by:** `apps/api` (bootstrap, middleware, filter, pipe, interceptors,
+  guards common module) · `idempotency_records` table (Database.md §3) ·
+  `@aca/config` auth section · `packages/shared` errors catalog (existing).
+
+---
+
 ### How to write a new ADR
 
 1. Copy the format above into `docs/adr/NNNN-title.md`.
@@ -289,3 +350,4 @@ by the same PR. Statuses: **Accepted** (normative) · **Proposed** (under review
 | 009–021 | Phase 0.5 expansion | Accepted |
 | 022–023 | v2.1 validation amendments | Accepted (machine-verified design) |
 | 024 | v2.2 events backbone guarantees | Accepted |
+| 025 | v2.3 apps/api platform foundation | Accepted |

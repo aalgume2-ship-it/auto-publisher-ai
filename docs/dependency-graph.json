@@ -87,14 +87,7 @@
       "@aca/config",
       "@aca/logger",
       "@aca/database",
-      "@aca/events",
-      "@aca/auth",
-      "@aca/billing",
-      "@aca/email",
-      "@aca/storage",
-      "@aca/search",
-      "@aca/feature-flags",
-      "@aca/workflows"
+      "@aca/events"
     ],
     "@aca/worker": [
       "@aca/shared",
@@ -125,5 +118,39 @@
   "devOnlyTooling": [
     "@aca/typescript-config",
     "@aca/eslint-config"
-  ]
+  ],
+  "plannedEdges": {
+    "@aca/api": [
+      "@aca/shared",
+      "@aca/config",
+      "@aca/logger",
+      "@aca/database",
+      "@aca/events",
+      "@aca/auth",
+      "@aca/billing",
+      "@aca/email",
+      "@aca/storage",
+      "@aca/search",
+      "@aca/feature-flags",
+      "@aca/workflows"
+    ],
+    "@aca/worker": [
+      "@aca/shared",
+      "@aca/config",
+      "@aca/logger",
+      "@aca/database",
+      "@aca/events",
+      "@aca/auth",
+      "@aca/ai",
+      "@aca/video-engine",
+      "@aca/workflows",
+      "@aca/billing",
+      "@aca/email",
+      "@aca/storage",
+      "@aca/search",
+      "@aca/feature-flags",
+      "@aca/plugin-kit"
+    ]
+  },
+  "comment_plannedEdges": "ADR-025 cumulative wiring: edges[] must equal packages that EXIST today; plannedEdges records the target wiring, each edge moves into edges[] in the commit that first consumes it."
 }
