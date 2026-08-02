@@ -1,0 +1,238 @@
+## ─────────────────────────────────────────────────────────────────────────────
+## AutoCreator AI — Module 1 (Organizations) REST collection, 29 routes
+## Open in: VS Code "REST Client" / JetBrains HTTP Client / Postman (import).
+##
+## Setup (one time):
+##   1. pnpm dev:bootstrap && pnpm build && pnpm dev:api     (server on :3000)
+##   2. eval "$(pnpm --silent dev:token -- --export)"        (ACA_TOKEN, ACA_ORG_ID)
+##   3. fill @token + @orgId below (or create a fresh org in §1 and use its id)
+##
+## Conventions (docs/API.md §1): bearer session JWT · Idempotency-Key on
+## mutations · RFC 9457 problem bodies · RateLimit-* response headers.
+## ─────────────────────────────────────────────────────────────────────────────
+
+@host = http://localhost:3000
+@token = PASTE_ACA_TOKEN_HERE
+@orgId = PASTE_ACA_ORG_ID_HERE
+@departmentId = PASTE_AFTER_STEP_4
+@teamId = PASTE_AFTER_STEP_5
+@domainId = PASTE_AFTER_STEP_8
+
+### 0. Platform (public, no auth) ─────────────────────────────────────────────
+
+GET {{host}}/health
+
+###
+GET {{host}}/health/ready
+
+### Swagger UI is served interactively at {{host}}/docs — spec:
+GET {{host}}/openapi.json
+
+###
+GET {{host}}/metrics
+
+### 1. Organizations ──────────────────────────────────────────────────────────
+### Auth proof (401 problem without token):
+GET {{host}}/v1/organizations/{{orgId}}
+
+###
+POST {{host}}/v1/organizations
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+content-type: application/json
+
+{ "name": "My Media House", "slug": "my-media-house" }
+
+### ↑ repeat this exact request (same Idempotency-Key) → 201 byte-identical
+### replay with `Idempotency-Replayed: true`.
+
+###
+GET {{host}}/v1/organizations/{{orgId}}
+Authorization: Bearer {{token}}
+
+###
+PATCH {{host}}/v1/organizations/{{orgId}}
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+content-type: application/json
+
+{ "name": "My Media House Group" }
+
+### 2. Settings + security policy ─────────────────────────────────────────────
+
+GET {{host}}/v1/organizations/{{orgId}}/settings
+Authorization: Bearer {{token}}
+
+###
+PATCH {{host}}/v1/organizations/{{orgId}}/settings
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+content-type: application/json
+
+{ "timezone": "Asia/Riyadh", "defaultLocale": "ar-SA" }
+
+###
+PATCH {{host}}/v1/organizations/{{orgId}}/settings/security-policy
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+content-type: application/json
+
+{ "enforceMfa": true, "sessionMaxHours": 12 }
+
+### 3. Departments ────────────────────────────────────────────────────────────
+
+POST {{host}}/v1/organizations/{{orgId}}/departments
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+content-type: application/json
+
+{ "name": "Content Production" }
+
+### ← copy `id` from the response into @departmentId above.
+
+###
+GET {{host}}/v1/organizations/{{orgId}}/departments
+Authorization: Bearer {{token}}
+
+###
+GET {{host}}/v1/organizations/{{orgId}}/departments/{{departmentId}}
+Authorization: Bearer {{token}}
+
+###
+PATCH {{host}}/v1/organizations/{{orgId}}/departments/{{departmentId}}
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+content-type: application/json
+
+{ "description": "All video-producing teams" }
+
+### 4. Teams + members ────────────────────────────────────────────────────────
+
+POST {{host}}/v1/organizations/{{orgId}}/teams
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+content-type: application/json
+
+{ "name": "Shorts Squad", "departmentId": "{{departmentId}}" }
+
+### ← copy `id` into @teamId above. (unknown departmentId → 404, in-transaction
+###   tenant-scoped reference check.)
+
+###
+GET {{host}}/v1/organizations/{{orgId}}/teams
+Authorization: Bearer {{token}}
+
+###
+GET {{host}}/v1/organizations/{{orgId}}/teams/{{teamId}}
+Authorization: Bearer {{token}}
+
+###
+PATCH {{host}}/v1/organizations/{{orgId}}/teams/{{teamId}}
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+content-type: application/json
+
+{ "name": "Shorts & Reels Squad" }
+
+###
+POST {{host}}/v1/organizations/{{orgId}}/teams/{{teamId}}/members
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+content-type: application/json
+
+{ "userId": "PASTE_USER_ID (run pnpm dev:token — prints ACA_USER_ID)" }
+
+###
+DELETE {{host}}/v1/organizations/{{orgId}}/teams/{{teamId}}/members/PASTE_USER_ID
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+content-type: application/json
+
+###
+DELETE {{host}}/v1/organizations/{{orgId}}/teams/{{teamId}}
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+
+###
+DELETE {{host}}/v1/organizations/{{orgId}}/departments/{{departmentId}}
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+
+### 5. Branding + public resolve ──────────────────────────────────────────────
+
+GET {{host}}/v1/organizations/{{orgId}}/brand
+Authorization: Bearer {{token}}
+
+### Non-gated fields work on any plan. whiteLabel (hidePoweredBy: true) is a
+### plan feature — the seeded plans keep it business/enterprise-only, so on
+### demo-org (pro) requesting it honestly answers 403 FLAG_LOCKED (working
+### entitlement enforcement; try both bodies):
+PUT {{host}}/v1/organizations/{{orgId}}/brand
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+content-type: application/json
+
+{ "brandName": "Noor Podcasts", "primaryColor": "#1a7a4a" }
+
+###
+#PUT {{host}}/v1/organizations/{{orgId}}/brand
+#Authorization: Bearer {{token}}
+#Idempotency-Key: {{$uuid}}
+#content-type: application/json
+#
+#{ "brandName": "Noor Podcasts", "primaryColor": "#1a7a4a", "hidePoweredBy": true }
+
+###
+POST {{host}}/v1/organizations/{{orgId}}/brand/reset
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+content-type: application/json
+
+### Public white-label resolution (no auth; 404 unless the host is an ACTIVE
+### verified custom domain):
+GET {{host}}/v1/branding/resolve?host=portal.example
+
+### 6. Custom domains (real DNS TXT verification) ──────────────────────────────
+
+POST {{host}}/v1/organizations/{{orgId}}/domains
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+content-type: application/json
+
+{ "domain": "portal.example.com", "type": "PORTAL" }
+
+### ← copy `id` into @domainId. Verification does a REAL TXT lookup:
+### expected 409 + FAILED persisted until you publish the shown token.
+
+###
+POST {{host}}/v1/organizations/{{orgId}}/domains/{{domainId}}/verify
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+content-type: application/json
+
+###
+GET {{host}}/v1/organizations/{{orgId}}/domains
+Authorization: Bearer {{token}}
+
+###
+DELETE {{host}}/v1/organizations/{{orgId}}/domains/{{domainId}}
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+
+### 7. Billing profile + subscription ─────────────────────────────────────────
+
+PUT {{host}}/v1/organizations/{{orgId}}/billing-profile
+Authorization: Bearer {{token}}
+Idempotency-Key: {{$uuid}}
+content-type: application/json
+
+{ "legalName": "Noor Media Holding LLC", "billingEmail": "billing@noor.example", "countryCode": "SA" }
+
+###
+GET {{host}}/v1/organizations/{{orgId}}/billing-profile
+Authorization: Bearer {{token}}
+
+### A subscription row exists only after a plan grant (billing module seeds it;
+### demo-org comes with pro). On an org without a plan this honestly 404s.
+GET {{host}}/v1/organizations/{{orgId}}/subscription
+Authorization: Bearer {{token}}
