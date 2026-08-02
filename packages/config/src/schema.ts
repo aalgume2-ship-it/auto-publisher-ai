@@ -67,6 +67,22 @@ export const AppConfigSchema = z.object({
   })
     .default({}),
 
+  auth: z
+    .object({
+      /**
+       * First-party session-JWT verification (ADR-025 interim until @aca/auth).
+       * The secret VALUE is injected by the secret manager at runtime (Doppler),
+       * never committed; redacted from every log surface by both redactors.
+       * Services that need it fail closed at bootstrap when absent.
+       */
+      jwtSecret: z.string().min(32).optional(),
+      jwtIssuer: z.string().default('https://api.autocreator.ai'),
+      jwtAudience: z.string().default('aca-first-party'),
+      /** seconds; HMAC-verified access tokens are short-lived */
+      accessTokenTtlSec: intFromEnv(900).pipe(z.number().int().min(60).max(86_400)),
+    })
+    .default({}),
+
   secrets: z.object({
     /** Doppler project/config identifiers (values live in Doppler, never here). */
     dopplerProject: z.string().optional(),
@@ -101,6 +117,10 @@ export const ENV_MAP = {
   OTEL_EXPORTER_OTLP_HEADERS: 'observability.otlpHeaders',
   LOG_LEVEL: 'observability.logLevel',
   OTEL_SERVICE_NAMESPACE: 'observability.serviceNamespace',
+  AUTH_JWT_SECRET: 'auth.jwtSecret',
+  AUTH_JWT_ISSUER: 'auth.jwtIssuer',
+  AUTH_JWT_AUDIENCE: 'auth.jwtAudience',
+  AUTH_ACCESS_TOKEN_TTL_SEC: 'auth.accessTokenTtlSec',
   DOPPLER_PROJECT: 'secrets.dopplerProject',
   DOPPLER_CONFIG: 'secrets.dopplerConfig',
   KMS_KEY_ID: 'secrets.kmsKeyId',

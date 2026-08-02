@@ -15,6 +15,8 @@ describe('loadConfig', () => {
     expect(cfg.events.streamMaxLen).toBe(1_000_000);
     expect(cfg.observability.logLevel).toBe('info');
     expect(cfg.database.poolMax).toBe(10);
+    expect(cfg.auth.jwtIssuer).toBe('https://api.autocreator.ai');
+    expect(cfg.auth.accessTokenTtlSec).toBe(900);
   });
 
   it('coerces ints/bools/lists from env strings', () => {
@@ -64,10 +66,13 @@ describe('redaction', () => {
       REDIS_URL: 'redis://localhost:6379/0',
       KMS_KEY_ID: 'alias/aca-vault',
       DOPPLER_CONFIG: 'prd',
+      AUTH_JWT_SECRET: 's'.repeat(32),
     });
     const safe = redactConfig(cfg) as Record<string, unknown>;
     expect(JSON.stringify(safe)).not.toContain('p4ss');
     expect(JSON.stringify(safe)).not.toContain('aca:p4ss');
+    const auth = safe['auth'] as Record<string, unknown>;
+    expect(auth['jwtSecret']).toBe('<redacted>');
     const secrets = safe['secrets'] as Record<string, unknown>;
     expect(secrets['kmsKeyId']).toBe('alias/aca-vault'); // key NAME is not a secret
     const db = safe['database'] as Record<string, unknown>;
