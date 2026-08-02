@@ -59,9 +59,9 @@ create/get/patch org; members list/patch-role/remove; invitations create/accept/
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/organizations/{orgId}/teams` | 🛡 ADMIN | `{ name, description? }` (name unique per org) |
+| POST | `/organizations/{orgId}/teams` | 🛡 ADMIN | `{ name, description?, departmentId? }` (name unique per org; departmentId must belong to the org) |
 | GET | `/organizations/{orgId}/teams` | 🛡 VIEWER | List incl. member counts |
-| GET/PATCH/DELETE | `/organizations/{orgId}/teams/{teamId}` | 🛡 VIEWER / ADMIN | Detail/PATCH name/desc/Delete (archives team; projects flip to ORG_WIDE) |
+| GET/PATCH/DELETE | `/organizations/{orgId}/teams/{teamId}` | 🛡 VIEWER / ADMIN | Detail / PATCH name/desc/department / Delete (team row removed; members cascade; projects detach → teamId null + visibility ORG_WIDE) |
 | POST | `/organizations/{orgId}/teams/{teamId}/members` | 🛡 ADMIN | `{ userId }` (must be org member) |
 | DELETE | `/organizations/{orgId}/teams/{teamId}/members/{userId}` | 🛡 ADMIN | Remove from team |
 
@@ -75,6 +75,25 @@ Projects gain `{ teamId?, visibility: ORG_WIDE|TEAM_ONLY }` in create/patch (§7
 | GET | `/organizations/{orgId}/roles` | 🛡 VIEWER | List + catalog of assignable capabilities |
 | PATCH/DELETE | `/organizations/{orgId}/roles/{roleId}` | 🛡 ADMIN | Edit/delete (delete = members fall back to system role only) |
 | PATCH | `/organizations/{orgId}/members/{userId}` | 🛡 ADMIN | v1 body + `customRoleId?` |
+
+### 4.4 Departments 🆕 (ADR-027 — org chart layer above teams)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/organizations/{orgId}/departments` | 🛡 ADMIN | `{ name, slug?, description? }` — slug derived from name when omitted; unique per org |
+| GET | `/organizations/{orgId}/departments` | 🛡 VIEWER | List incl. team counts |
+| GET/PATCH/DELETE | `/organizations/{orgId}/departments/{departmentId}` | 🛡 VIEWER / ADMIN | Detail / PATCH name/slug/description / Delete (teams detach → departmentId null) |
+
+### 4.5 Organization settings, billing profile & subscription 🆕 (ADR-027)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/organizations/{orgId}/settings` | 🛡 VIEWER | `{ timezone, defaultLocale, securityPolicy }` |
+| PATCH | `/organizations/{orgId}/settings` | 🛡 ADMIN (`org.manage`) | `{ timezone?, defaultLocale? }` |
+| PATCH | `/organizations/{orgId}/settings/security-policy` | 🛡 OWNER (`security.policy.manage`) | `{ enforceSso?, enforceMfa?, sessionMaxHours?, ipAllowListEnabled? }` |
+| GET | `/organizations/{orgId}/billing-profile` | 🛡 VIEWER (`billing.view`) | Legal/tax billing profile (missing → `null` body fields) |
+| PUT | `/organizations/{orgId}/billing-profile` | 🛡 OWNER (`billing.manage`) | Upsert `{ legalName?, billingEmail, taxId?, address{…}?, purchaseOrderRef? }` |
+| GET | `/organizations/{orgId}/subscription` | 🛡 VIEWER (`billing.view`) | Current subscription + embedded plan (features, limits) + AI credit balance |
 
 ---
 
@@ -333,6 +352,7 @@ token; enforced 12 h cycle, 24 h hard cap — Architecture §18) ·
 | `MARKETPLACE_ITEM_UNAVAILABLE` | 409 | Listing suspended between browse & install |
 | `APP_REVIEW_REQUIRED` | 403 | Unverified app requested restricted scope |
 | `FLAG_LOCKED` | 403 | Feature not entitled by plan/flag |
+| `DOMAIN_VERIFICATION_FAILED` | 409 | DNS challenge not satisfied (TXT/CNAME or DKIM/SPF); `meta.host` + `meta.expected` included |
 
 ## 16. Rate Limits — v2 additions
 

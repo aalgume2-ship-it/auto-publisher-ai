@@ -39,6 +39,7 @@ by the same PR. Statuses: **Accepted** (normative) · **Proposed** (under review
 | 024 | Events guarantees: envelope v1.1, PG-only truth, durable DLQ, replay cursors | Accepted |
 | 025 | apps/api foundation: infra-before-controllers, RFC 9457, cumulative wiring | Accepted |
 | 026 | Framework uplift forced by security gate (Nest 11/Fastify 5/OTel 0.217/vitest 3) | Accepted — supersedes 001 version pin |
+| 027 | Module-1 additions: Departments, OrganizationBillingProfile, org-domain events, audit-inline rule | Accepted |
 
 ---
 
