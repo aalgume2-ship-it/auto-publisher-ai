@@ -22,9 +22,6 @@ jobs:
       - name: dependency-audit (graph acyclic, layers monotonic, zero drift)
         run: node infra/scripts/check-dependency-graph.mjs
 
-      - name: event-catalog check (docs/Event-Catalog.md == generated from shared catalog)
-        run: node infra/scripts/generate-event-catalog.mjs --check
-
       - name: Database.md §3 ↔ schema.prisma byte-parity
         run: |
           awk '/^```prisma$/{flag=1;next} flag && /^```$/{exit} flag' docs/Database.md > /tmp/schema.from-docs.prisma
@@ -47,7 +44,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
 
       - name: install
         run: pnpm install --no-frozen-lockfile
@@ -64,6 +60,9 @@ jobs:
       - name: unit tests (turbo test — vitest; PG/Redis integration suites stay gated off)
         run: pnpm test
 
+      - name: event-catalog check (docs/Event-Catalog.md == generated from shared catalog)
+        run: node infra/scripts/generate-event-catalog.mjs --check
+
   # ── Security gate ─────────────────────────────────────────────────────────
   security-audit:
     runs-on: ubuntu-latest
@@ -76,7 +75,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
       - name: install (metadata for audit)
         run: pnpm install --no-frozen-lockfile
       - name: pnpm audit (fail on high/critical known vulnerabilities)
@@ -116,7 +114,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm db:generate
       - run: pnpm --filter @aca/database exec prisma migrate deploy || pnpm --filter @aca/database exec prisma db push
