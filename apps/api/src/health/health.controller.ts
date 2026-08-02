@@ -9,7 +9,7 @@
  * Probes are REAL queries (not connection-pool heuristics): a ready pod must
  * be able to serve its dependencies NOW.
  */
-import { Controller, Get, HttpCode, Inject } from '@nestjs/common';
+import { Controller, Get, HttpCode, Inject, VERSION_NEUTRAL } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Redis } from 'ioredis';
 import type { AppConfig } from '@aca/config';
@@ -33,8 +33,12 @@ export interface ReadinessChecks {
   redis: 'up' | 'down';
 }
 
+// VERSION_NEUTRAL: ops probes (/health, /health/live, /health/ready) must not
+// move when the public API versions — load balancers and URIs pin the plain
+// path (caught live: URI versioning + defaultVersion '1' silently moved these
+// to /v1/health and plain /health answered 404).
 @ApiTags('health')
-@Controller('health')
+@Controller({ path: 'health', version: VERSION_NEUTRAL })
 export class HealthController {
   constructor(
     @Inject(PRISMA) private readonly prisma: DbClient,
