@@ -14,3 +14,4 @@ export * from './contracts/ai-providers.js';
 export * from './contracts/payment-provider.js';
 export * from './contracts/storage-port.js';
 export * from './contracts/publisher-client.js';
+export * from './plan-features.js';
