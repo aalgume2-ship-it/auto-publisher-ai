@@ -53,6 +53,7 @@ export function buildRequestContext(headers: Record<string, string | string[] | 
     principal: null,
     userId: null,
     organizationId: null,
+    membership: null,
     ip,
   };
 }

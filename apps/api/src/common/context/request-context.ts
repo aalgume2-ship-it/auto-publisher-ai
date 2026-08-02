@@ -8,7 +8,7 @@
  * Population timeline:
  *   middleware: requestId, correlationId, traceId            (always present)
  *   AuthGuard:  principal, userId                            (when authenticated)
- *   TenantGuard: organizationId                              (when tenant-scoped)
+ *   TenantGuard: organizationId, membership                  (when tenant-scoped)
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { UuidV7Schema } from '@aca/shared';
@@ -23,6 +23,13 @@ export type Principal =
       readonly scopes: readonly string[];
     };
 
+export type SystemRoleName = 'OWNER' | 'ADMIN' | 'EDITOR' | 'VIEWER';
+
+export interface MembershipInfo {
+  role: SystemRoleName;
+  customRoleId: string | null;
+}
+
 export interface RequestContextState {
   /** uuidv7 minted (or validated-pass-through from X-Request-Id); echoed in every response + ProblemDetails.requestId. */
   requestId: string;
@@ -35,6 +42,8 @@ export interface RequestContextState {
   principal: Principal | null;
   userId: string | null;
   organizationId: string | null;
+  /** Set by TenantGuard for tenant-scoped routes (drives RBAC/capability checks). */
+  membership: MembershipInfo | null;
   /** client ip (trusted-proxy aware via fastify request.ip) */
   ip: string;
 }

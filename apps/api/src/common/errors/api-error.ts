@@ -74,6 +74,8 @@ export const apiErrors = {
   unauthenticated: (detail = 'authentication required') =>
     new ApiError('UNAUTHENTICATED', 'Unauthenticated', { detail }),
   forbidden: (detail = 'insufficient permissions') => new ApiError('FORBIDDEN', 'Forbidden', { detail }),
+  forbiddenWithMeta: (detail: string, meta: Record<string, unknown>) =>
+    new ApiError('FORBIDDEN', 'Forbidden', { detail, meta }),
   notFound: (resource: string) =>
     new ApiError('NOT_FOUND', 'Not Found', { detail: `${resource} not found` }),
   tenantViolation: () => new ApiError('TENANT_VIOLATION', 'Not Found', { detail: 'resource not found' }),
@@ -89,12 +91,22 @@ export const apiErrors = {
       detail: `plan does not include feature "${feature}"`,
       meta: { feature },
     }),
+  flagLockedWithStatus: (feature: string, subscriptionStatus: string) =>
+    new ApiError('FLAG_LOCKED', 'Feature Locked', {
+      detail: `subscription status ${subscriptionStatus} does not allow feature "${feature}"`,
+      meta: { feature, subscriptionStatus },
+    }),
   quotaExceeded: (quota: string, limit: number) =>
     new ApiError('QUOTA_EXCEEDED', 'Quota Exceeded', { detail: `${quota} quota of ${limit} exceeded`, meta: { quota, limit } }),
   creditInsufficient: (required: number, available: number) =>
     new ApiError('CREDIT_INSUFFICIENT', 'Insufficient AI Credits', {
       detail: `operation requires ${required} credits; ${available} available`,
       meta: { required, available },
+    }),
+  ipNotAllowed: (ip: string) =>
+    new ApiError('IP_NOT_ALLOWED', 'IP Not Allowed', {
+      detail: 'organization IP allow list is active and the caller address is outside it',
+      meta: { ip },
     }),
   validationFailed: (issues: unknown) =>
     new ApiError('VALIDATION_FAILED', 'Validation Failed', {
