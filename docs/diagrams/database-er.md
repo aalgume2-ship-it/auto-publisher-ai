@@ -1209,7 +1209,7 @@ erDiagram
     string requestHash
     idempotencystate state
     int statusCode "optional"
-    jsonb responseBody "optional"
+    string responseBody "optional"
     timestamptz lockedUntil "optional"
     timestamptz expiresAt
     timestamptz createdAt

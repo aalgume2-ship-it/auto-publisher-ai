@@ -1476,7 +1476,7 @@ model IdempotencyRecord {
   requestHash  String           @map("request_hash")                 // sha256 of canonical body+params — mismatch on replay → IDEMPOTENCY_CONFLICT
   state        IdempotencyState @default(IN_FLIGHT)
   statusCode   Int?             @map("status_code")
-  responseBody Json?            @map("response_body")                // stored response for byte-identical replay
+  responseBody String?          @map("response_body")                // serialized response bytes (TEXT): jsonb reorders keys — byte-identical replay impossible with Json
   lockedUntil  DateTime?        @map("locked_until")                 // IN_FLIGHT lease — concurrent duplicate → 409 IDEMPOTENCY_CONFLICT
   expiresAt    DateTime         @map("expires_at")                   // TTL purge horizon (default 24h after completion)
   createdAt    DateTime         @default(now()) @map("created_at")
