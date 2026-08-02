@@ -1,0 +1,125 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  # ── Fast structural gates: zero-install, run in seconds, fail fast ────────
+  structural-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: dependency-audit (graph acyclic, layers monotonic, zero drift)
+        run: node infra/scripts/check-dependency-graph.mjs
+
+      - name: event-catalog check (docs/Event-Catalog.md == generated from shared catalog)
+        run: node infra/scripts/generate-event-catalog.mjs --check
+
+      - name: Database.md §3 ↔ schema.prisma byte-parity
+        run: |
+          awk '/^```prisma$/{flag=1;next} flag && /^```$/{exit} flag' docs/Database.md > /tmp/schema.from-docs.prisma
+          diff -u /tmp/schema.from-docs.prisma packages/database/prisma/schema.prisma
+          echo "byte-parity OK"
+
+  # ── Build + typecheck + unit tests (the heavy gate) ───────────────────────
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        # lockfile is generated on first real install (sandbox cannot run pnpm);
+        # flip to --frozen-lockfile once pnpm-lock.yaml is committed
+        with:
+          version: 9.15.9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: install
+        run: pnpm install --no-frozen-lockfile
+
+      - name: prisma validate (schema must be valid on its own)
+        run: pnpm --filter @aca/database exec prisma validate --schema prisma/schema.prisma
+
+      - name: prisma generate (client types for tsc)
+        run: pnpm db:generate
+
+      - name: build (turbo build — tsc strict, all packages + apps)
+        run: pnpm build
+
+      - name: unit tests (turbo test — vitest; PG/Redis integration suites stay gated off)
+        run: pnpm test
+
+  # ── Security gate ─────────────────────────────────────────────────────────
+  security-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: install (metadata for audit)
+        run: pnpm install --no-frozen-lockfile
+      - name: pnpm audit (fail on high/critical known vulnerabilities)
+        run: pnpm audit --audit-level=high
+
+  # ── Integration gate (real Postgres + Redis, opt-in suites) ───────────────
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aca
+          POSTGRES_PASSWORD: aca
+          POSTGRES_DB: aca
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U aca" --health-interval 5s
+          --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://aca:aca@localhost:5432/aca
+      REDIS_URL: redis://localhost:6379/0
+      ACA_EVENTS_IT: '1'
+      ACA_API_IT: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm --filter @aca/database exec prisma migrate deploy || pnpm --filter @aca/database exec prisma db push
+      - run: pnpm build
+      - name: events backbone integration suite (real PG + Redis, 5 e2e)
+        run: pnpm --filter @aca/events exec vitest run --config vitest.integration.config.ts
