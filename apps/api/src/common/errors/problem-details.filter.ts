@@ -12,7 +12,7 @@
  * this filter); 4xx are logged at warn once here — the LoggingInterceptor
  * records lifecycle only.
  */
-import { Catch, HttpException, Logger as NestLogger, type ArgumentsHost, type ExceptionFilter } from '@nestjs/common';
+import { Catch, HttpException, Logger as NestLogger, Optional, type ArgumentsHost, type ExceptionFilter } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { createLogger, type Logger } from '@aca/logger';
 import {
@@ -100,7 +100,9 @@ export function toProblem(exception: unknown, requestId: string): ProblemDetails
 
 @Catch()
 export class ProblemDetailsFilter implements ExceptionFilter {
-  constructor(private readonly logger: Logger = createLogger({ service: 'apps/api' })) {}
+  // Logger is an interface (erased metadata): @Optional lets DI fall through
+  // to the code default — same discipline as LoggingInterceptor/DomainOperations.
+  constructor(@Optional() private readonly logger: Logger = createLogger({ service: 'apps/api' })) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const reply = host.switchToHttp().getResponse<FastifyReply>();
