@@ -6,7 +6,7 @@
  * Health/live/metrics endpoints are recorded at debug level to keep the hot
  * path signal-dense (they are polled constantly by orchestrators).
  */
-import { Injectable, type CallHandler, type ExecutionContext, type NestInterceptor } from '@nestjs/common';
+import { Injectable, Optional, type CallHandler, type ExecutionContext, type NestInterceptor } from '@nestjs/common';
 import { Observable, tap } from 'rxjs';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { createLogger, type Logger } from '@aca/logger';
@@ -16,7 +16,7 @@ const QUIET_ROUTES = new Set(['/health', '/health/live', '/health/ready', '/metr
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
-  constructor(private readonly logger: Logger = createLogger({ service: 'apps/api' })) {}
+  constructor(@Optional() private readonly logger: Logger = createLogger({ service: 'apps/api' })) {}
 
   intercept(context: ExecutionContext, next: CallHandler<unknown>): Observable<unknown> {
     const req = context.switchToHttp().getRequest<FastifyRequest>();

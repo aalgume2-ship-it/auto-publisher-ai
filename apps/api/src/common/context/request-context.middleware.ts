@@ -13,7 +13,7 @@
  * Public endpoints and health/metrics endpoints get the same treatment —
  * invariants are unconditional by design.
  */
-import { Injectable, type NestMiddleware } from '@nestjs/common';
+import { Injectable, Optional, type NestMiddleware } from '@nestjs/common';
 import { type FastifyReply, type FastifyRequest } from 'fastify';
 import { context, propagation, SpanStatusCode, trace, type Span, type Tracer } from '@opentelemetry/api';
 import { uuidv7 } from '@aca/shared';
@@ -62,7 +62,7 @@ export function buildRequestContext(headers: Record<string, string | string[] | 
 export class RequestContextMiddleware implements NestMiddleware {
   constructor(
     private readonly metrics: HttpMetrics,
-    private readonly tracer: Tracer = trace.getTracer('aca.api.http'),
+    @Optional() private readonly tracer: Tracer = trace.getTracer('aca.api.http'),
   ) {}
 
   use(req: FastifyRequest, reply: FastifyReply, next: () => void): void {
