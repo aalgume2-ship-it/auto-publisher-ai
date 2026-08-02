@@ -75,6 +75,15 @@ describe.skipIf(!IT)('organizations module — integration (real PG + Redis)', (
     expect(problemOf(res)['code']).toBe('UNAUTHENTICATED');
   });
 
+  it('unmatched route -> 404 problem (never a 500) and X-Request-Id echo — raw-transport finish path', async () => {
+    // Exercises the middleware 'unmatched' branch over middie's RAW req/res:
+    // the regression that made every request a 500 before the transport fix.
+    const res = await kit.app.inject({ method: 'GET', url: '/v1/definitely-not-a-route' });
+    expect(res.statusCode).toBe(404);
+    expect(res.headers['content-type']).toContain('application/problem+json');
+    expect(typeof res.headers['x-request-id']).toBe('string');
+  });
+
   it('POST /v1/organizations creates org + OWNER membership; idempotent replay is byte-identical', async () => {
     const key = randomUUID();
     const body = JSON.stringify({ name: 'IT Noor Media', slug: slugBase });
@@ -120,6 +129,16 @@ describe.skipIf(!IT)('organizations module — integration (real PG + Redis)', (
     expect(problemOf(res)['code']).toBe('VALIDATION_FAILED');
   });
 
+  it('malformed JSON payload -> 400 (strictness kept while empty bodies are accepted)', async () => {
+    const res = await kit.app.inject({
+      method: 'POST',
+      url: '/v1/organizations',
+      headers: ownerClient.headers({ 'idempotency-key': randomUUID() }),
+      payload: '{"name": "broken",',
+    });
+    expect(res.statusCode).toBe(400); // transport-layer parse failure, never a route-crash 500
+  });
+
   it('GET detail → PATCH profile → settings get/patch → security-policy merge', async () => {
     const detail = await timed('organization.get', () =>
       kit.app.inject({ method: 'GET', url: `/v1/organizations/${orgId}`, headers: ownerClient.headers() }),
@@ -159,7 +178,9 @@ describe.skipIf(!IT)('organizations module — integration (real PG + Redis)', (
     });
 
     const events = await kit.db.outboxEvent.count({
-      where: { orgId, type: 'aca.organization.settings_updated', payload: { path: ['section'], equals: 'security_policy' } },
+      // outbox rows store the FULL event envelope in `payload` (relay publishes
+      // it verbatim) — the event's business payload is one level down
+      where: { orgId, type: 'aca.organization.settings_updated', payload: { path: ['payload', 'section'], equals: 'security_policy' } },
     });
     expect(events).toBe(1);
   });
@@ -424,6 +445,19 @@ describe.skipIf(!IT)('organizations module — integration (real PG + Redis)', (
     expect(mutateA.statusCode).toBe(404);
     const untouched = await kit.db.organization.findUnique({ where: { id: orgId }, select: { name: true } });
     expect(untouched?.name).toBe('IT Noor Media Group');
+
+    // IN-TRANSACTION isolation regression (raw-tx collapse): referencing
+    // another org's department from the outsider's OWN org must 404 — the
+    // dept lookup inside the team-create tx must stay org-predicated.
+    const leak = await kit.app.inject({
+      method: 'POST',
+      url: `/v1/organizations/${ownOrgId}/teams`,
+      headers: outsiderClient.headers({ 'idempotency-key': randomUUID() }),
+      payload: { name: 'Leak Team', departmentId: deptId },
+    });
+    expect(leak.statusCode).toBe(404);
+    const leakRow = await kit.db.team.findFirst({ where: { orgId: ownOrgId, name: 'Leak Team' } });
+    expect(leakRow).toBeNull();
 
     await kit.db.idempotencyRecord.deleteMany({ where: { orgId: ownOrgId } });
     await kit.db.outboxEvent.deleteMany({ where: { orgId: ownOrgId } });
