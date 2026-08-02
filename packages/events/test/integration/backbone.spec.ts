@@ -34,6 +34,28 @@ const config = resolveEventsConfig({
 
 const V7 = (suffix: string): string => `0190844f-9f2e-7c3a-9b1d-2f8f6a1c4e${suffix}`;
 
+/** Bounded readiness poll for clients created with enableOfflineQueue:false. */
+async function waitForRedisReady(
+  redis: { ping(): Promise<string>; status: string },
+  timeoutMs: number,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown = null;
+  while (Date.now() < deadline) {
+    if (redis.status === 'ready') return;
+    try {
+      await redis.ping();
+      return;
+    } catch (err) {
+      lastError = err;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+  throw new Error(
+    `redis not ready within ${timeoutMs}ms (status=${redis.status}, last error=${lastError instanceof Error ? lastError.message : String(lastError)})`,
+  );
+}
+
 describe.skipIf(!IT)('events backbone (real postgres + redis)', () => {
   let db: DbClient;
   let bus: RedisStreamsBus;
@@ -45,6 +67,10 @@ describe.skipIf(!IT)('events backbone (real postgres + redis)', () => {
   beforeAll(async () => {
     db = createPrismaClient();
     bus = new RedisStreamsBus({ url: config.redisUrl, shardCount: config.shardCount, streamMaxLen: config.streamMaxLen, logger });
+    // The bus deliberately uses enableOfflineQueue:false (fail fast in prod);
+    // the suite must therefore wait for the handshake before issuing commands —
+    // poll PING until the server answers (bounded).
+    await waitForRedisReady(bus.redis, 15_000);
     await bus.redis.flushdb();
     writer = new OutboxWriter({ producer: 'apps/api' });
     relay = new OutboxRelay({
@@ -59,9 +85,9 @@ describe.skipIf(!IT)('events backbone (real postgres + redis)', () => {
   }, 60_000);
 
   afterAll(async () => {
-    await relay.stop();
-    await bus.quit();
-    await db.$disconnect();
+    await relay?.stop();
+    await bus?.quit();
+    await db?.$disconnect();
   });
 
   it('1. outbox write → relay → sharded stream envelope round-trip', async () => {
