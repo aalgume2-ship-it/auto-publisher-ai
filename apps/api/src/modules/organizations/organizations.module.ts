@@ -15,6 +15,8 @@ import { BrandingController, BrandingResolveController } from './branding.contro
 import { BrandingService } from './branding.service.js';
 import { DomainsController } from './domains.controller.js';
 import { DomainsService, dnsVerifierProvider } from './domains.service.js';
+import { OrgBillingController } from './billing.controller.js';
+import { OrgBillingService } from './billing.service.js';
 
 @Module({
   controllers: [
@@ -24,8 +26,9 @@ import { DomainsService, dnsVerifierProvider } from './domains.service.js';
     BrandingController,
     BrandingResolveController,
     DomainsController,
+    OrgBillingController,
   ],
-  providers: [OrganizationsService, TeamsService, DepartmentsService, BrandingService, DomainsService, dnsVerifierProvider],
-  exports: [OrganizationsService, TeamsService, DepartmentsService, BrandingService, DomainsService],
+  providers: [OrganizationsService, TeamsService, DepartmentsService, BrandingService, DomainsService, dnsVerifierProvider, OrgBillingService],
+  exports: [OrganizationsService, TeamsService, DepartmentsService, BrandingService, DomainsService, OrgBillingService],
 })
 export class OrganizationsModule {}
