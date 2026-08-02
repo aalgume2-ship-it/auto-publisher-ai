@@ -9,7 +9,7 @@
  *  - actions use the `entity.verb_past` shape: 'team.created', 'brand.reset'.
  */
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@aca/database';
+import { generateId, type Prisma } from '@aca/database';
 import { maybeRequestContext } from '../context/request-context.js';
 
 /** The audit writer needs only the auditLog delegate of a real Prisma transaction. */
@@ -47,6 +47,7 @@ export class AuditService {
     const ctx = maybeRequestContext();
     const actor = resolveAuditActor(ctx?.principal ?? null);
     const data: Prisma.AuditLogUncheckedCreateInput = {
+      id: generateId(),
       orgId: entry.orgId,
       actorId: actor.actorId,
       actorType: actor.actorType,
@@ -59,9 +60,6 @@ export class AuditService {
     if (entry.metadata !== undefined) {
       data.metadata = entry.metadata as Prisma.InputJsonValue;
     }
-    // id is minted by the tenant-extension injector on tenant txs; on plain
-    // txs Prisma generates nothing (schema has no default) — injectors cover
-    // all module call sites, so no fallback here by design.
     await tx.auditLog.create({ data });
   }
 }

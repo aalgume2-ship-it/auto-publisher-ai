@@ -7,10 +7,12 @@
 import { Module } from '@nestjs/common';
 import { OrganizationsController } from './organizations.controller.js';
 import { OrganizationsService } from './organizations.service.js';
+import { TeamsController } from './teams.controller.js';
+import { TeamsService } from './teams.service.js';
 
 @Module({
-  controllers: [OrganizationsController],
-  providers: [OrganizationsService],
-  exports: [OrganizationsService],
+  controllers: [OrganizationsController, TeamsController],
+  providers: [OrganizationsService, TeamsService],
+  exports: [OrganizationsService, TeamsService],
 })
 export class OrganizationsModule {}

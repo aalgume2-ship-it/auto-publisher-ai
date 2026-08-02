@@ -165,7 +165,14 @@ export class OrganizationsService {
     return this.ops.measure(MODULE, 'organization.update', async () => {
       const changed = (Object.keys(body) as Array<keyof UpdateOrganizationBody>).filter((k) => body[k] !== undefined);
       return this.tenant(this.db, orgId).$transaction(async (tx: Prisma.TransactionClient) => {
-        const org = await tx.organization.update({ where: { id: orgId }, data: body });
+        const org = await tx.organization.update({
+          where: { id: orgId },
+          data: {
+            ...(body.name !== undefined ? { name: body.name } : {}),
+            ...(body.timezone !== undefined ? { timezone: body.timezone } : {}),
+            ...(body.defaultLocale !== undefined ? { defaultLocale: body.defaultLocale } : {}),
+          },
+        });
         await this.audit.record(tx, {
           orgId,
           action: 'organization.updated',
@@ -207,7 +214,13 @@ export class OrganizationsService {
     return this.ops.measure(MODULE, 'organization.settings.update', async () => {
       const changed = (Object.keys(body) as Array<keyof UpdateSettingsBody>).filter((k) => body[k] !== undefined);
       return this.tenant(this.db, orgId).$transaction(async (tx: Prisma.TransactionClient) => {
-        await tx.organization.update({ where: { id: orgId }, data: body });
+        await tx.organization.update({
+          where: { id: orgId },
+          data: {
+            ...(body.timezone !== undefined ? { timezone: body.timezone } : {}),
+            ...(body.defaultLocale !== undefined ? { defaultLocale: body.defaultLocale } : {}),
+          },
+        });
         await this.audit.record(tx, {
           orgId,
           action: 'organization.settings_updated',
