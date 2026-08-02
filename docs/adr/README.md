@@ -9,7 +9,7 @@ by the same PR. Statuses: **Accepted** (normative) · **Proposed** (under review
 
 ---
 
-## ADR-001 · Backend framework: NestJS 10 + Fastify
+## ADR-001 · Backend framework: NestJS 10 + Fastify  *(superseded to NestJS 11 + Fastify 5 by ADR-026 — the module/DI-decision stands)*
 
 - **Decision:** API is a NestJS modular monolith on the Fastify adapter.
 - **Why:** first-class DI/guards/interceptors (RBAC, audit, tenancy are cross-cutting);
@@ -334,6 +334,53 @@ by the same PR. Statuses: **Accepted** (normative) · **Proposed** (under review
 
 ---
 
+## ADR-026 · Framework uplift: NestJS 11 + Fastify 5 (supersedes ADR-001 version pin), OTel 0.217, vitest 3 — forced by the security gate  *(v2.4)*
+
+- **Why:** the FIRST full-dependency install happened on GitHub CI (the sandbox
+  has no pnpm). `pnpm audit --audit-level=high` failed with 2 critical / 16 high
+  advisories, and querying the GitHub Advisory Database proved the fastify-4 /
+  NestJS-10 line has **no patched releases for its own criticals**:
+
+  | Advisory | Package | Vulnerable | First patched |
+  |----------|---------|-----------|----------------|
+  | GHSA-72c6/v9ww/8p85/cxrg (crit+high) | @fastify/middie | ≤9.3.1 (our chain: middie@8 via fastify@4) | 9.2.0–9.3.2 — **no 8.x fix** |
+  | GHSA-jx2c-rxcm-jvmq (high) | fastify | <5.7.2 | 5.7.2 — **no 4.x fix** |
+  | GHSA-6v32/r4wm/wf42 (high) | @nestjs/platform-fastify | ≤11.1.23 | 11.1.14/16/24 |
+  | GHSA-q7rr-3cgh-j5r3 (high) | @opentelemetry/sdk-node / exporter-prometheus | <0.217.0 | 0.217.0 |
+  | GHSA-45rx (high) | @opentelemetry/propagator-jaeger | <2.9.0 | 2.9.0 |
+  | GHSA-5xrq-8626-4rwp (critical) | vitest | <3.2.6 (our catalog: 2.1.8) | 3.2.6 — **no 2.x fix** |
+  | GHSA-fx2h (high) | vite | ≤6.4.2 | 6.4.3 |
+  | GHSA-c96f (high) | find-my-way | ≤9.6.0 | 9.7.0 |
+  | GHSA-q3j6/v39h (high) | fast-uri | ≤3.1.1 | 3.1.2 |
+  | GHSA-52cp (high) | js-yaml | 4.0.0–4.2.x | 4.3.0 |
+  | GHSA-r5fr (high) | lodash | ≤4.17.23 | 4.18.0 |
+  | GHSA-2w6w (critical) | handlebars | ≤4.7.8 | 4.7.9 (override, prior commit) |
+  | GHSA-…vitest UI (critical) | vitest UI server file-read | (bundled in 3.2.6 fix) | 3.2.6 |
+
+- **Decision:** uplift in ONE move — NestJS `^11.1.24` (common/core/platform-fastify),
+  Fastify `^5.7.2`, `@nestjs/swagger` `^8` (Nest-11 line), OTel `sdk-node` +
+  `exporter-trace-otlp-http` `^0.217.0`, workspace vitest catalog `^3.2.6`,
+  `find-my-way@^9.7.0`/`fast-uri@^3.1.2` come bundled with fastify 5.7.x,
+  plus pnpm overrides as floors where a transitive consumer could pin stale:
+  `handlebars ≥4.7.9`, `js-yaml ≥4.3.0`, `fast-uri ≥3.1.2`,
+  `@fastify/middie ≥9.3.2`, `find-my-way ≥9.7.0`, `lodash ≥4.18.0`.
+  Module/DI/guard architecture from ADR-001/ADR-025 is untouched — this is a
+  version-plane change only (public API of Nest guards/interceptors is stable
+  10→11 for our usage; RequestContextMiddleware signature unchanged under
+  fastify 5 middie).
+- **Rejected:** pnpm-overriding transitive floors while STAYING on
+  NestJS 10 / fastify 4 (proven above: no patched middie 8.x / fastify 4.x
+  exists to pin to) · `pnpm.auditConfig.ignoreGhsas` for criticals (hiding
+  criticals is not a remediation; only advisories with no code path to the
+  vulnerable surface may ever land there, each with a written justification) ·
+  dropping pnpm audit from CI (the gate caught real exposure — it stays,
+  permanently).
+- **Implemented by:** `apps/api/package.json` (framework/otel bump),
+  root `package.json` pnpm.overrides floors, `pnpm-workspace.yaml` vitest
+  catalog, `docs/adr/README.md` (this entry + ADR-001 supersession note).
+
+---
+
 ### How to write a new ADR
 
 1. Copy the format above into `docs/adr/NNNN-title.md`.
@@ -351,3 +398,4 @@ by the same PR. Statuses: **Accepted** (normative) · **Proposed** (under review
 | 022–023 | v2.1 validation amendments | Accepted (machine-verified design) |
 | 024 | v2.2 events backbone guarantees | Accepted |
 | 025 | v2.3 apps/api platform foundation | Accepted |
+| 026 | v2.4 framework uplift forced by security gate | Accepted |
