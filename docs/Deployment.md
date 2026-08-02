@@ -101,6 +101,32 @@ in Business-Model §5 unchanged (absorbed in infra line at 1k-org scale).
 
 ---
 
+## 2. Preview on Render (one-click Blueprint — durable trial URL)
+
+`render.yaml` (repo root) provisions the full preview stack on Render —
+web service + managed Postgres 16 + free KeyValue (Redis protocol) — with
+zero local tooling:
+
+1. <https://dashboard.render.com> → **New → Blueprint** → connect this repo.
+2. Render reads `render.yaml` and runs, per deploy: pnpm install → prisma
+   generate → `turbo build` → **pre-deploy** `ensure-vector.mjs` (pgvector,
+   idempotent) → `prisma db push` → `pnpm db:seed` → start
+   `node apps/api/dist/main.js`.
+3. When Live, the service URL (`https://<service>.onrender.com`) serves
+   `/docs`, `/openapi.json`, `/health`, `/health/ready`, `/metrics` publicly;
+   the remaining surface needs a session JWT: mint one from the web service's
+   Render **Shell** tab — `node infra/scripts/mint-dev-token.mjs` (demo-org +
+   demo user seed because `NODE_ENV=development`; a staging cut sets
+   `NODE_ENV=production`, skipping demo data per Database.md §7).
+
+Free-plan realities (Render, by design): web sleeps after 15 min idle (cold
+start on next request), free Postgres lasts 90 days, KeyValue free tier is
+25 MB. `AUTH_JWT_SECRET` is generated per service by Render; `TRUST_PROXY`
+is set so per-client rate limiting keys off the real client IP behind
+Render's balancer.
+
+---
+
 ## 2. Local Development Stack
 
 `docker-compose.yml` (repo root) — complete runnable definition:

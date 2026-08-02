@@ -55,6 +55,11 @@ Three ways to explore interactively: **Swagger UI** at <http://localhost:3000/do
 or `pnpm demo` for the fully-scripted tour. Full, honest instructions (incl.
 what does **not** run yet): [`docs/DEVELOPER-GUIDE.md`](./docs/DEVELOPER-GUIDE.md).
 
+**Hosted preview instead of local?** This repo is a Render Blueprint:
+dashboard → *New → Blueprint* → pick the repo — web + Postgres + Redis deploy
+themselves (see [`docs/Deployment.md` §Preview on Render](./docs/Deployment.md)
++ [`render.yaml`](./render.yaml)).
+
 Convenience: Jaeger UI `:16686` · MinIO console `:9001` · Mailpit `:8025` · Bull Board `:3030`.
 
 ## Repository layout
