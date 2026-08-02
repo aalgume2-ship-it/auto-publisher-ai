@@ -432,3 +432,37 @@ by the same PR. Statuses: **Accepted** (normative) · **Proposed** (under review
 | 024 | v2.2 events backbone guarantees | Accepted |
 | 025 | v2.3 apps/api platform foundation | Accepted |
 | 026 | v2.4 framework uplift forced by security gate | Accepted |
+
+## ADR-027 · Module-1 build schema + contract additions: Departments, OrganizationBillingProfile, org-domain events, audit-inline rule  *(v2.5 — 2026-08-02)*
+
+- **Decision:** (a) new `Department` model (org-scoped; `Team.departmentId?` → SetNull
+  on delete) — departments group teams, teams group members, projects stay
+  team-owned; departments ≠ teams (org chart vs delivery squads). (b) new
+  `OrganizationBillingProfile` 1-1 table instead of org-row columns (legal/tax
+  data has its own mutation cadence + will sync to billing-provider portal
+  later; keeps the hot org row lean). (c) 18 additive v1 org-domain event types
+  in the typed catalog (organization/team/department/brand/domain/billing-profile)
+  — C1 change policy allows additive v1. (d) **Audit-inline rule:** API services
+  write `audit_logs` rows in the SAME transaction as the mutation and emit the
+  domain event via outbox; the catalog `audit` consumer id is reserved for
+  producers that cannot write audit directly (worker fleets) — never both, or
+  audit would double-log. (e) settings surface split: `PATCH /settings` needs
+  `org.manage`; `PATCH /settings/security-policy` needs `security.policy.manage`
+  (OWNER-only per ROLE_CAPABILITIES). (f) new capability `department.manage`
+  (ADMIN inherits; additive to PERMISSIONS, Security.md §6 derives).
+- **Why:** sponsor Module-1 requirements list departments and billing profiles;
+  schema had neither (72 models at v1.0). Event catalog had zero org-domain
+  types — feature modules cannot emit what the catalog does not declare.
+- **Rejected:** departments-as-teams-rename (breaks API.md §4.2 contract +
+  conflates two hierarchies) · billing columns on `organizations` (row bloat,
+  mixed mutation cadence) · async-only audit via consumer (weaker guarantee:
+  mutation committed but audit lost on crash) · emitting org events outside the
+  catalog (contract bypass — CI forbids).
+- **Implemented by:** `docs/Database.md` §3 + `packages/database/prisma/schema.prisma`
+  (Department, OrganizationBillingProfile, Team.departmentId), `packages/shared/src/
+  contracts/event-catalog.ts` + `permissions.ts`, `apps/api/src/modules/organizations/**`,
+  `apps/api/src/common/audit/audit.service.ts`.
+
+---
+
+*End of ADR index — append new ADRs ABOVE this line.*
