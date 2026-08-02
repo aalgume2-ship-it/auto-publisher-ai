@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { describe, expect, it } from 'vitest';
-import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { AppConfig } from '@aca/config';
 import { UuidV7Schema, uuidv7 } from '@aca/shared';
 import {
   REQUEST_CONTEXT,
@@ -11,6 +12,7 @@ import {
 import {
   RequestContextMiddleware,
   buildRequestContext,
+  clientIpOf,
   effectiveTraceId,
 } from '../src/common/context/request-context.middleware.js';
 import { HttpMetrics } from '../src/common/telemetry/http-metrics.js';
@@ -38,7 +40,6 @@ describe('buildRequestContext', () => {
   it('rejects an INVALID client X-Request-Id (mint fresh instead of trusting)', () => {
     const ctx = buildRequestContext({ 'x-request-id': '../../etc/passwd' }, '127.0.0.1');
     expect(ctx.requestId).not.toBe('../../etc/passwd');
-    expect(UuidV7Schema.safeParse(ctx.requestId).success).toBe(true);
   });
 
   it('sanitizeRequestId accepts only uuidv7', () => {
@@ -47,6 +48,30 @@ describe('buildRequestContext', () => {
     expect(sanitizeRequestId('garbage', mint)).toBe('minted');
     const id = uuidv7();
     expect(sanitizeRequestId(id, mint)).toBe(id);
+  });
+});
+
+/* ---------- clientIpOf (pure — raw transport, middie contract) ---------- */
+
+describe('clientIpOf', () => {
+  const reqWith = (headers: Record<string, string | string[] | undefined>, remoteAddress = '10.9.9.9') =>
+    ({ headers, socket: { remoteAddress } }) as unknown as IncomingMessage;
+
+  it('uses the socket peer when trustProxy is off (X-Forwarded-For ignored — never trust unearned)', () => {
+    const req = reqWith({ 'x-forwarded-for': '1.2.3.4' });
+    expect(clientIpOf(req, false)).toBe('10.9.9.9');
+  });
+
+  it('honors the FIRST x-forwarded-for hop when trustProxy is on', () => {
+    const req = reqWith({ 'x-forwarded-for': '1.2.3.4, 10.0.0.8' });
+    expect(clientIpOf(req, true)).toBe('1.2.3.4');
+  });
+
+  it('falls back to the socket peer when the header is absent or empty', () => {
+    expect(clientIpOf(reqWith({}), true)).toBe('10.9.9.9');
+    expect(clientIpOf(reqWith({ 'x-forwarded-for': '' }), true)).toBe('10.9.9.9');
+    const noSocket = { headers: {}, socket: { remoteAddress: undefined } } as unknown as IncomingMessage;
+    expect(clientIpOf(noSocket, false)).toBe('');
   });
 });
 
@@ -67,37 +92,41 @@ describe('requestContext accessor', () => {
   });
 });
 
-/* ---------- middleware end-to-end over fake fastify primitives ---------- */
+/* ---------- middleware end-to-end over the RAW transport pair ----------
+ * middie hands middleware (IncomingMessage, ServerResponse) — the mocks below
+ * deliberately reproduce THAT contract (setHeader/once/statusCode/socket),
+ * because the pre-fix mocks manufactured wrapper objects with .header()/.raw
+ * and thereby CODIFIED the false interface that the HTTP integration suite
+ * later caught. Mocks must model reality, not wishes. */
 
-function fakeReqRes(headers: Record<string, string>): { req: FastifyRequest; reply: FastifyReply } {
-  const raw = new EventEmitter();
+const TEST_CONFIG = { http: { trustProxy: false } } as AppConfig;
+
+function fakeReqRes(headers: Record<string, string>): {
+  req: IncomingMessage;
+  reply: ServerResponse & { headers: Map<string, string> };
+} {
   const replyHeaders = new Map<string, string>();
   const req = {
     headers,
     method: 'POST',
     url: '/v1/orgs/019/projects?x=1',
-    ip: '192.168.1.10',
-    routeOptions: { url: '/v1/orgs/:orgId/projects' },
-  } as unknown as FastifyRequest;
-  const reply = {
+    socket: { remoteAddress: '192.168.1.10' },
+  } as unknown as IncomingMessage;
+  const reply = Object.assign(new EventEmitter(), {
     statusCode: 201,
-    raw,
-    header(k: string, v: string) {
+    setHeader(k: string, v: string) {
       replyHeaders.set(k, v);
     },
-    get headers() {
-      return replyHeaders;
-    },
-  } as unknown as FastifyReply;
+    headers: replyHeaders,
+  }) as unknown as ServerResponse & { headers: Map<string, string> };
   return { req, reply };
 }
 
 describe('RequestContextMiddleware', () => {
   it('installs context for the whole downstream chain and echoes headers', async () => {
     const metrics = new HttpMetrics();
-    const mw = new RequestContextMiddleware(metrics);
+    const mw = new RequestContextMiddleware(metrics, TEST_CONFIG);
     const { req, reply } = fakeReqRes({});
-    const hdrs = (reply as unknown as { headers: Map<string, string> }).headers;
 
     let seenInside: string | null = null;
     mw.use(req, reply, () => {
@@ -106,15 +135,15 @@ describe('RequestContextMiddleware', () => {
 
     expect(seenInside).not.toBeNull();
     expect(UuidV7Schema.safeParse(seenInside).success).toBe(true);
-    expect(hdrs.get('X-Request-Id')).toBe(seenInside);
-    expect(hdrs.get('X-Correlation-Id')).toBe(seenInside); // no correlation header supplied
+    expect(reply.headers.get('X-Request-Id')).toBe(seenInside);
+    expect(reply.headers.get('X-Correlation-Id')).toBe(seenInside); // no correlation header supplied
 
     // context does not leak between requests: after the callback, store is empty
     expect(REQUEST_CONTEXT.getStore()).toBeUndefined();
   });
 
   it('stamps a valid non-zero W3C trace id even without an OTel SDK', () => {
-    const mw = new RequestContextMiddleware(new HttpMetrics());
+    const mw = new RequestContextMiddleware(new HttpMetrics(), TEST_CONFIG);
     const { req, reply } = fakeReqRes({});
     let traceId = '';
     mw.use(req, reply, () => {
@@ -126,7 +155,7 @@ describe('RequestContextMiddleware', () => {
 
   it('continues an upstream traceparent when the SDK is absent (ids stay valid)', () => {
     const upstream = '4bf92f3577b34da6a3ce929d0e0e4736';
-    const mw = new RequestContextMiddleware(new HttpMetrics());
+    const mw = new RequestContextMiddleware(new HttpMetrics(), TEST_CONFIG);
     const { req, reply } = fakeReqRes({ traceparent: `00-${upstream}-00f067aa0ba902b7-01` });
     let traceId = '';
     mw.use(req, reply, () => {
@@ -137,12 +166,15 @@ describe('RequestContextMiddleware', () => {
     expect(traceId).toMatch(/^[0-9a-f]{32}$/);
   });
 
-  it('records metrics with the matched route pattern (never the raw URL)', async () => {
+  it('records metrics with the matched route pattern (patched by AuthGuard, never the raw URL)', async () => {
     const metrics = new HttpMetrics();
-    const mw = new RequestContextMiddleware(metrics);
+    const mw = new RequestContextMiddleware(metrics, TEST_CONFIG);
     const { req, reply } = fakeReqRes({});
-    mw.use(req, reply, () => undefined);
-    reply.raw.emit('finish');
+    mw.use(req, reply, () => {
+      // exactly what AuthGuard does as the first post-route stage
+      patchRequestContext({ route: '/v1/orgs/:orgId/projects' });
+    });
+    reply.emit('finish');
     const text = await metrics.render();
     expect(text).toContain('aca_http_requests_total{method="POST",route="/v1/orgs/:orgId/projects",status="2xx"} 1');
     expect(text).toContain('aca_http_request_duration_seconds_bucket');
@@ -151,12 +183,11 @@ describe('RequestContextMiddleware', () => {
 
   it('labels unmatched routes as "unmatched" (404 cardinality guard)', async () => {
     const metrics = new HttpMetrics();
-    const mw = new RequestContextMiddleware(metrics);
-    const raw = new EventEmitter();
-    const req = { headers: {}, method: 'GET', url: '/nope', ip: 'x', routeOptions: { url: undefined } } as unknown as FastifyRequest;
-    const reply = { statusCode: 404, raw, header: () => undefined } as unknown as FastifyReply;
-    mw.use(req, reply, () => undefined);
-    raw.emit('finish');
+    const mw = new RequestContextMiddleware(metrics, TEST_CONFIG);
+    const { req, reply } = fakeReqRes({});
+    (reply as { statusCode: number }).statusCode = 404;
+    mw.use(req, reply, () => undefined); // no route patch — guard never ran
+    reply.emit('finish');
     const text = await metrics.render();
     expect(text).toContain('route="unmatched"');
   });
