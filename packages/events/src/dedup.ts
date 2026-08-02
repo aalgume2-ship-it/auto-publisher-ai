@@ -52,6 +52,41 @@ export interface InboxRunInput {
   envelope: EventEnvelope;
 }
 
+/** Stream-id ordering: "ms-seq" comparison, numeric both parts. */
+export function entryIdNewer(candidate: string, existing: string): boolean {
+  const [cms, cseq] = candidate.split('-');
+  const [ems, eseq] = existing.split('-');
+  const cm = Number(cms);
+  const em = Number(ems);
+  if (cm !== em) return cm > em;
+  return Number(cseq ?? '0') > Number(eseq ?? '0');
+}
+
+/**
+ * Monotonic per-slot cursor advance. Used INSIDE the dedup tx (processed path)
+ * and standalone in the duplicate path: a duplicate IS durably processed (its
+ * dedup row exists), so its stream position is committed too — otherwise a
+ * Redis rebuild after state loss would restart the group one event stale and
+ * replay already-processed entries (safe but noisy; ADR-024 "ack without side
+ * effects" includes the cursor).
+ */
+export async function advanceCursor(db: DbClient, input: InboxRunInput): Promise<void> {
+  const cursor = await readCursor(db, input.consumer, input.stream);
+  const existing = cursor[String(input.slot)];
+  if (existing === undefined || entryIdNewer(input.entryId, existing)) {
+    cursor[String(input.slot)] = input.entryId;
+  }
+  await db.consumerCursor.upsert({
+    where: { consumer_stream: { consumer: input.consumer, stream: input.stream } },
+    update: { lastCommittedId: JSON.stringify(cursor) },
+    create: {
+      consumer: input.consumer,
+      stream: input.stream,
+      lastCommittedId: JSON.stringify(cursor),
+    },
+  });
+}
+
 /**
  * Executes `handler(tx)` once effectively per (consumer, envelope.id).
  * Domain writes by the handler and the dedup+cursor rows share the tx.
@@ -67,23 +102,16 @@ export async function runWithInboxDedup<T>(
         data: { id: generateId(), consumer: input.consumer, eventId: input.envelope.id },
       });
       const out = await handler(tx);
-      const cursor = await readCursor(tx as unknown as DbClient, input.consumer, input.stream);
-      cursor[String(input.slot)] = input.entryId;
-      await tx.consumerCursor.upsert({
-        where: { consumer_stream: { consumer: input.consumer, stream: input.stream } },
-        update: { lastCommittedId: JSON.stringify(cursor) },
-        create: {
-          consumer: input.consumer,
-          stream: input.stream,
-          lastCommittedId: JSON.stringify(cursor),
-        },
-      });
+      await advanceCursor(tx as unknown as DbClient, input);
       return out;
     });
     return { status: 'processed', result };
   } catch (err) {
-    if (isUniqueViolation(err)) return { status: 'duplicate' };
-    throw err;
+    if (!isUniqueViolation(err)) throw err;
+    // duplicate: dedup row exists ⇒ the event was durably processed before;
+    // its stream position advances the cursor (monotonic), NO handler side effects.
+    await advanceCursor(db, input);
+    return { status: 'duplicate' };
   }
 }
 
