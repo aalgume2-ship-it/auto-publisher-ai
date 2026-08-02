@@ -6,7 +6,7 @@
  * nature: "is THIS user in THIS org").
  */
 import { Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
-import { createPrismaClient, type DbClient } from '@aca/database';
+import { createPrismaClient, forOrganization, type DbClient, type TenantClient } from '@aca/database';
 
 @Injectable()
 export class PrismaService implements OnModuleInit, OnModuleDestroy {
@@ -28,4 +28,18 @@ export const prismaProvider = {
   provide: PRISMA,
   useFactory: (service: PrismaService): DbClient => service.client,
   inject: [PrismaService],
+};
+
+/**
+ * Explicit seam for tenant scoping (requirement: every org-data query is
+ * tenant-isolated). Default = the real @aca/database extension; unit tests
+ * substitute an identity factory over a hand-rolled fake client.
+ */
+export type TenantClientFactory = (db: DbClient, organizationId: string) => TenantClient;
+
+export const TENANT_CLIENT = 'TENANT_CLIENT';
+
+export const tenantClientProvider = {
+  provide: TENANT_CLIENT,
+  useFactory: (): TenantClientFactory => (db, organizationId) => forOrganization(db, { organizationId }),
 };

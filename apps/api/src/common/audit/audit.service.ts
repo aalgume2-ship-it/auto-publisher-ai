@@ -12,12 +12,8 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@aca/database';
 import { maybeRequestContext } from '../context/request-context.js';
 
-/** Structural subset of a Prisma client/tx this writer needs (test-friendly). */
-export interface AuditTx {
-  auditLog: {
-    create(args: { data: Record<string, unknown> }): Promise<unknown>;
-  };
-}
+/** The audit writer needs only the auditLog delegate of a real Prisma transaction. */
+export type AuditTx = Pick<Prisma.TransactionClient, 'auditLog'>;
 
 export type AuditActor = { actorType: 'USER' | 'API_KEY' | 'SYSTEM' | 'OAUTH_APP' | 'SCIM'; actorId: string | null };
 
@@ -50,7 +46,7 @@ export class AuditService {
   async record(tx: AuditTx, entry: AuditEntry): Promise<void> {
     const ctx = maybeRequestContext();
     const actor = resolveAuditActor(ctx?.principal ?? null);
-    const data: Record<string, unknown> = {
+    const data: Prisma.AuditLogUncheckedCreateInput = {
       orgId: entry.orgId,
       actorId: actor.actorId,
       actorType: actor.actorType,
@@ -61,8 +57,11 @@ export class AuditService {
       userAgent: ctx?.userAgent ?? null,
     };
     if (entry.metadata !== undefined) {
-      data['metadata'] = entry.metadata as Prisma.InputJsonValue;
+      data.metadata = entry.metadata as Prisma.InputJsonValue;
     }
+    // id is minted by the tenant-extension injector on tenant txs; on plain
+    // txs Prisma generates nothing (schema has no default) — injectors cover
+    // all module call sites, so no fallback here by design.
     await tx.auditLog.create({ data });
   }
 }

@@ -1,7 +1,7 @@
 /**
- * AppModule — the composition root (ADR-025). Everything is infrastructure
- * here; feature modules (v1 controllers/services) are added UNDER this shell,
- * importing CommonModule providers by token.
+ * AppModule — the composition root (ADR-025). Infrastructure providers live in
+ * the @Global CommonModule (imported below); feature modules (v1 controllers/
+ * services) are added UNDER this shell and consume CommonModule by token.
  *
  * Registration ORDER IS BEHAVIOR:
  *   middleware: RequestContextMiddleware ('*') — FIRST, wraps all
@@ -11,11 +11,8 @@
  */
 import { Module, type MiddlewareConsumer, type NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
-import { loadConfig } from '@aca/config';
-import { PrismaService, prismaProvider } from './common/prisma.provider.js';
-import { API_CONFIG, RedisService, redisProvider } from './common/redis.provider.js';
+import { CommonModule } from './common/common.module.js';
 import { RequestContextMiddleware } from './common/context/request-context.middleware.js';
-import { HttpMetrics } from './common/telemetry/http-metrics.js';
 import { ProblemDetailsFilter } from './common/errors/problem-details.filter.js';
 import { AuthGuard } from './common/auth/auth.guard.js';
 import { TenantGuard } from './common/auth/tenant.guard.js';
@@ -27,17 +24,12 @@ import { LoggingInterceptor } from './common/http/logging.interceptor.js';
 import { IdempotencyInterceptor } from './common/idempotency/idempotency.interceptor.js';
 import { HealthController } from './health/health.controller.js';
 import { MetricsController } from './metrics/metrics.controller.js';
+import { OrganizationsModule } from './modules/organizations/organizations.module.js';
 
 @Module({
+  imports: [CommonModule, OrganizationsModule],
   controllers: [HealthController, MetricsController],
   providers: [
-    // config / data providers
-    { provide: API_CONFIG, useFactory: () => loadConfig() },
-    PrismaService,
-    prismaProvider,
-    RedisService,
-    redisProvider,
-    HttpMetrics,
     Reflector,
     // single error exit door
     { provide: APP_FILTER, useClass: ProblemDetailsFilter },

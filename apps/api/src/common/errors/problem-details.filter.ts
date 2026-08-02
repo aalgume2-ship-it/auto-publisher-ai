@@ -22,6 +22,16 @@ import {
   problemTypeUri,
 } from '@aca/shared';
 import { ApiError, ERROR_STATUS, apiErrors } from './api-error.js';
+
+/** Structural P2025 detector — avoids importing the Prisma runtime into the error layer. */
+export function isPrismaRecordNotFound(exception: unknown): boolean {
+  return (
+    typeof exception === 'object' &&
+    exception !== null &&
+    exception.constructor?.name === 'PrismaClientKnownRequestError' &&
+    (exception as { code?: unknown }).code === 'P2025'
+  );
+}
 import { maybeRequestContext } from '../context/request-context.js';
 
 const ERROR_CODE_SET: ReadonlySet<string> = new Set(ErrorCodes);
@@ -43,6 +53,16 @@ const STATUS_TO_CODE: Readonly<Record<number, ErrorCode>> = {
 export function toProblem(exception: unknown, requestId: string): ProblemDetails {
   if (exception instanceof ApiError) {
     return exception.toProblem(requestId);
+  }
+  // Tenant-scope extension breach (cross-org id mutation): masked as 404 — the
+  // caller must learn nothing about the existence of other tenants' rows.
+  if (exception instanceof Error && exception.name === 'TenantViolationError') {
+    return apiErrors.tenantViolation().toProblem(requestId);
+  }
+  // Prisma P2025 (record to update/delete not found) — honest 404 for
+  // update-by-id flows (create flows never raise it).
+  if (isPrismaRecordNotFound(exception)) {
+    return apiErrors.notFound('resource').toProblem(requestId);
   }
   if (exception instanceof HttpException) {
     const status = exception.getStatus();

@@ -20,7 +20,8 @@ function ctxWith(patch: Partial<RequestContextState>): RequestContextState {
 
 function fakeTx() {
   const create = vi.fn().mockResolvedValue({});
-  const tx: AuditTx = { auditLog: { create } };
+  // fake satisfies the delegate shape; single narrowing at the boundary
+  const tx = { auditLog: { create } } as unknown as AuditTx;
   return { tx, create };
 }
 
@@ -70,7 +71,7 @@ describe('AuditService.record', () => {
   });
 
   it('propagates tx errors (caller aborts the whole transaction)', async () => {
-    const tx: AuditTx = { auditLog: { create: vi.fn().mockRejectedValue(new Error('db gone')) } };
+    const tx = { auditLog: { create: vi.fn().mockRejectedValue(new Error('db gone')) } } as unknown as AuditTx;
     const svc = new AuditService();
     await expect(svc.record(tx, { orgId: 'o', action: 'x.y', entityType: 'X' })).rejects.toThrow('db gone');
   });
