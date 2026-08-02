@@ -38,8 +38,10 @@
   "devDependencies": {
     "@aca/typescript-config": "workspace:*",
     "@nestjs/testing": "^11.1.24",
+    "@swc/core": "^1.15.47",
     "@types/node": "catalog:",
     "typescript": "catalog:",
+    "unplugin-swc": "^1.5.9",
     "vitest": "catalog:"
   }
 }

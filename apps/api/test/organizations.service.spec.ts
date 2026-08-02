@@ -168,12 +168,19 @@ describe('OrganizationsService settings', () => {
     expect('unknownGarbage' in settings.securityPolicy).toBe(false);
   });
 
-  it('updateSecurityPolicy whitelist-merges and emits the security_policy section event', async () => {
+  it('updateSecurityPolicy whitelist-merges, emits the section event, and returns the FRESH re-read', async () => {
     const tx = makeFake();
-    tx.organization.findFirst.mockResolvedValue({ securityPolicy: { enforceMfa: true, junk: 1 } });
+    tx.organization.findFirst
+      .mockResolvedValueOnce({ securityPolicy: { enforceMfa: true, junk: 1 } }) // pre-read for the merge
+      .mockResolvedValueOnce({
+        // post-update re-read THROUGH THE TX (pool read would be pre-commit stale)
+        timezone: 'Asia/Riyadh',
+        defaultLocale: 'ar-SA',
+        securityPolicy: { enforceSso: true, enforceMfa: true, sessionMaxHours: 12, ipAllowListEnabled: false },
+      });
     tx.organization.update.mockResolvedValue(orgRow());
     const svc = makeService(tx);
-    await svc.updateSecurityPolicy(ORG_ID, { enforceSso: true, sessionMaxHours: 12 });
+    const dto = await svc.updateSecurityPolicy(ORG_ID, { enforceSso: true, sessionMaxHours: 12 });
     const updateArgs = tx.organization.update.mock.calls[0]?.[0] as { data: { securityPolicy: Record<string, unknown> } };
     expect(updateArgs.data.securityPolicy).toEqual({
       enforceSso: true,
@@ -181,6 +188,14 @@ describe('OrganizationsService settings', () => {
       sessionMaxHours: 12,
       ipAllowListEnabled: false,
     });
+    expect(dto.securityPolicy).toEqual({
+      enforceSso: true,
+      enforceMfa: true,
+      sessionMaxHours: 12,
+      ipAllowListEnabled: false,
+    });
+    expect(dto.timezone).toBe('Asia/Riyadh');
+    expect(tx.organization.findFirst).toHaveBeenCalledTimes(2); // merge-read + fresh re-read
     const events = tx.outboxEvent.createMany.mock.calls[0]?.[0] as { data: Array<Record<string, unknown>> };
     expect((events.data[0]?.['payload'] as { payload: unknown }).payload).toMatchObject({
       section: 'security_policy',
@@ -188,6 +203,27 @@ describe('OrganizationsService settings', () => {
     });
     const auditData = tx.auditLog.create.mock.calls[0]?.[0] as { data: Record<string, unknown> };
     expect(auditData.data['action']).toBe('organization.security_policy_updated');
+  });
+
+  it('updateSettings writes changed keys only and answers with the fresh row (tx re-read)', async () => {
+    const tx = makeFake();
+    tx.organization.findFirst.mockResolvedValue({
+      timezone: 'Asia/Riyadh',
+      defaultLocale: 'ar-SA',
+      securityPolicy: null,
+    });
+    tx.organization.update.mockResolvedValue(orgRow());
+    const svc = makeService(tx);
+    const dto = await svc.updateSettings(ORG_ID, { timezone: 'Asia/Riyadh' });
+    const updateArgs = tx.organization.update.mock.calls[0]?.[0] as { data: Record<string, unknown> };
+    expect(updateArgs.data).toEqual({ timezone: 'Asia/Riyadh' }); // defaultLocale untouched
+    expect(dto.timezone).toBe('Asia/Riyadh'); // from the post-update read, not the request
+    expect(dto.securityPolicy).toMatchObject({ enforceSso: false, sessionMaxHours: 24 }); // defaults over null
+    const events = tx.outboxEvent.createMany.mock.calls[0]?.[0] as { data: Array<Record<string, unknown>> };
+    expect((events.data[0]?.['payload'] as { payload: unknown }).payload).toMatchObject({
+      section: 'general',
+      changed: ['timezone'],
+    });
   });
 
   it('errors surface unchanged through measure() (ApiError identity)', async () => {

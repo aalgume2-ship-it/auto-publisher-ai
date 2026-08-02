@@ -26,11 +26,11 @@ import {
 } from '@nestjs/common';
 import { HTTP_CODE_METADATA } from '@nestjs/common/constants.js';
 import { Reflector } from '@nestjs/core';
-import { Observable, from, of, throwError } from 'rxjs';
+import { EMPTY, Observable, from, of, throwError } from 'rxjs';
 import { catchError, mergeMap } from 'rxjs/operators';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { createHash } from 'node:crypto';
-import { Prisma, generateId, type DbClient } from '@aca/database';
+import { generateId, type DbClient } from '@aca/database';
 import { apiErrors } from '../errors/api-error.js';
 import { requestContext } from '../context/request-context.js';
 import { PRISMA } from '../prisma.provider.js';
@@ -138,9 +138,15 @@ export class IdempotencyInterceptor implements NestInterceptor {
     return from(this.begin(scope, key, actorHash, requestHash, leaseMs)).pipe(
       mergeMap((begin) => {
         if (begin.action === 'replay') {
-          reply.header('Idempotency-Replayed', 'true');
+          // REPLAY = verbatim response: the stored SERIALIZED bytes go out
+          // untouched. Never let Nest/Fastify re-serialize a parsed object —
+          // any parse/serialize round-trip (or a jsonb column's key reorder)
+          // defeats the byte-identical replay contract (API.md §1).
+          reply.header('content-type', 'application/json; charset=utf-8');
           if (begin.statusCode !== null) void reply.code(begin.statusCode);
-          return of(begin.responseBody);
+          reply.header('Idempotency-Replayed', 'true');
+          void reply.send(begin.responseBody ?? 'null');
+          return EMPTY; // response already sent — no value must reach the route
         }
         if (begin.action === 'conflict') {
           throw apiErrors.idempotencyConflict(begin.reason ?? 'idempotency conflict');
@@ -157,7 +163,10 @@ export class IdempotencyInterceptor implements NestInterceptor {
                 data: {
                   state: 'COMPLETED',
                   statusCode: declaredCode,
-                  responseBody: (body ?? null) as Prisma.InputJsonValue,
+                  // store the exact wire bytes (fastify serializes handler
+                  // results with JSON.stringify — this is byte-for-byte what
+                  // the first caller receives, hence what replays must be)
+                  responseBody: JSON.stringify(body ?? null),
                   lockedUntil: null,
                   completedAt: new Date(),
                   expiresAt: new Date(Date.now() + ttlMs),
@@ -184,7 +193,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
     leaseMs: number,
   ): Promise<
     | { action: 'run'; recordId: string }
-    | { action: 'replay'; statusCode: number | null; responseBody: unknown }
+    | { action: 'replay'; statusCode: number | null; responseBody: string | null }
     | { action: 'conflict'; reason: string }
   > {
     const now = new Date();

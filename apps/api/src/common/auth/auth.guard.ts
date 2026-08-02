@@ -70,9 +70,17 @@ export class AuthGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    if (isPublic === true) return true;
 
     const req = context.switchToHttp().getRequest<FastifyRequest>();
+    // First post-route stage that sees EVERY matched request (guard 1, runs on
+    // public + protected + rejected alike): stamp the matched route pattern
+    // into the context so middleware finish-time metrics/logs get the real
+    // low-cardinality label (middleware itself runs pre-route over raw
+    // req/res and cannot know it; true 404s stay 'unmatched').
+    patchRequestContext({ route: req.routeOptions?.url ?? null });
+
+    if (isPublic === true) return true;
+
     const authorization = req.headers.authorization;
     const apiKeyHeader = req.headers['x-api-key'];
 

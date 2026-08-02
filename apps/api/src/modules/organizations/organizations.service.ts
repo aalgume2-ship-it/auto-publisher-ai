@@ -194,20 +194,20 @@ export class OrganizationsService {
     });
   }
 
-  async getSettings(orgId: string): Promise<SettingsDto> {
-    return this.ops.measure(MODULE, 'organization.settings.get', async () => {
-      const org = await this.tenant(this.db, orgId).organization.findFirst({
-        where: { id: orgId },
-        select: { timezone: true, defaultLocale: true, securityPolicy: true },
-      });
-      if (org === null) throw apiErrors.notFound('Organization');
-      return {
-        timezone: org.timezone,
-        defaultLocale: org.defaultLocale,
-        // whitelist-merge: the settings surface exposes exactly the known keys
-        securityPolicy: { ...SECURITY_POLICY_DEFAULTS, ...(isPlainObject(org.securityPolicy) ? pickKnown(org.securityPolicy) : {}) },
-      };
+  /** org-delegate-shaped reader — satisfied by both the pool tenant client and an interactive tx. */
+  private async readSettings(reader: Pick<Prisma.TransactionClient, 'organization'>, orgId: string): Promise<SettingsDto> {
+    const org = await reader.organization.findFirst({
+      where: { id: orgId },
+      select: { timezone: true, defaultLocale: true, securityPolicy: true },
     });
+    if (org === null) throw apiErrors.notFound('Organization');
+    return toSettingsDto(org);
+  }
+
+  async getSettings(orgId: string): Promise<SettingsDto> {
+    return this.ops.measure(MODULE, 'organization.settings.get', async () =>
+      this.readSettings(this.tenant(this.db, orgId), orgId),
+    );
   }
 
   async updateSettings(orgId: string, body: UpdateSettingsBody): Promise<SettingsDto> {
@@ -237,7 +237,9 @@ export class OrganizationsService {
             payload: { orgId, section: 'general', changed },
           },
         ]);
-        return this.getSettings(orgId);
+        // re-read THROUGH THE TX: a pool-client read cannot see the
+        // not-yet-committed update and would answer with the pre-tx snapshot
+        return this.readSettings(tx, orgId);
       });
     });
   }
@@ -275,7 +277,8 @@ export class OrganizationsService {
             payload: { orgId, section: 'security_policy', changed },
           },
         ]);
-        return this.getSettings(orgId);
+        // re-read THROUGH THE TX (whitelist-merged, freshly written policy)
+        return this.readSettings(tx, orgId);
       });
     });
   }
@@ -283,6 +286,15 @@ export class OrganizationsService {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Pure settings view mapping (whitelist-merge over defaults; unknown stored keys dropped). */
+export function toSettingsDto(row: { timezone: string; defaultLocale: string; securityPolicy: unknown }): SettingsDto {
+  return {
+    timezone: row.timezone,
+    defaultLocale: row.defaultLocale,
+    securityPolicy: { ...SECURITY_POLICY_DEFAULTS, ...(isPlainObject(row.securityPolicy) ? pickKnown(row.securityPolicy) : {}) },
+  };
 }
 
 function pickKnown(policy: Record<string, unknown>): Record<string, unknown> {

@@ -87,6 +87,53 @@ describe('ZodValidationPipe (method-scoped)', () => {
   });
 });
 
+describe('ZodValidationPipe — named extraction (@Param("key")/@Query("key") scalars)', () => {
+  // The case the whole-object tests encoded WRONG for the module's lifetime:
+  // Nest hands named decorators the scalar only (metadata.data = key). Every
+  // :orgId route failed with 400 "Expected object, received string" before
+  // the scalar-aware path existed (caught live by the HTTP integration suite).
+  const params = z.object({ orgId: z.string().uuid(), teamId: z.string().uuid() });
+  const query = z.object({ host: z.string().min(1), limit: z.coerce.number().int().min(1).max(100) });
+  const pipe = new ZodValidationPipe({ params, query });
+
+  const ORG = '0190844f-9f2e-7c3a-9b1d-2f8f6a1c4e55';
+  const TEAM = '0190844f-9f30-7b34-b772-2f8f6a1c4e66';
+
+  it('validates a named param scalar against the shape (orgId + teamId independently)', () => {
+    expect(pipe.transform(ORG, { type: 'param', data: 'orgId' })).toBe(ORG);
+    expect(pipe.transform(TEAM, { type: 'param', data: 'teamId' })).toBe(TEAM);
+  });
+
+  it('rejects an invalid named scalar with the key as the issue path', () => {
+    try {
+      pipe.transform('not-a-uuid', { type: 'param', data: 'orgId' });
+      expect.unreachable();
+    } catch (err) {
+      const apiErr = err as ApiError<{ issues: { path: string }[] }>;
+      expect(apiErr.code).toBe('VALIDATION_FAILED');
+      expect(apiErr.meta?.issues[0]?.path).toBe('orgId');
+    }
+  });
+
+  it('fails closed on an unknown named key (contract drift must not slip silently)', () => {
+    expect(() => pipe.transform('x', { type: 'param', data: 'ghost' })).toThrowError(ApiError);
+  });
+
+  it('validates named query scalars (including coercion)', () => {
+    expect(pipe.transform('portal.example.com', { type: 'query', data: 'host' })).toBe('portal.example.com');
+    expect(pipe.transform('50', { type: 'query', data: 'limit' })).toBe(50);
+  });
+
+  it('defensive: named extraction against a NON-object schema also fails closed', () => {
+    const broken = new ZodValidationPipe({ params: z.string() });
+    expect(() => broken.transform('x', { type: 'param', data: 'orgId' })).toThrowError(ApiError);
+  });
+
+  it('bare @Param() (whole container) still validates and strips', () => {
+    expect(pipe.transform({ orgId: ORG, teamId: TEAM, extra: 1 }, { type: 'param' })).toEqual({ orgId: ORG, teamId: TEAM });
+  });
+});
+
 describe('compactIssues', () => {
   it('produces deterministic triples', () => {
     const S = z.object({ a: z.string() });
