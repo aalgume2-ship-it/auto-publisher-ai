@@ -17,18 +17,52 @@
 ```bash
 git clone <repo> && cd autocreator-ai
 pnpm install                                # workspace bootstrap
-pnpm dev:bootstrap                          # compose data plane + db push + prisma client + seed
-pnpm dev                                    # turbo dev — runs every scaffolded app (apps/api today)
+pnpm dev:bootstrap                          # compose data plane + .env.local + db push + prisma client + seeds
+pnpm build                                  # tsc strict build of every package/app
+pnpm dev:api                                # boots apps/api on :3000 (loads repo-root .env.local)
 ```
 
-`dev:bootstrap` exports the dev env (`DATABASE_URL`, `REDIS_URL`, MinIO S3 vars…),
-starts Postgres/Redis/MinIO/Mailpit/ClamAV/Jaeger/Bull Board, applies the schema
-(`prisma db push` until real migrations land), generates the Prisma client, and
-seeds the 5 plans. Re-runnable (idempotent).
+`dev:bootstrap` starts Postgres/Redis/MinIO/Mailpit/ClamAV/Jaeger/Bull Board,
+applies the schema (`prisma db push` until real migrations land), generates
+the Prisma client, seeds the platform catalog **and a demo org** (see below),
+and writes `.env.local` (`DATABASE_URL`, `REDIS_URL`, a local-only
+`AUTH_JWT_SECRET`, MinIO vars). Re-runnable (idempotent); `.env.local` is
+gitignored and never leaves the machine.
 
-Verify the API: `GET http://localhost:3000/health` → `{"status":"ok",…}`;
-`GET /health/ready` (checks PG + Redis); docs at `http://localhost:3000/docs`,
-spec at `/openapi.json`, metrics at `http://localhost:3000/metrics`.
+> `turbo dev` / each app's `dev` script is the **compile-watch** loop
+> (`tsc -b --watch`). Serving happens via `pnpm dev:api` (or
+> `pnpm --filter @aca/api start` with env already exported — production shape).
+
+## 2.1 Try the Module 1 API (Organizations — 29 routes)
+
+Everything except public health/docs is behind the auth guard; login lives in
+the planned `@aca/auth`, so for local trying there is a **local-only token
+minter** that signs a real session JWT for the seeded demo user
+(`demo@autocreator.test`, OWNER of `demo-org`, pro plan — seeded when
+`NODE_ENV != production`):
+
+```bash
+pnpm dev:token                              # prints ACA_TOKEN + ACA_ORG_ID (+ usage hints)
+eval "$(pnpm --silent dev:token -- --export)"
+curl -s http://localhost:3000/v1/organizations/$ACA_ORG_ID -H "Authorization: Bearer $ACA_TOKEN"
+```
+
+Three ways to explore:
+
+1. **Swagger UI** — <http://localhost:3000/docs> → *Authorize* with the token,
+   click through every endpoint live (spec from the same decorators:
+   `/openapi.json`).
+2. **REST collection** — [`apps/api/demo/module-1-organizations.http`](../apps/api/demo/module-1-organizations.http):
+   all 29 routes with real payloads, `{{$uuid}}` idempotency keys, paste-points
+   for ids (VS Code REST Client / JetBrains HTTP Client).
+3. **Scripted walkthrough** — `pnpm demo`: an asserted end-to-end tour (auth
+   401 problem, byte-identical idempotent replay, settings/security-policy
+   merges, departments → teams → members, branding cycle, real DNS domain
+   verification, billing + subscription, RateLimit/request-id headers). Exit
+   code is meaningful — it doubles as a smoke test.
+
+Verify the API is up: `GET http://localhost:3000/health` → `{"status":"ok",…}`;
+`GET /health/ready` (checks PG + Redis); metrics at `http://localhost:3000/metrics`.
 
 ## 3. Run tests
 

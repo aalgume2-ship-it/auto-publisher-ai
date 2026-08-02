@@ -33,16 +33,27 @@ What is scaffolded **today**: `apps/api` + `packages/{shared,config,logger,datab
 | Observability | OpenTelemetry → Jaeger · Prometheus/Grafana · Loki · Sentry |
 | Infra | Docker · Kubernetes · KEDA · Terraform · GitHub Actions |
 
-## Quickstart (local)
+## Quickstart (local) — try the Module 1 API in ~5 minutes
 
 ```bash
 pnpm install
-docker compose up -d              # postgres+pgvector, redis, minio, mailpit, clamav, jaeger, bull-board
-pnpm dev:bootstrap                # db push (until migrations land) + prisma client + plan seeds
-pnpm dev                          # apps/api (:3000) today; web/worker boot lines land with those apps
+pnpm dev:bootstrap                # compose data plane + .env.local + db push + prisma client + seeds (incl. demo org)
+pnpm build                        # tsc strict, all packages + apps
+pnpm dev:api                      # serves :3000 — Swagger UI /docs · spec /openapi.json · /health · /metrics
 ```
 
-Full, honest instructions (incl. what does **not** run yet): [`docs/DEVELOPER-GUIDE.md`](./docs/DEVELOPER-GUIDE.md).
+Then, in a second terminal:
+
+```bash
+pnpm dev:token                    # real dev session JWT for the seeded demo user (OWNER of demo-org)
+pnpm demo                         # scripted end-to-end walkthrough of the 29 Module-1 routes (asserted)
+```
+
+Three ways to explore interactively: **Swagger UI** at <http://localhost:3000/docs>
+(Authorize with the printed token), the REST collection
+[`apps/api/demo/module-1-organizations.http`](./apps/api/demo/module-1-organizations.http),
+or `pnpm demo` for the fully-scripted tour. Full, honest instructions (incl.
+what does **not** run yet): [`docs/DEVELOPER-GUIDE.md`](./docs/DEVELOPER-GUIDE.md).
 
 Convenience: Jaeger UI `:16686` · MinIO console `:9001` · Mailpit `:8025` · Bull Board `:3030`.
 
