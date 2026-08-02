@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     name: '@aca/api',
     include: ['test/**/*.spec.ts'],
+    exclude: ['test/integration/**'],
     environment: 'node',
   },
   esbuild: {

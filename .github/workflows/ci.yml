@@ -137,3 +137,5 @@ jobs:
       - run: pnpm build
       - name: events backbone integration suite (real PG + Redis, 5 e2e)
         run: pnpm --filter @aca/events exec vitest run --config vitest.integration.config.ts
+      - name: api integration suite (real PG + Redis — full AppModule over fastify inject)
+        run: pnpm --filter @aca/api run test:integration
