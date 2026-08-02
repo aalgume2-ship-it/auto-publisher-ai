@@ -22,6 +22,9 @@ jobs:
       - name: dependency-audit (graph acyclic, layers monotonic, zero drift)
         run: node infra/scripts/check-dependency-graph.mjs
 
+      - name: tenancy-map check (TENANT_FIELD values ⊆ schema.prisma fields)
+        run: node infra/scripts/check-tenancy-map.mjs
+
       - name: Database.md §3 ↔ schema.prisma byte-parity
         run: |
           awk '/^```prisma$/{flag=1;next} flag && /^```$/{exit} flag' docs/Database.md > /tmp/schema.from-docs.prisma
