@@ -47,10 +47,13 @@ describe('platform routes (ops surfaces)', () => {
     }
   });
 
-  it('@fastify/static is a declared dependency (Swagger UI static serving would exit(1) at boot without it)', () => {
+  it('@fastify/static is a declared dependency at the patched line (Swagger UI serving would exit(1) at boot without it; ≤10.1.0 is GHSA route-guard-bypass)', () => {
     const pkg = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8')) as {
       dependencies: Record<string, string>;
     };
-    expect(pkg.dependencies['@fastify/static']).toMatch(/^\^?[89]\./);
+    const range = pkg.dependencies['@fastify/static'] ?? '';
+    expect(range).toMatch(/^\^?\d+\./);
+    const major = Number.parseInt(range.replace(/^\^/, ''), 10);
+    expect(major, 'route-guard-bypass fix requires >=10.1.1').toBeGreaterThanOrEqual(10);
   });
 });
