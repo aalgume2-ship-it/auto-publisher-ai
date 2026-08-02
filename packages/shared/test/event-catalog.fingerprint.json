@@ -1,6 +1,6 @@
 {
   "_note": "CI contract fingerprint — regenerate ONLY with the contract-change label + ADR (docs/Contracts.md governance). Command: pnpm --filter @aca/shared run fingerprint:update",
-  "catalog": "b67f035efbbd0235",
+  "catalog": "0d0c58086dde413a",
   "events": {
     "aca.ai_team.message.posted": {
       "fingerprint": "7c085ccc928fbf0c",
@@ -139,6 +139,26 @@
       ],
       "description": "Payment failed; org enters dunning window."
     },
+    "aca.brand.reset": {
+      "fingerprint": "f1b67f9154b0b113",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "ws-bridge",
+        "webhooks-out"
+      ],
+      "description": "Brand reverted to platform defaults."
+    },
+    "aca.brand.updated": {
+      "fingerprint": "6138351cd21c31d4",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "ws-bridge",
+        "webhooks-out"
+      ],
+      "description": "White-label brand config upserted."
+    },
     "aca.channel.connected": {
       "fingerprint": "3292b22a1785abc5",
       "version": 1,
@@ -181,6 +201,75 @@
         "autopilot"
       ],
       "description": "Stored token expired; refresh failed — reconnect nudge."
+    },
+    "aca.department.created": {
+      "fingerprint": "f645ae41997c896d",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "analytics-projections",
+        "webhooks-out"
+      ],
+      "description": "Department created (org chart layer above teams)."
+    },
+    "aca.department.deleted": {
+      "fingerprint": "fd1d000c4537be71",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "analytics-projections",
+        "webhooks-out"
+      ],
+      "description": "Department removed; teams detached."
+    },
+    "aca.department.updated": {
+      "fingerprint": "a97744640167b460",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "analytics-projections",
+        "webhooks-out"
+      ],
+      "description": "Department fields changed."
+    },
+    "aca.domain.deleted": {
+      "fingerprint": "52c75545695bf1a1",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "webhooks-out"
+      ],
+      "description": "Custom domain detached from the org."
+    },
+    "aca.domain.registered": {
+      "fingerprint": "a81ca124c8ed7261",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "notifications",
+        "webhooks-out"
+      ],
+      "description": "Custom domain registered; verification challenge issued."
+    },
+    "aca.domain.verification_failed": {
+      "fingerprint": "70ae833647a37164",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "notifications",
+        "webhooks-out"
+      ],
+      "description": "DNS challenge not satisfied; domain stays non-active."
+    },
+    "aca.domain.verified": {
+      "fingerprint": "4175078a3d5dbe2e",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "notifications",
+        "webhooks-out"
+      ],
+      "description": "DNS challenge satisfied; domain ACTIVE."
     },
     "aca.flags.changed": {
       "fingerprint": "54970606c94f5be2",
@@ -283,6 +372,47 @@
         "analytics-projections"
       ],
       "description": "Optimization report produced for a project window."
+    },
+    "aca.organization.billing_profile_updated": {
+      "fingerprint": "4c166255b6203d4b",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "billing-projection",
+        "webhooks-out"
+      ],
+      "description": "Legal/tax billing profile upserted."
+    },
+    "aca.organization.created": {
+      "fingerprint": "46e57a6957aa4779",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "notifications",
+        "analytics-projections",
+        "webhooks-out"
+      ],
+      "description": "Organization created with its OWNER membership."
+    },
+    "aca.organization.settings_updated": {
+      "fingerprint": "866bbd0c03596637",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "notifications",
+        "webhooks-out"
+      ],
+      "description": "Org settings changed (general or security_policy section)."
+    },
+    "aca.organization.updated": {
+      "fingerprint": "1d9540d4ec6fc1f6",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "analytics-projections",
+        "webhooks-out"
+      ],
+      "description": "Organization profile fields changed."
     },
     "aca.pipeline.run.awaiting_review": {
       "fingerprint": "e96c079bf17d998d",
@@ -550,6 +680,60 @@
         "analytics-projections"
       ],
       "description": "A plan quota crossed a configured threshold."
+    },
+    "aca.team.created": {
+      "fingerprint": "a370e25701af9af7",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "notifications",
+        "analytics-projections",
+        "webhooks-out"
+      ],
+      "description": "Team created under the org."
+    },
+    "aca.team.deleted": {
+      "fingerprint": "dd8883410761b8a0",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "notifications",
+        "analytics-projections",
+        "webhooks-out"
+      ],
+      "description": "Team removed; members cascade, projects detach to ORG_WIDE."
+    },
+    "aca.team.member_added": {
+      "fingerprint": "b7d2c20232e41d6f",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "notifications",
+        "analytics-projections",
+        "webhooks-out"
+      ],
+      "description": "Org member joined a team."
+    },
+    "aca.team.member_removed": {
+      "fingerprint": "5172fa2f6daa890e",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "notifications",
+        "analytics-projections",
+        "webhooks-out"
+      ],
+      "description": "Member removed from a team."
+    },
+    "aca.team.updated": {
+      "fingerprint": "b2f04020dc12809e",
+      "version": 1,
+      "producer": "apps/api",
+      "consumers": [
+        "analytics-projections",
+        "webhooks-out"
+      ],
+      "description": "Team name/description/department changed."
     },
     "aca.video.created": {
       "fingerprint": "7c2b99d94c813c92",

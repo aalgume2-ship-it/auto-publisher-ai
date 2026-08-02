@@ -135,6 +135,93 @@ export const EventPayloadSchemas = {
     to: z.enum(['HEALTHY', 'DEGRADED', 'DOWN']),
   }),
 
+  /* ---- Module 1: organization domain (ADR-027, additive v1) ---- */
+  'aca.organization.created': z.object({
+    orgId: UuidV7Schema,
+    name: z.string().min(1).max(120),
+    slug: z.string().min(1).max(80),
+    ownerId: UuidV7Schema,
+  }),
+  'aca.organization.updated': z.object({
+    orgId: UuidV7Schema,
+    changed: z.array(z.string().max(40)).min(1),
+  }),
+  'aca.organization.settings_updated': z.object({
+    orgId: UuidV7Schema,
+    section: z.enum(['general', 'security_policy']),
+    changed: z.array(z.string().max(40)).min(1),
+  }),
+  'aca.organization.billing_profile_updated': z.object({
+    orgId: UuidV7Schema,
+    changed: z.array(z.string().max(40)).min(1),
+  }),
+  'aca.department.created': z.object({
+    orgId: UuidV7Schema,
+    departmentId: UuidV7Schema,
+    name: z.string().min(1).max(120),
+    slug: z.string().min(1).max(80),
+  }),
+  'aca.department.updated': z.object({
+    orgId: UuidV7Schema,
+    departmentId: UuidV7Schema,
+    changed: z.array(z.string().max(40)).min(1),
+  }),
+  'aca.department.deleted': z.object({
+    orgId: UuidV7Schema,
+    departmentId: UuidV7Schema,
+    teamsDetached: z.number().int().nonnegative(),
+  }),
+  'aca.team.created': z.object({
+    orgId: UuidV7Schema,
+    teamId: UuidV7Schema,
+    name: z.string().min(1).max(120),
+    departmentId: UuidV7Schema.optional(),
+  }),
+  'aca.team.updated': z.object({
+    orgId: UuidV7Schema,
+    teamId: UuidV7Schema,
+    changed: z.array(z.string().max(40)).min(1),
+  }),
+  'aca.team.deleted': z.object({
+    orgId: UuidV7Schema,
+    teamId: UuidV7Schema,
+    membersRemoved: z.number().int().nonnegative(),
+    projectsDetached: z.number().int().nonnegative(),
+  }),
+  'aca.team.member_added': z.object({ orgId: UuidV7Schema, teamId: UuidV7Schema, userId: UuidV7Schema }),
+  'aca.team.member_removed': z.object({ orgId: UuidV7Schema, teamId: UuidV7Schema, userId: UuidV7Schema }),
+  'aca.brand.updated': z.object({
+    orgId: UuidV7Schema,
+    changed: z.array(z.string().max(40)).min(1),
+    hidePoweredBy: z.boolean(),
+  }),
+  'aca.brand.reset': z.object({ orgId: UuidV7Schema }),
+  'aca.domain.registered': z.object({
+    orgId: UuidV7Schema,
+    domainId: UuidV7Schema,
+    domain: z.string().min(4).max(253),
+    type: z.enum(['PORTAL', 'EMAIL_FROM']),
+  }),
+  'aca.domain.verified': z.object({
+    orgId: UuidV7Schema,
+    domainId: UuidV7Schema,
+    domain: z.string().min(4).max(253),
+    type: z.enum(['PORTAL', 'EMAIL_FROM']),
+  }),
+  'aca.domain.verification_failed': z.object({
+    orgId: UuidV7Schema,
+    domainId: UuidV7Schema,
+    domain: z.string().min(4).max(253),
+    type: z.enum(['PORTAL', 'EMAIL_FROM']),
+    expected: z.string().min(1).max(253),
+  }),
+  'aca.domain.deleted': z.object({
+    orgId: UuidV7Schema,
+    domainId: UuidV7Schema,
+    domain: z.string().min(4).max(253),
+    type: z.enum(['PORTAL', 'EMAIL_FROM']),
+  }),
+
   'aca.project.created': z.object({
     orgId: UuidV7Schema,
     projectId: UuidV7Schema,
@@ -528,6 +615,27 @@ export const EventCatalog: Readonly<Record<keyof typeof EventPayloadSchemas, Eve
   'aca.channel.disconnected': entry('aca.channel.disconnected', API, ['notifications', 'autopilot', 'analytics-projections'], 'Channel detached (user action or revoked token).'),
   'aca.channel.token_expired': entry('aca.channel.token_expired', WORKER, ['notifications', 'autopilot'], 'Stored token expired; refresh failed — reconnect nudge.'),
   'aca.channel.health_changed': entry('aca.channel.health_changed', WORKER, ['notifications', 'analytics-projections', 'autopilot'], 'Channel health transition from scheduled health probes.'),
+
+  /* Module 1: organization domain (ADR-027). API producers write audit inline (same-tx) —
+     the 'audit' consumer id is intentionally absent here to prevent double logging. */
+  'aca.organization.created': entry('aca.organization.created', API, ['notifications', 'analytics-projections', 'webhooks-out'], 'Organization created with its OWNER membership.'),
+  'aca.organization.updated': entry('aca.organization.updated', API, ['analytics-projections', 'webhooks-out'], 'Organization profile fields changed.'),
+  'aca.organization.settings_updated': entry('aca.organization.settings_updated', API, ['notifications', 'webhooks-out'], 'Org settings changed (general or security_policy section).'),
+  'aca.organization.billing_profile_updated': entry('aca.organization.billing_profile_updated', API, ['billing-projection', 'webhooks-out'], 'Legal/tax billing profile upserted.'),
+  'aca.department.created': entry('aca.department.created', API, ['analytics-projections', 'webhooks-out'], 'Department created (org chart layer above teams).'),
+  'aca.department.updated': entry('aca.department.updated', API, ['analytics-projections', 'webhooks-out'], 'Department fields changed.'),
+  'aca.department.deleted': entry('aca.department.deleted', API, ['analytics-projections', 'webhooks-out'], 'Department removed; teams detached.'),
+  'aca.team.created': entry('aca.team.created', API, ['notifications', 'analytics-projections', 'webhooks-out'], 'Team created under the org.'),
+  'aca.team.updated': entry('aca.team.updated', API, ['analytics-projections', 'webhooks-out'], 'Team name/description/department changed.'),
+  'aca.team.deleted': entry('aca.team.deleted', API, ['notifications', 'analytics-projections', 'webhooks-out'], 'Team removed; members cascade, projects detach to ORG_WIDE.'),
+  'aca.team.member_added': entry('aca.team.member_added', API, ['notifications', 'analytics-projections', 'webhooks-out'], 'Org member joined a team.'),
+  'aca.team.member_removed': entry('aca.team.member_removed', API, ['notifications', 'analytics-projections', 'webhooks-out'], 'Member removed from a team.'),
+  'aca.brand.updated': entry('aca.brand.updated', API, ['ws-bridge', 'webhooks-out'], 'White-label brand config upserted.'),
+  'aca.brand.reset': entry('aca.brand.reset', API, ['ws-bridge', 'webhooks-out'], 'Brand reverted to platform defaults.'),
+  'aca.domain.registered': entry('aca.domain.registered', API, ['notifications', 'webhooks-out'], 'Custom domain registered; verification challenge issued.'),
+  'aca.domain.verified': entry('aca.domain.verified', API, ['notifications', 'webhooks-out'], 'DNS challenge satisfied; domain ACTIVE.'),
+  'aca.domain.verification_failed': entry('aca.domain.verification_failed', API, ['notifications', 'webhooks-out'], 'DNS challenge not satisfied; domain stays non-active.'),
+  'aca.domain.deleted': entry('aca.domain.deleted', API, ['webhooks-out'], 'Custom domain detached from the org.'),
 
   'aca.project.created': entry('aca.project.created', API, ['analytics-projections', 'search-indexer', 'ws-bridge'], 'Project shell created.'),
   'aca.project.automation.enabled': entry('aca.project.automation.enabled', API, ['autopilot', 'notifications', 'analytics-projections'], 'Autopilot armed for the project.'),

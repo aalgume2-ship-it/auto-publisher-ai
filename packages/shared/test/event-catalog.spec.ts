@@ -76,9 +76,9 @@ describe('event catalog completeness', () => {
     }
   });
 
-  it('count is stable at 58 events (append-only)', () => {
-    expect(Object.keys(EventCatalog)).toHaveLength(58);
-    expect(Object.keys(EventPayloadSchemas)).toHaveLength(58);
+  it('count is stable at 76 events (append-only; 58 v1.0-foundation + 18 ADR-027)', () => {
+    expect(Object.keys(EventCatalog)).toHaveLength(76);
+    expect(Object.keys(EventPayloadSchemas)).toHaveLength(76);
   });
 });
 

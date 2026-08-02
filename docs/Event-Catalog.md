@@ -1,11 +1,11 @@
 # Event Catalog (generated — do not edit by hand)
 
 **Source of truth:** `packages/shared/src/contracts/event-catalog.ts` (C1, frozen v1.1) ·
-**Generator:** `infra/scripts/generate-event-catalog.mjs` · **Fingerprint:** `b67f035efbbd0235`
+**Generator:** `infra/scripts/generate-event-catalog.mjs` · **Fingerprint:** `0d0c58086dde413a`
 
 Envelope fields: `id` (uuidv7) · `type` · `version` · `orgId` · `aggregateType/Id` · `occurredAt` · `traceId?` · `correlationId?` (= id at chain root) · `causationId?` · `producer?` · `metadata?` · `payload` (this document).
 
-**Event types:** 58 · **Catalog ↔ EventNames parity:** OK
+**Event types:** 76 · **Catalog ↔ EventNames parity:** OK
 
 Consumers are the canonical fleet ids: orchestrator · autopilot · notifications · ws-bridge · webhooks-out · audit · analytics-projections · memory-writer · quota-guard · search-indexer · billing-projection.
 
@@ -42,6 +42,13 @@ Consumers are the canonical fleet ids: orchestrator · autopilot · notification
 | `aca.billing.credits.depleted` | 1 | apps/worker | notifications, quota-guard, autopilot | `balanceAfter`: 0, `orgId`: string | Ledger hit zero — runs block until top-up (never surprise bills). |
 | `aca.billing.credits.low` | 1 | apps/worker | notifications, autopilot | `balanceAfter`: number, `orgId`: string, `thresholdPct`: number | Ledger crossed the configured low threshold (80%/95%). |
 
+## aca.brand.* (2)
+
+| Event | v | Producer | Consumers | Payload | Description |
+|---|---|---|---|---|---|
+| `aca.brand.updated` | 1 | apps/api | ws-bridge, webhooks-out | `changed`: string[], `hidePoweredBy`: boolean, `orgId`: string | White-label brand config upserted. |
+| `aca.brand.reset` | 1 | apps/api | ws-bridge, webhooks-out | `orgId`: string | Brand reverted to platform defaults. |
+
 ## aca.channel.* (4)
 
 | Event | v | Producer | Consumers | Payload | Description |
@@ -50,6 +57,23 @@ Consumers are the canonical fleet ids: orchestrator · autopilot · notification
 | `aca.channel.disconnected` | 1 | apps/api | notifications, autopilot, analytics-projections | `channelId`: string, `orgId`: string, `platform`: string, `reason`: ERROR\|TOKEN_REVOKED\|USER | Channel detached (user action or revoked token). |
 | `aca.channel.token_expired` | 1 | apps/worker | notifications, autopilot | `channelId`: string, `orgId`: string, `platform`: string | Stored token expired; refresh failed — reconnect nudge. |
 | `aca.channel.health_changed` | 1 | apps/worker | notifications, analytics-projections, autopilot | `channelId`: string, `from`: DEGRADED\|DOWN\|HEALTHY, `orgId`: string, `platform`: string, `to`: DEGRADED\|DOWN\|HEALTHY | Channel health transition from scheduled health probes. |
+
+## aca.department.* (3)
+
+| Event | v | Producer | Consumers | Payload | Description |
+|---|---|---|---|---|---|
+| `aca.department.created` | 1 | apps/api | analytics-projections, webhooks-out | `departmentId`: string, `name`: string, `orgId`: string, `slug`: string | Department created (org chart layer above teams). |
+| `aca.department.updated` | 1 | apps/api | analytics-projections, webhooks-out | `changed`: string[], `departmentId`: string, `orgId`: string | Department fields changed. |
+| `aca.department.deleted` | 1 | apps/api | analytics-projections, webhooks-out | `departmentId`: string, `orgId`: string, `teamsDetached`: number | Department removed; teams detached. |
+
+## aca.domain.* (4)
+
+| Event | v | Producer | Consumers | Payload | Description |
+|---|---|---|---|---|---|
+| `aca.domain.registered` | 1 | apps/api | notifications, webhooks-out | `domain`: string, `domainId`: string, `orgId`: string, `type`: EMAIL_FROM\|PORTAL | Custom domain registered; verification challenge issued. |
+| `aca.domain.verified` | 1 | apps/api | notifications, webhooks-out | `domain`: string, `domainId`: string, `orgId`: string, `type`: EMAIL_FROM\|PORTAL | DNS challenge satisfied; domain ACTIVE. |
+| `aca.domain.verification_failed` | 1 | apps/api | notifications, webhooks-out | `domain`: string, `domainId`: string, `expected`: string, `orgId`: string, `type`: EMAIL_FROM\|PORTAL | DNS challenge not satisfied; domain stays non-active. |
+| `aca.domain.deleted` | 1 | apps/api | webhooks-out | `domain`: string, `domainId`: string, `orgId`: string, `type`: EMAIL_FROM\|PORTAL | Custom domain detached from the org. |
 
 ## aca.flags.* (1)
 
@@ -85,6 +109,15 @@ Consumers are the canonical fleet ids: orchestrator · autopilot · notification
 |---|---|---|---|---|---|
 | `aca.optimizer.report.completed` | 1 | apps/worker | notifications, analytics-projections | `findings`: number, `memoriesWritten`: number, `orgId`: string, `projectId`: string, `reportId`: string, `windowDays`: number | Optimization report produced for a project window. |
 | `aca.optimizer.actions.applied` | 1 | apps/worker | audit, analytics-projections, memory-writer | `actions`: string[], `appliedBy`: OPTIMIZER_AUTO\|USER, `orgId`: string, `projectId`: string, `reportId`: string | Approved optimizer actions applied (auto or user-driven). |
+
+## aca.organization.* (4)
+
+| Event | v | Producer | Consumers | Payload | Description |
+|---|---|---|---|---|---|
+| `aca.organization.created` | 1 | apps/api | notifications, analytics-projections, webhooks-out | `name`: string, `orgId`: string, `ownerId`: string, `slug`: string | Organization created with its OWNER membership. |
+| `aca.organization.updated` | 1 | apps/api | analytics-projections, webhooks-out | `changed`: string[], `orgId`: string | Organization profile fields changed. |
+| `aca.organization.settings_updated` | 1 | apps/api | notifications, webhooks-out | `changed`: string[], `orgId`: string, `section`: general\|security_policy | Org settings changed (general or security_policy section). |
+| `aca.organization.billing_profile_updated` | 1 | apps/api | billing-projection, webhooks-out | `changed`: string[], `orgId`: string | Legal/tax billing profile upserted. |
 
 ## aca.pipeline.* (9)
 
@@ -140,6 +173,16 @@ Consumers are the canonical fleet ids: orchestrator · autopilot · notification
 | Event | v | Producer | Consumers | Payload | Description |
 |---|---|---|---|---|---|
 | `aca.system.quota.threshold` | 1 | apps/worker | notifications, analytics-projections | `limit`: number, `orgId`: string, `quota`: AI_CREDITS\|CHANNELS\|PROJECTS\|STORAGE_GB\|TEAM_SEATS\|VIDEOS_MONTHLY, `thresholdPct`: number, `used`: number | A plan quota crossed a configured threshold. |
+
+## aca.team.* (5)
+
+| Event | v | Producer | Consumers | Payload | Description |
+|---|---|---|---|---|---|
+| `aca.team.created` | 1 | apps/api | notifications, analytics-projections, webhooks-out | `departmentId?`: string, `name`: string, `orgId`: string, `teamId`: string | Team created under the org. |
+| `aca.team.updated` | 1 | apps/api | analytics-projections, webhooks-out | `changed`: string[], `orgId`: string, `teamId`: string | Team name/description/department changed. |
+| `aca.team.deleted` | 1 | apps/api | notifications, analytics-projections, webhooks-out | `membersRemoved`: number, `orgId`: string, `projectsDetached`: number, `teamId`: string | Team removed; members cascade, projects detach to ORG_WIDE. |
+| `aca.team.member_added` | 1 | apps/api | notifications, analytics-projections, webhooks-out | `orgId`: string, `teamId`: string, `userId`: string | Org member joined a team. |
+| `aca.team.member_removed` | 1 | apps/api | notifications, analytics-projections, webhooks-out | `orgId`: string, `teamId`: string, `userId`: string | Member removed from a team. |
 
 ## aca.video.* (3)
 

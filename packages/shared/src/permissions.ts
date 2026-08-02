@@ -13,6 +13,7 @@ export const PERMISSIONS = [
   'member.remove',
   'member.role.manage',
   'team.manage',
+  'department.manage',
   'role.custom.manage',
   // channels
   'channel.view',
@@ -106,6 +107,7 @@ const ADMIN: readonly Permission[] = [
   'member.remove',
   'member.role.manage',
   'team.manage',
+  'department.manage',
   'role.custom.manage',
   'channel.connect',
   'channel.disconnect',
