@@ -55,6 +55,10 @@ export function buildRequestContext(headers: Record<string, string | string[] | 
     organizationId: null,
     membership: null,
     ip,
+    userAgent: (() => {
+      const ua = firstHeader(headers['user-agent']);
+      return ua === undefined || ua === '' ? null : ua.slice(0, 512);
+    })(),
   };
 }
 

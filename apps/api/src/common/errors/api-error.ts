@@ -26,6 +26,7 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   TENANT_VIOLATION: 404, // masked as NOT_FOUND on the wire (cross-tenant oracle defense)
   NOT_FOUND: 404,
   CONFLICT: 409,
+  DOMAIN_VERIFICATION_FAILED: 409,
   IDEMPOTENCY_CONFLICT: 409,
   PLUGIN_NOT_INSTALLED: 409,
   MARKETPLACE_ITEM_UNAVAILABLE: 409,
@@ -107,6 +108,11 @@ export const apiErrors = {
     new ApiError('IP_NOT_ALLOWED', 'IP Not Allowed', {
       detail: 'organization IP allow list is active and the caller address is outside it',
       meta: { ip },
+    }),
+  domainVerificationFailed: (host: string, expected: string) =>
+    new ApiError('DOMAIN_VERIFICATION_FAILED', 'Domain Verification Failed', {
+      detail: 'DNS challenge not satisfied for the requested domain',
+      meta: { host, expected },
     }),
   validationFailed: (issues: unknown) =>
     new ApiError('VALIDATION_FAILED', 'Validation Failed', {

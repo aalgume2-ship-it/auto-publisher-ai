@@ -46,6 +46,8 @@ export interface RequestContextState {
   membership: MembershipInfo | null;
   /** client ip (trusted-proxy aware via fastify request.ip) */
   ip: string;
+  /** User-Agent header (capped at 512 chars in the middleware); null when absent. Used by audit_rows only. */
+  userAgent: string | null;
 }
 
 export const REQUEST_CONTEXT = new AsyncLocalStorage<RequestContextState>();

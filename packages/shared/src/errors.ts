@@ -25,6 +25,7 @@ export const ErrorCodes = [
   'MARKETPLACE_ITEM_UNAVAILABLE',
   'APP_REVIEW_REQUIRED',
   'FLAG_LOCKED',
+  'DOMAIN_VERIFICATION_FAILED',
   // guards used by workers/agents (not returned to HTTP clients directly)
   'SSRF_BLOCKED',
   'CONTENT_POLICY',
