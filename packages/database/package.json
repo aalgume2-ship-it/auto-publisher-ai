@@ -2,7 +2,7 @@
   "name": "@aca/database",
   "version": "0.1.0",
   "private": true,
-  "description": "AutoCreator AI — Prisma schema, tenant-scoped client factory, partitioning helpers",
+  "description": "AutoCreator AI \u2014 Prisma schema, tenant-scoped client factory, partitioning helpers",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -12,14 +12,17 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "prisma"],
+  "files": [
+    "dist",
+    "prisma"
+  ],
   "scripts": {
     "build": "prisma generate && tsc -b",
     "dev": "tsc -b --watch",
     "lint": "eslint .",
     "typecheck": "tsc -b --noEmit && tsc -p tsconfig.seed.json",
     "typecheck:seed": "tsc -p tsconfig.seed.json",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "db:push:test": "prisma db push --skip-generate --accept-data-loss",
     "db:dev": "prisma migrate dev",

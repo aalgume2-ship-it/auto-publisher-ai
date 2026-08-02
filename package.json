@@ -2,7 +2,7 @@
   "name": "autocreator-ai",
   "version": "0.1.0",
   "private": true,
-  "description": "AutoCreator AI — autonomous AI-native platform for YouTube/TikTok/Instagram channel operations",
+  "description": "AutoCreator AI \u2014 autonomous AI-native platform for YouTube/TikTok/Instagram channel operations",
   "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=22.0.0",
@@ -34,7 +34,12 @@
   "pnpm": {
     "overrides": {
       "zod": "^3.23.8",
-      "handlebars": ">=4.7.9"
+      "handlebars": ">=4.7.9",
+      "js-yaml": ">=4.3.0",
+      "fast-uri": ">=3.1.2",
+      "@fastify/middie": ">=9.3.2",
+      "find-my-way": ">=9.7.0",
+      "lodash": ">=4.18.0"
     }
   }
 }
