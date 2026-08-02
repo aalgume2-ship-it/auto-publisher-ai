@@ -24,11 +24,11 @@ const checkMode = process.argv.includes('--check');
 const DOMAINS = [
   ['identity-tenancy', 'Identity & Tenancy', [
     'User', 'OAuthIdentity', 'UserSession', 'Organization', 'OrganizationMember',
-    'OrganizationInvitation', 'Team', 'TeamMember', 'CustomRole', 'OrganizationBrand',
+    'OrganizationInvitation', 'Team', 'TeamMember', 'CustomRole', 'OrganizationBrand', 'Department',
     'CustomDomain', 'SsoConnection', 'ScimToken', 'IpAllowListEntry',
   ]],
   ['billing-entitlements', 'Billing & Entitlements', [
-    'Plan', 'Subscription', 'Invoice', 'AiCreditTransaction', 'UsageRecord',
+    'Plan', 'Subscription', 'Invoice', 'AiCreditTransaction', 'UsageRecord', 'OrganizationBillingProfile',
   ]],
   ['channels-content', 'Channels, Content & Publishing', [
     'ProviderCredential', 'Channel', 'ChannelCredential', 'Project', 'AutomationConfig',

@@ -5,9 +5,9 @@
 > — DO NOT EDIT BY HAND. Drift fails CI (structural-gates job). Relationship
 > labels are the Prisma relation/field names; `PK` = primary key, `FK` = part of
 > a `@relation(fields:[…])` constraint. `optional` marks nullable fields.
-> 72 models · 94 relationships.
+> 74 models · 97 relationships.
 
-## Overview — all 72 models (relations only)
+## Overview — all 74 models (relations only)
 
 ```mermaid
 erDiagram
@@ -27,6 +27,9 @@ erDiagram
     string id PK
   }
   OrganizationInvitation {
+    string id PK
+  }
+  Department {
     string id PK
   }
   Team {
@@ -57,6 +60,9 @@ erDiagram
     string id PK
   }
   Subscription {
+    string id PK
+  }
+  OrganizationBillingProfile {
     string id PK
   }
   Invoice {
@@ -234,7 +240,9 @@ erDiagram
   CustomRole ||--o{ OrganizationMember : "customRole"
   Organization ||--o{ OrganizationInvitation : "organization"
   User ||--o{ OrganizationInvitation : "Inviter"
+  Organization ||--o{ Department : "organization"
   Organization ||--o{ Team : "organization"
+  Department ||--o{ Team : "department"
   Team ||--o{ TeamMember : "team"
   User ||--o{ TeamMember : "user"
   Organization ||--o{ CustomRole : "organization"
@@ -248,6 +256,7 @@ erDiagram
   Organization ||--o{ IpAllowListEntry : "organization"
   Organization ||--o| Subscription : "organization"
   Plan ||--o{ Subscription : "plan"
+  Organization ||--o| OrganizationBillingProfile : "organization"
   Organization ||--o{ Invoice : "organization"
   Organization ||--o{ AiCreditTransaction : "organization"
   Organization ||--o{ UsageRecord : "organization"
@@ -323,7 +332,7 @@ erDiagram
   User ||--o| NotificationPreference : "user"
 ```
 
-## Identity & Tenancy (14 models)
+## Identity & Tenancy (15 models)
 
 ```mermaid
 erDiagram
@@ -395,8 +404,10 @@ erDiagram
     organizationmember_arr members
     organizationinvitation_arr invitations
     team_arr teams
+    department_arr departments
     customrole_arr customRoles
     organizationbrand brand "optional"
+    organizationbillingprofile billingProfile "optional"
     customdomain_arr customDomains
     ssoconnection ssoConnection "optional"
     scimtoken_arr scimTokens
@@ -453,11 +464,13 @@ erDiagram
   Team {
     string id PK
     string orgId FK
+    string departmentId FK "optional"
     string name
     string description "optional"
     timestamptz createdAt
     timestamptz updatedAt
     organization organization
+    department department "optional"
     teammember_arr members
     project_arr projects
   }
@@ -501,6 +514,17 @@ erDiagram
     asset logoAsset "optional"
     asset logoDarkAsset "optional"
     asset faviconAsset "optional"
+  }
+  Department {
+    string id PK
+    string orgId FK
+    string name
+    string slug
+    string description "optional"
+    timestamptz createdAt
+    timestamptz updatedAt
+    organization organization
+    team_arr teams
   }
   CustomDomain {
     string id PK
@@ -560,7 +584,9 @@ erDiagram
   CustomRole ||--o{ OrganizationMember : "customRole"
   Organization ||--o{ OrganizationInvitation : "organization"
   User ||--o{ OrganizationInvitation : "Inviter"
+  Organization ||--o{ Department : "organization"
   Organization ||--o{ Team : "organization"
+  Department ||--o{ Team : "department"
   Team ||--o{ TeamMember : "team"
   User ||--o{ TeamMember : "user"
   Organization ||--o{ CustomRole : "organization"
@@ -573,7 +599,7 @@ erDiagram
 
 Inbound FK from another domain: `Asset ← OrganizationBrand.BrandLogo`, `Asset ← OrganizationBrand.BrandLogoDark`, `Asset ← OrganizationBrand.BrandFavicon`.
 
-## Billing & Entitlements (5 models)
+## Billing & Entitlements (6 models)
 
 ```mermaid
 erDiagram
@@ -654,10 +680,27 @@ erDiagram
     timestamptz updatedAt
     organization organization
   }
+  OrganizationBillingProfile {
+    string id PK
+    string orgId FK
+    string legalName "optional"
+    string billingEmail
+    string taxId "optional"
+    string addressLine1 "optional"
+    string addressLine2 "optional"
+    string city "optional"
+    string state "optional"
+    string postalCode "optional"
+    string countryCode "optional"
+    string purchaseOrderRef "optional"
+    timestamptz createdAt
+    timestamptz updatedAt
+    organization organization
+  }
   Plan ||--o{ Subscription : "plan"
 ```
 
-Inbound FK from another domain: `Organization ← Subscription.organization`, `Organization ← Invoice.organization`, `Organization ← AiCreditTransaction.organization`, `Organization ← UsageRecord.organization`.
+Inbound FK from another domain: `Organization ← Subscription.organization`, `Organization ← OrganizationBillingProfile.organization`, `Organization ← Invoice.organization`, `Organization ← AiCreditTransaction.organization`, `Organization ← UsageRecord.organization`.
 
 ## Channels, Content & Publishing (18 models)
 

@@ -525,8 +525,10 @@ model Organization {
   members             OrganizationMember[]
   invitations         OrganizationInvitation[]
   teams               Team[]
+  departments         Department[]
   customRoles         CustomRole[]
   brand               OrganizationBrand?
+  billingProfile      OrganizationBillingProfile?
   customDomains       CustomDomain[]
   ssoConnection       SsoConnection?
   scimTokens          ScimToken[]
@@ -594,19 +596,38 @@ model OrganizationInvitation {
   @@map("organization_invitations")
 }
 
-model Team {
+model Department {
   id          String   @id @db.Uuid
   orgId       String   @map("organization_id") @db.Uuid
   name        String
+  slug        String
   description String?
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  teams        Team[]
+
+  @@unique([orgId, slug])
+  @@map("departments")
+}
+
+model Team {
+  id           String   @id @db.Uuid
+  orgId        String   @map("organization_id") @db.Uuid
+  departmentId String?  @map("department_id") @db.Uuid
+  name         String
+  description  String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   members      TeamMember[]
   projects     Project[]
 
   @@unique([orgId, name])
+  @@index([departmentId])
   @@map("teams")
 }
 
@@ -783,6 +804,27 @@ model Subscription {
   plan         Plan         @relation(fields: [planId], references: [id])
 
   @@map("subscriptions")
+}
+
+model OrganizationBillingProfile {
+  id               String   @id @db.Uuid
+  orgId            String   @unique @map("organization_id") @db.Uuid
+  legalName        String?  @map("legal_name")
+  billingEmail     String   @map("billing_email")
+  taxId            String?  @map("tax_id")
+  addressLine1     String?  @map("address_line1")
+  addressLine2     String?  @map("address_line2")
+  city             String?
+  state            String?
+  postalCode       String?  @map("postal_code")
+  countryCode      String?  @map("country_code") // ISO 3166-1 alpha-2
+  purchaseOrderRef String?  @map("purchase_order_ref")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("organization_billing_profiles")
 }
 
 model Invoice {
