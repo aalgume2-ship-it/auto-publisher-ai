@@ -88,7 +88,7 @@ export class OutboxRelay {
     const parsed = EventEnvelopeSchema.safeParse(row.payload);
     if (!parsed.success) {
       this.deps.logger.error(
-        { outboxId: row.id, type: row.type, issues: parsed.error.issues.map((i) => i.message) },
+        { outboxId: row.id, type: row.type, issues: parsed.error.issues.map((i: { message: string }) => i.message) },
         'relay: outbox row is not a valid envelope (poison) — quarantining as error',
       );
       return null;

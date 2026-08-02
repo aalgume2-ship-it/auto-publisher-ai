@@ -15,12 +15,8 @@ import type { Prisma } from '@aca/database';
 import type { EventEnvelope, OutboxWriteInput } from '@aca/shared';
 import { buildEnvelopes, type BuildOptions } from './envelope.js';
 
-/** Structural subset of Prisma.TransactionClient this writer needs. */
-export interface OutboxTx {
-  outboxEvent: {
-    createMany(args: { data: Array<Record<string, unknown>> }): Promise<unknown>;
-  };
-}
+/** The writer needs only the outbox delegate of a real Prisma transaction. */
+export type OutboxTx = Pick<Prisma.TransactionClient, 'outboxEvent'>;
 
 export function envelopeToRow(env: EventEnvelope): Record<string, unknown> {
   return {
@@ -48,7 +44,10 @@ export class OutboxWriter {
   async write(tx: OutboxTx, inputs: readonly OutboxWriteInput[]): Promise<EventEnvelope[]> {
     if (inputs.length === 0) return [];
     const envelopes = buildEnvelopes(inputs, this.identity);
-    await tx.outboxEvent.createMany({ data: envelopes.map(envelopeToRow) });
+    // envelopeToRow is intentionally untyped (Record) so replay fixtures stay
+    // cheap; the single narrowing into Prisma's createMany input lives here.
+    const rows = envelopes.map(envelopeToRow) as unknown as Prisma.OutboxEventCreateManyInput[];
+    await tx.outboxEvent.createMany({ data: rows });
     return envelopes;
   }
 }

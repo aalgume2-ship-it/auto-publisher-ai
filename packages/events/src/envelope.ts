@@ -58,7 +58,7 @@ export function buildEnvelope(input: OutboxWriteInput, opts: BuildOptions): Even
     throw new EventContractError(
       input.type,
       'ENVELOPE_INVALID',
-      parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
+      parsed.error.issues.map((i: { path: readonly (string | number)[]; message: string }) => `${i.path.join('.')}: ${i.message}`),
     );
   }
   // materialize the required payload key (z.unknown() parses it as optional-prop)

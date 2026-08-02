@@ -72,8 +72,11 @@ export function createPrismaClient(options?: { log?: Array<'query' | 'info' | 'w
  *    be mutated — attempted violations throw TenantViolationError (they are a
  *    programming error or an attack, both must be loud).
  */
-export function forOrganization<T extends PrismaClient>(client: T, ctx: TenantContext) {
+export function forOrganization<T extends PrismaClient>(client: T, ctx: TenantContext): PrismaClient {
   const orgId = ctx.organizationId;
+  // The extension changes BEHAVIOR only (predicate/id injection) — no new
+  // typed members. Returning PrismaClient keeps delegate types intact for
+  // feature code (incl. $transaction -> Prisma.TransactionClient).
   return client.$extends({
     name: 'tenant-scope',
     query: {
@@ -109,7 +112,7 @@ export function forOrganization<T extends PrismaClient>(client: T, ctx: TenantCo
         },
       },
     },
-  });
+  }) as unknown as PrismaClient;
 }
 
 function injectIdsForModelOperation(operation: string, args: AnyArgs): void {
