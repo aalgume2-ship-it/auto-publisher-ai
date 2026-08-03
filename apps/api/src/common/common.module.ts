@@ -13,6 +13,7 @@ import { DomainOperations } from './telemetry/domain-operations.js';
 import { AuditService } from './audit/audit.service.js';
 import { OUTBOX_WRITER, outboxWriterProvider } from './events/outbox.provider.js';
 import { QueueService } from './queue/queue.service.js';
+import { OrgCredentialsService } from './credentials/org-credentials.service.js';
 
 const PROVIDERS = [
   { provide: API_CONFIG, useFactory: () => loadConfig() },
@@ -26,6 +27,7 @@ const PROVIDERS = [
   AuditService,
   outboxWriterProvider,
   QueueService,
+  OrgCredentialsService,
 ];
 
 @Global()
@@ -42,6 +44,7 @@ const PROVIDERS = [
     AuditService,
     OUTBOX_WRITER,
     QueueService,
+    OrgCredentialsService,
   ],
 })
 export class CommonModule {}

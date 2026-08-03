@@ -27,10 +27,11 @@ import { MetricsController } from './metrics/metrics.controller.js';
 import { OrganizationsModule } from './modules/organizations/organizations.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { ChannelsModule } from './modules/channels/channels.module.js';
+import { SettingsModule } from './modules/settings/settings.module.js';
 import { VideosModule } from './modules/videos/videos.module.js';
 
 @Module({
-  imports: [CommonModule, AuthModule, OrganizationsModule, ChannelsModule, VideosModule],
+  imports: [CommonModule, AuthModule, OrganizationsModule, ChannelsModule, VideosModule, SettingsModule],
   controllers: [HealthController, MetricsController],
   providers: [
     Reflector,

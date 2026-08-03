@@ -279,7 +279,12 @@ function SeriesDetailInner() {
                     {v.durationMs && <span className="stat-chip stat-plain">⏱ {Math.round(v.durationMs / 1000)}ث</span>}
                   </div>
                   {v.status === 'FAILED' && v.failureReason && (
-                    <p style={{ color: 'var(--err)', fontSize: 12.5, marginTop: 8, direction: 'ltr', textAlign: 'left' }}>{v.failureReason}</p>
+                    <div className="alert err" style={{ marginTop: 8, marginBottom: 0, fontSize: 12.5, lineHeight: 1.9 }}>
+                      {v.failureReason}{' '}
+                      <Link href="/dashboard/settings/" style={{ fontWeight: 800, textDecoration: 'underline' }}>
+                        فتح الإعدادات
+                      </Link>
+                    </div>
                   )}
                   {vPosts.map((p) => (
                     <div key={p.id} style={{ marginTop: 8, fontSize: 12.5 }}>

@@ -134,6 +134,11 @@ export const AppConfigSchema = z.object({
       openaiApiKey: z.string().min(1).optional(),
       openaiModel: z.string().default('gpt-4o-mini'),
       openaiTtsVoice: z.string().default('alloy'),
+      // free-tier-capable LLM providers — any one key enables the script stage
+      groqApiKey: z.string().min(1).optional(),
+      geminiApiKey: z.string().min(1).optional(),
+      openrouterApiKey: z.string().min(1).optional(),
+      pollinationsApiKey: z.string().min(1).optional(),
     })
     .default({}),
 
@@ -191,6 +196,10 @@ export const ENV_MAP = {
   OPENAI_API_KEY: 'ai.openaiApiKey',
   OPENAI_MODEL: 'ai.openaiModel',
   OPENAI_TTS_VOICE: 'ai.openaiTtsVoice',
+  GROQ_API_KEY: 'ai.groqApiKey',
+  GEMINI_API_KEY: 'ai.geminiApiKey',
+  OPENROUTER_API_KEY: 'ai.openrouterApiKey',
+  POLLINATIONS_API_KEY: 'ai.pollinationsApiKey',
   PUBLIC_API_URL: 'urls.publicApi',
   PUBLIC_WEB_URL: 'urls.publicWeb',
 } as const satisfies Record<string, string>;

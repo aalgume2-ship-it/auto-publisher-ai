@@ -61,12 +61,15 @@ export class GenerationService {
       const wd = workDirFor('gen', videoId);
 
       /* 1 ── script (real LLM) */
-      const { script, provider } = await this.ai.generateScript({
-        keyword,
-        niche: video.project.niche ?? 'معرفة وحقائق',
-        language: video.language,
-        targetSeconds: 45,
-      });
+      const { script, provider } = await this.ai.generateScript(
+        {
+          keyword,
+          niche: video.project.niche ?? 'معرفة وحقائق',
+          language: video.language,
+          targetSeconds: 45,
+        },
+        video.orgId,
+      );
       const narration = script.scenes.map((s) => s.narration).join(' ');
       const wordCount = narration.split(/\s+/).filter(Boolean).length;
       const readingSeconds = Math.max(15, Math.round(wordCount / 2.2));
@@ -80,7 +83,7 @@ export class GenerationService {
       });
 
       /* 2 ── voiceover (real TTS) */
-      const tts = await this.ai.synthesizeVoice(narration, video.language);
+      const tts = await this.ai.synthesizeVoice(narration, video.language, video.orgId);
       const { audioPath, durationMs: voiceMs } = await this.composer.concatAudio(tts.chunks, wd);
       const scriptRow = await this.prisma.script.create({
         data: {
@@ -237,10 +240,18 @@ export class GenerationService {
         },
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message.slice(0, 480) : 'generation failed';
-      // terminal failure only (attempt 3 of 3); retries keep GENERATING.
-      const statusData = attempt >= 3 ? { status: 'FAILED' as const, failureReason: msg } : { failureReason: `retry ${attempt}/3: ${msg}` };
+      // Surface the provider/config guidance, not just the exception class —
+      // ApiError carries the actionable text in `detail` (title is generic).
+      const rawText =
+        (err as { detail?: string } | null | undefined)?.detail ?? (err instanceof Error ? err.message : 'generation failed');
+      const msg = rawText.slice(0, 480);
+      // Configuration faults (marked terminal) can never heal by retrying;
+      // transient provider hiccups get the queue's 3-attempt backoff instead.
+      const explicitlyTerminal = (err as { terminal?: boolean } | null | undefined)?.terminal === true;
+      const terminal = explicitlyTerminal || attempt >= 3;
+      const statusData = terminal ? { status: 'FAILED' as const, failureReason: msg } : { failureReason: `retry ${attempt}/3: ${msg}` };
       await this.prisma.video.update({ where: { id: videoId }, data: statusData });
+      if (explicitlyTerminal) return; // acknowledge the job — no queue retry can fix config
       throw err;
     }
   }

@@ -30,6 +30,8 @@ export const ErrorCodes = [
   'SSRF_BLOCKED',
   'CONTENT_POLICY',
   'TENANT_VIOLATION',
+  // video engine: no LLM credential available (neither org vault nor env)
+  'AI_CREDENTIALS_MISSING',
 ] as const;
 
 export type ErrorCode = (typeof ErrorCodes)[number];

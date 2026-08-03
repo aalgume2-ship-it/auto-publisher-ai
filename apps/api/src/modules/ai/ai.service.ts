@@ -1,10 +1,13 @@
 /**
  * AiService — the real AI providers behind the video engine.
  *
- * Routing (Roadmap: revenue-first, zero-key default):
- *   OPENAI_API_KEY set   → OpenAI chat-completions (script) + tts-1 (voice)
- *   default (no keys)    → Pollinations text/image APIs + gTTS — key-less but
- *                          100% REAL generation (network calls, real artifacts).
+ * Routing:
+ *   script  → first configured LLM credential (org vault → env): OpenAI /
+ *             Groq / Gemini / OpenRouter / Pollinations-keyed — all REAL.
+ *             No credential anywhere → AI_CREDENTIALS_MISSING (terminal).
+ *   voice   → OpenAI tts-1 when the resolved credential is OpenAI;
+ *             otherwise gTTS (key-less REAL Arabic speech).
+ *   visuals → Pollinations image API (still genuinely key-less — verified).
  * Every method THROWS on provider failure: the pipeline marks the video
  * FAILED with the provider message — never a silent fallback, never a mock.
  */
@@ -12,6 +15,9 @@ import { Inject, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import type { AppConfig } from '@aca/config';
 import { API_CONFIG } from '../../common/redis.provider.js';
+import { ApiError } from '../../common/errors/api-error.js';
+import { OrgCredentialsService } from '../../common/credentials/org-credentials.service.js';
+import { LLM_PROVIDERS, chatCompletion, type LlmCredential } from './providers.js';
 
 export const SceneSchema = z.object({
   narration: z.string().min(10),
@@ -43,24 +49,6 @@ const EN_SYSTEM = `You are a pro short-form scriptwriter. Output VALID JSON ONLY
 {"title":string,"description":string,"tags":string[],"hook":string,"cta":string,"scenes":[{"narration":string,"visualPrompt":string}]}
 Rules: catchy title ≤70 chars; real description with 2 hashtags; 6-12 tags; shocking hook; follow CTA; 4-6 scenes, each with two short narration sentences and an ENGLISH cinematic vertical visual prompt (no real human faces).`;
 
-async function fetchJson(url: string, init: RequestInit, timeoutMs = 60_000): Promise<{ status: number; body: unknown }> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { ...init, signal: ctrl.signal });
-    const text = await res.text();
-    let body: unknown = null;
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = text;
-    }
-    return { status: res.status, body };
-  } finally {
-    clearTimeout(t);
-  }
-}
-
 export function extractJson(raw: string): string {
   const start = raw.indexOf('{');
   const end = raw.lastIndexOf('}');
@@ -70,79 +58,68 @@ export function extractJson(raw: string): string {
 
 @Injectable()
 export class AiService {
-  constructor(@Inject(API_CONFIG) private readonly config: AppConfig) {}
+  constructor(
+    @Inject(API_CONFIG) private readonly config: AppConfig,
+    private readonly creds: OrgCredentialsService,
+  ) {}
 
   /* ---------------------------------------------------------------- SCRIPT */
 
-  async generateScript(req: ScriptRequest): Promise<{ script: VideoScript; provider: string }> {
+  /**
+   * Resolves the best available LLM credential for this org and calls it.
+   * Fails CLOSED with AI_CREDENTIALS_MISSING (terminal — retrying cannot help)
+   * when no provider is configured anywhere; the detail tells the user exactly
+   * how to activate: paste one free key in /dashboard/settings, or set any of
+   * the named env vars on the API service.
+   */
+  private async requireLlm(orgId: string): Promise<LlmCredential> {
+    const cred = await this.creds.resolveLlm(orgId);
+    if (!cred) {
+      const envList = LLM_PROVIDERS.map((p) => p.envKey).join(' أو ');
+      const err = new ApiError('AI_CREDENTIALS_MISSING', 'AI provider not configured', {
+        status: 503,
+        detail:
+          'لا يوجد أي مفتاح مزود ذكاء اصطناعي لتوليد السيناريو. الحل خلال دقيقتين من لوحة التحكم ← الإعدادات: ' +
+          'أضف مفتاحاً مجانياً من Groq (console.groq.com/keys) أو Google AI Studio (aistudio.google.com/apikey) — ' +
+          'يتم التحقق منه لحظياً وتخزينه مشفراً. أو اضبط أحد متغيرات البيئة على خدمة الـ API: ' +
+          envList +
+          '. (أوقفت Pollinations التوليد المجاني بدون مفتاح — HTTP 402 لأي طلب جديد، وبقيت الصور عبرها مجانية.)',
+      });
+      (err as ApiError & { terminal?: boolean }).terminal = true;
+      throw err;
+    }
+    return cred;
+  }
+
+  async generateScript(req: ScriptRequest, orgId: string): Promise<{ script: VideoScript; provider: string }> {
+    const cred = await this.requireLlm(orgId);
     const system = req.language.startsWith('ar') ? AR_SYSTEM : EN_SYSTEM;
-    const user = `الكلمة المفتاحية: «${req.keyword}» — النيتش: ${req.niche} — المدة المستهدفة: ~${req.targetSeconds} ثانية. أخرج JSON الآن.`;
-    const raw = this.config.ai.openaiApiKey
-      ? await this.scriptViaOpenAi(system, user)
-      : await this.scriptViaPollinations(system, user);
-    const parsed = VideoScriptSchema.safeParse(JSON.parse(extractJson(raw)));
+    const user = req.language.startsWith('ar')
+      ? `الكلمة المفتاحية: «${req.keyword}» — النيتش: ${req.niche} — المدة المستهدفة: ~${req.targetSeconds} ثانية. أخرج JSON الآن.`
+      : `Keyword: "${req.keyword}" — niche: ${req.niche} — target length ~${req.targetSeconds}s. Output the JSON now.`;
+    const raw = await chatCompletion(cred, { system, user });
+    let json: unknown;
+    try {
+      json = JSON.parse(extractJson(raw));
+    } catch {
+      throw new Error(`${cred.def.id} returned non-JSON completion: ${raw.slice(0, 140)}`);
+    }
+    const parsed = VideoScriptSchema.safeParse(json);
     if (!parsed.success) {
       throw new Error(`script failed schema validation: ${parsed.error.issues.slice(0, 3).map((i) => i.message).join('; ')}`);
     }
-    return { script: parsed.data, provider: this.config.ai.openaiApiKey ? 'openai' : 'pollinations' };
-  }
-
-  private async scriptViaOpenAi(system: string, user: string): Promise<string> {
-    const { status, body } = await fetchJson(
-      'https://api.openai.com/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${this.config.ai.openaiApiKey}` },
-        body: JSON.stringify({
-          model: this.config.ai.openaiModel,
-          response_format: { type: 'json_object' },
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: user },
-          ],
-          temperature: 0.8,
-        }),
-      },
-      90_000,
-    );
-    const msg = (body as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } }) ?? {};
-    if (status !== 200 || !msg.choices?.[0]?.message?.content) {
-      throw new Error(`openai chat ${status}: ${msg.error?.message ?? 'empty completion'}`);
-    }
-    return msg.choices[0].message.content;
-  }
-
-  /**
-   * Pollinations text — GET form (their POST/chat endpoint now returns 402 on
-   * the free tier; the GET /{prompt}?system=… endpoint is the stable free
-   * route). Returns the raw completion text; the caller extracts the JSON.
-   */
-  private async scriptViaPollinations(system: string, user: string): Promise<string> {
-    const url =
-      `https://text.pollinations.ai/${encodeURIComponent(user)}` +
-      `?model=openai&system=${encodeURIComponent(system)}`;
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 120_000);
-    try {
-      const res = await fetch(url, { signal: ctrl.signal, headers: { 'user-agent': 'autocreator-pipeline/1.0' } });
-      const text = await res.text();
-      if (res.status !== 200 || text.trim().length < 40) {
-        throw new Error(`pollinations text ${res.status}: provider returned ${text.slice(0, 160) || 'empty'}`);
-      }
-      return text;
-    } finally {
-      clearTimeout(t);
-    }
+    return { script: parsed.data, provider: cred.def.id };
   }
 
   /* ----------------------------------------------------------------- VOICE */
 
-  /** Real Arabic voiceover: OpenAI tts when keyed, else gTTS chunked MP3(s). */
-  async synthesizeVoice(text: string, language: string): Promise<{ chunks: Buffer[]; provider: string; mime: string }> {
-    if (this.config.ai.openaiApiKey) {
+  /** Real Arabic voiceover: OpenAI tts when that credential resolved, else gTTS chunked MP3(s). */
+  async synthesizeVoice(text: string, language: string, orgId: string): Promise<{ chunks: Buffer[]; provider: string; mime: string }> {
+    const cred = await this.creds.resolveLlm(orgId);
+    if (cred?.def.id === 'openai') {
       const res = await fetch('https://api.openai.com/v1/audio/speech', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${this.config.ai.openaiApiKey}` },
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${cred.apiKey}` },
         body: JSON.stringify({ model: 'tts-1', voice: this.config.ai.openaiTtsVoice, input: text, response_format: 'mp3' }),
       });
       if (!res.ok) throw new Error(`openai tts ${res.status}: ${(await res.text()).slice(0, 200)}`);

@@ -22,17 +22,17 @@ interface Channel {
   connectedAt: string;
 }
 
-/** The 503 from startYoutubeLink carries the exact provisioning steps in body.detail. */
+/** The 503 from startYoutubeLink carries the exact activation steps in body.detail. */
 function ConfigNotice({ detail }: { detail: string }) {
   return (
     <div className="alert" style={{ background: 'var(--warn-soft)', borderColor: '#fde68a', color: '#92400e', lineHeight: 1.9 }}>
-      <strong>تفعيل ربط يوتيوب على هذا الخادم:</strong>
+      <strong>ربط يوتيوب غير مفعّل بعد لهذه المنظمة.</strong>
       <br />
-      أنشئ OAuth Client في Google Cloud Console (مجاني، ~4 دقائق) ثم أضف في إعدادات خدمة الـ API:
-      <br />
-      <code className="mono" style={{ background: 'rgba(0,0,0,0.05)', padding: '1px 8px', borderRadius: 6 }}>
-        GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET
-      </code>
+      فعّله ذاتياً خلال ~٤ دقائق من{' '}
+      <Link href="/dashboard/settings/" style={{ color: '#78350f', fontWeight: 800, textDecoration: 'underline' }}>
+        صفحة الإعدادات ← عميل Google OAuth
+      </Link>{' '}
+      (مجاني — نتحقق منه لدى Google قبل الحفظ).
       <div className="mono" dir="ltr" style={{ fontSize: 12, marginTop: 8, color: '#78350f' }}>{detail}</div>
     </div>
   );

@@ -8,6 +8,7 @@ const TABS = [
   { href: '/dashboard/channels/', label: 'القنوات' },
   { href: '/dashboard/series/', label: 'السلاسل' },
   { href: '/dashboard/posts/', label: 'النشر' },
+  { href: '/dashboard/settings/', label: 'الإعدادات' },
 ] as const;
 
 /** Internal dashboard tabs — shared chrome for all wizard/product screens. */
