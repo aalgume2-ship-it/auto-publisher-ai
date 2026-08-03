@@ -23,8 +23,12 @@ services:
     region: oregon
     # pnpm 9.15.9 is the pinned package manager (package.json packageManager);
     # --no-frozen-lockfile mirrors CI until pnpm-lock.yaml is committed.
+    # NOTE: NO corepack enable — Render's FS is read-only at /usr/bin (EROFS
+    # unlink /usr/bin/pnpm, verified live). npm -g into $HOME is the working
+    # path for the pinned pnpm on Render's native node runtime.
     buildCommand: >-
-      corepack enable && corepack prepare pnpm@9.15.9 --activate &&
+      npm install --global --prefix="$HOME/.npm-global" pnpm@9.15.9 &&
+      export PATH="$HOME/.npm-global/bin:$PATH" &&
       pnpm install --no-frozen-lockfile &&
       pnpm db:generate &&
       pnpm build
