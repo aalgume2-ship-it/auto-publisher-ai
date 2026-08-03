@@ -73,9 +73,9 @@ export default function RegisterPage() {
           </button>
         </form>
         <p className="form-note">
-          لديك حساب؟ <Link href="/login/" style={{ color: 'var(--brand-2)' }}>دخول</Link>
+          لديك حساب؟ <Link href="/login/">دخول</Link>
           {' • '}
-          <Link href="/dashboard/" style={{ color: 'var(--brand-2)' }}>تجربة فورية بحساب جاهز</Link>
+          <Link href="/dashboard/">تجربة فورية بحساب جاهز</Link>
         </p>
       </div>
     </div>

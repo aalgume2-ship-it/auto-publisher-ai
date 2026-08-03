@@ -92,9 +92,9 @@ export default function LoginPage() {
           </button>
         </form>
         <p className="form-note">
-          ليس لديك حساب؟ <Link href="/register/" style={{ color: 'var(--brand-2)' }}>أنشئ حساباً</Link>
+          ليس لديك حساب؟ <Link href="/register/">أنشئ حساباً</Link>
           {' • '}
-          <Link href="/dashboard/" style={{ color: 'var(--brand-2)' }}>تجربة فورية بحساب جاهز</Link>
+          <Link href="/dashboard/">تجربة فورية بحساب جاهز</Link>
         </p>
       </div>
     </div>

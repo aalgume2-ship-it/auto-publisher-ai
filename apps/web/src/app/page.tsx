@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import StepProgress, { type JourneyStep } from '../components/StepProgress';
 
 const FEATURES = [
   {
@@ -53,6 +54,17 @@ const PLANS = [
   { name: 'Enterprise', nameAr: 'المؤسسات', price: -1, feats: ['حصص مخصصة', 'SSO / SCIM', 'SLA تعاقدي', 'مدير حساب'], cta: 'تواصل معنا' },
 ];
 
+const VISITOR_JOURNEY: JourneyStep[] = [
+  { key: 'account', label: 'إنشاء الحساب', state: 'current' },
+  { key: 'workspace', label: 'إنشاء مساحة العمل', state: 'upcoming' },
+  { key: 'channel', label: 'ربط قناة يوتيوب', state: 'upcoming' },
+  { key: 'series', label: 'إنشاء أول سلسلة', state: 'upcoming' },
+  { key: 'generate', label: 'توليد المقاطع بالذكاء الاصطناعي', state: 'upcoming' },
+  { key: 'schedule', label: 'الجدولة والنشر التلقائي', state: 'upcoming' },
+  { key: 'analytics', label: 'تحليلات وتحسين مستمر', state: 'upcoming' },
+  { key: 'scale', label: 'التوسّع التلقائي للقنوات', state: 'upcoming' },
+];
+
 export default function LandingPage() {
   return (
     <>
@@ -79,7 +91,17 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="section" id="features">
+      <section className="section" style={{ paddingTop: 8 }}>
+        <div className="container" style={{ maxWidth: 880 }}>
+          <h2 style={{ textAlign: 'center' }}>مسار الإطلاق — 8 خطوات حتى قناة تعمل وحدها</h2>
+          <p className="sub" style={{ textAlign: 'center' }}>
+            أنت هنا الآن — سجّل حسابك وشاهد شريط تقدّمك يمتلئ خطوة بخطوة داخل لوحة التحكم.
+          </p>
+          <StepProgress steps={VISITOR_JOURNEY} currentIndex={0} />
+        </div>
+      </section>
+
+      <section className="section" id="features" style={{ paddingTop: 24 }}>
         <div className="container">
           <h2>ماذا تحصل اليوم — وما الذي يصل تالياً؟</h2>
           <p className="sub">كل بطاقة «يعمل الآن» موصولة فعلياً بالخادم الحي وتُدار عبر واجهة البرمجة العامة الموثّقة.</p>
