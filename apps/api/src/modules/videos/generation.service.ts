@@ -127,6 +127,7 @@ export class GenerationService {
         const scene = script.scenes[i]!;
         const isLast = i === script.scenes.length - 1;
         const durationMs = isLast ? Math.max(3_000, voiceMs - cursor) : Math.max(3_000, Math.round((sceneWords[i]! / totalWords) * voiceMs));
+        if (i > 0) await new Promise((r) => setTimeout(r, 6_000)); // pollinations anontier: 1 image at a time (429 otherwise)
         const img = await this.ai.generateSceneImage(scene.visualPrompt, 1000 + i * 77);
         const imgStored = await this.store.put(video.orgId, `scene-${i}.jpg`, img);
         const imgAsset = await this.prisma.asset.create({

@@ -164,14 +164,41 @@ export class AiService {
 
   /* ---------------------------------------------------------------- IMAGES */
 
-  /** Real scene artwork: Pollinations image API (key-less, cinematic vertical). */
+  /* ---------------------------------------------------------------- IMAGES */
+
+  /**
+   * Real scene artwork: Pollinations image API (key-less, cinematic vertical).
+   * Anonymous rate reality (live-measured 2026-08-03): ~1 concurrent slot —
+   * a burst of 3 calls → HTTP 429; a single call can take ~45 s. So: retry
+   * with backoff on 429/5xx, hard 120 s per attempt, generous total window.
+   */
   async generateSceneImage(visualPrompt: string, seed: number): Promise<Buffer> {
     const prompt = encodeURIComponent(`${visualPrompt}, vertical 9:16 cinematic, high detail, no text, no watermark`);
     const url = `https://image.pollinations.ai/prompt/${prompt}?width=720&height=1280&seed=${seed}&nologo=true&model=flux`;
-    const res = await fetch(url, { headers: { 'user-agent': 'autocreator-pipeline/1.0' } });
-    if (!res.ok) throw new Error(`pollinations image ${res.status}`);
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length < 10_000) throw new Error('image provider returned an empty image');
-    return buf;
+    let lastErr = 'unknown';
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 120_000);
+        try {
+          const res = await fetch(url, { signal: ctrl.signal, headers: { 'user-agent': 'autocreator-pipeline/1.0' } });
+          if (res.status === 429 || res.status >= 500) {
+            lastErr = `pollinations image ${res.status}`;
+          } else if (!res.ok) {
+            throw new Error(`pollinations image ${res.status}`); // 4xx ≠ rate: fail fast
+          } else {
+            const buf = Buffer.from(await res.arrayBuffer());
+            if (buf.length < 10_000) throw new Error('image provider returned an empty image');
+            return buf;
+          }
+        } finally {
+          clearTimeout(timer);
+        }
+      } catch (err) {
+        lastErr = err instanceof Error ? err.message : String(err);
+        if (attempt < 5) await new Promise((r) => setTimeout(r, 8_000 * attempt));
+      }
+    }
+    throw new Error(`image generation failed after 5 attempts: ${lastErr}`);
   }
 }
