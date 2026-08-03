@@ -417,6 +417,10 @@ async function seedDemoOrg(tx: SeedTx): Promise<number> {
     created += 1;
   }
 
+  // Preview wiring aid (dev-only path): surfaced in deploy logs so an operator can
+  // mint demo-session JWTs locally without direct database access.
+  console.log(`[seed:demo] ${JSON.stringify({ demoUserId: demoUser.id, demoOrgId: org.id })}`);
+
   const proPlan = await tx.plan.findUniqueOrThrow({ where: { code: 'pro' } });
   const subscription = await tx.subscription.findUnique({ where: { orgId: org.id } });
   if (!subscription) {
