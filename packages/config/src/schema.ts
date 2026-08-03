@@ -80,6 +80,15 @@ export const AppConfigSchema = z.object({
       jwtAudience: z.string().default('aca-first-party'),
       /** seconds; HMAC-verified access tokens are short-lived */
       accessTokenTtlSec: intFromEnv(900).pipe(z.number().int().min(60).max(86_400)),
+      /** seconds; refresh tokens are session-lifetime (default 30 days, rotated on every use) */
+      refreshTokenTtlSec: intFromEnv(2_592_000).pipe(z.number().int().min(86_400).max(31_536_000)),
+      /** ms; retry-safe window accepting the PREVIOUS refresh hash (Okta-style rotation grace) */
+      refreshGraceMs: intFromEnv(45_000).pipe(z.number().int().min(0).max(300_000)),
+      passwordMinLength: intFromEnv(12).pipe(z.number().int().min(8).max(128)),
+      totpIssuer: z.string().default('AutoCreator AI'),
+      /** AES-256-GCM at-rest key for TOTP secrets (32 bytes hex). Optional at parse; MFA paths fail closed without it. */
+      totpEncryptionKey: z.string().regex(/^[0-9a-f]{64}$/i).optional(),
+      totpKeyId: z.string().default('local-v1'),
     })
     .default({}),
 
@@ -121,6 +130,12 @@ export const ENV_MAP = {
   AUTH_JWT_ISSUER: 'auth.jwtIssuer',
   AUTH_JWT_AUDIENCE: 'auth.jwtAudience',
   AUTH_ACCESS_TOKEN_TTL_SEC: 'auth.accessTokenTtlSec',
+  AUTH_REFRESH_TOKEN_TTL_SEC: 'auth.refreshTokenTtlSec',
+  AUTH_REFRESH_GRACE_MS: 'auth.refreshGraceMs',
+  AUTH_PASSWORD_MIN_LENGTH: 'auth.passwordMinLength',
+  AUTH_TOTP_ISSUER: 'auth.totpIssuer',
+  AUTH_TOTP_ENCRYPTION_KEY: 'auth.totpEncryptionKey',
+  AUTH_TOTP_KEY_ID: 'auth.totpKeyId',
   DOPPLER_PROJECT: 'secrets.dopplerProject',
   DOPPLER_CONFIG: 'secrets.dopplerConfig',
   KMS_KEY_ID: 'secrets.kmsKeyId',

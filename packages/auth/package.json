@@ -1,0 +1,29 @@
+{
+  "name": "@aca/auth",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AutoCreator AI — credential + session core: password hashing (scrypt), first-party JWT issuance, refresh-token rotation with reuse detection, TOTP (RFC 6238) enrollment/verification with AES-256-GCM at-rest envelope. Zero vendor deps (node:crypto + zod only); persistence behind the AuthStore port.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "lint": "eslint .",
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@aca/typescript-config": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
