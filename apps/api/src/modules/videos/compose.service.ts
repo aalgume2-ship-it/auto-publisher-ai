@@ -90,7 +90,7 @@ export class VideoComposer {
     const assPath = join(workDir, 'captions.ass');
     await writeFile(assPath, this.buildAss(scenes), 'utf8');
 
-    const fps = 30;
+    const fps = 24; // see MEMORY CONTRACT at the encoder call
     const inputs: string[] = [];
     const filters: string[] = [];
     scenes.forEach((s, i) => {
@@ -109,16 +109,26 @@ export class VideoComposer {
     filters.push(`[vcat]subtitles='${assPath.replace(/'/g, "'\\''")}':fontsdir='${FONTS_DIR.replace(/'/g, "'\\''")}'[vout]`);
 
     const videoPath = join(workDir, 'final.mp4');
+    /**
+     * MEMORY CONTRACT (Render free = 512Mi container; verified: default
+     * veryfast x264 config OOM-kills the whole API process — Render event
+     * stream `server_failed … oomKilled … 512Mi` 2026-08-03). ultrafast +
+     * no lookahead/mbtree keeps x264's buffered-frame count near zero; one
+     * encoder thread caps thread-stack + row buffers; 24 fps cuts frame
+     * volume 25%. Still a real cinema-grade render — just container-safe.
+     */
     await run(ffmpegPath, [
-      '-y',
+      '-y', '-nostdin', '-hide_banner', '-v', 'warning',
       ...inputs,
       '-i', audioPath,
       '-filter_complex', filters.join(';'),
       '-map', '[vout]',
       '-map', `${audioIndex}:a`,
       '-shortest',
-      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-r', String(fps),
-      '-c:a', 'aac', '-b:a', '128k',
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '29', '-r', String(fps),
+      '-threads', '1',
+      '-x264-params', 'sliced-threads=0:sync-lookahead=0:rc-lookahead=0:mbtree=0',
+      '-c:a', 'aac', '-b:a', '96k',
       '-movflags', '+faststart',
       videoPath,
     ]);
@@ -144,7 +154,7 @@ export class VideoComposer {
     const listPath = join(workDir, 'voice-list.txt');
     await writeFile(listPath, files.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join('\n'), 'utf8');
     const audioPath = join(workDir, 'voice.mp3');
-    await run(ffmpegPath, ['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c:a', 'libmp3lame', '-b:a', '128k', audioPath], 120_000);
+    await run(ffmpegPath, ['-y', '-nostdin', '-hide_banner', '-v', 'warning', '-f', 'concat', '-safe', '0', '-i', listPath, '-c:a', 'libmp3lame', '-b:a', '96k', audioPath], 120_000);
     const durationMs = await probeDurationMs(audioPath);
     return { audioPath, durationMs };
   }
