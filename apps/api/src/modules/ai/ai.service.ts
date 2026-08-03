@@ -167,38 +167,113 @@ export class AiService {
   /* ---------------------------------------------------------------- IMAGES */
 
   /**
-   * Real scene artwork: Pollinations image API (key-less, cinematic vertical).
-   * Anonymous rate reality (live-measured 2026-08-03): ~1 concurrent slot —
-   * a burst of 3 calls → HTTP 429; a single call can take ~45 s. So: retry
-   * with backoff on 429/5xx, hard 120 s per attempt, generous total window.
+   * Real scene artwork via a 3-provider REAL chain, recorded in metadata:
+   *   1. Pollinations flux (AI-generated, key-less — but anonymous tier is
+   *      ~1 slot/IP; bursts → 429, and repeated E2E burns can exhaust the
+   *      window. Live-measured 2026-08-03).
+   *   2. LoremFlickr (real Flickr photo matched to prompt keywords, no key).
+   *   3. Openverse (WP-run CC image search JSON API, no key, generous anon).
+   * Degradation never means silence or a placeholder: every path yields REAL
+   * prompt-relevant photography/artwork downloaded over the wire.
    */
-  async generateSceneImage(visualPrompt: string, seed: number): Promise<Buffer> {
+  async generateSceneImage(visualPrompt: string, seed: number): Promise<{ data: Buffer; provider: string }> {
+    const errors: string[] = [];
+    try {
+      return await this.imageViaPollinations(visualPrompt, seed);
+    } catch (err) {
+      errors.push(`pollinations: ${err instanceof Error ? err.message : err}`);
+    }
+    try {
+      return await this.imageViaLoremFlickr(visualPrompt, seed);
+    } catch (err) {
+      errors.push(`loremflickr: ${err instanceof Error ? err.message : err}`);
+    }
+    try {
+      return await this.imageViaOpenverse(visualPrompt);
+    } catch (err) {
+      errors.push(`openverse: ${err instanceof Error ? err.message : err}`);
+    }
+    throw new Error(`all image providers failed → ${errors.join(' | ')}`);
+  }
+
+  private async imageViaPollinations(visualPrompt: string, seed: number): Promise<{ data: Buffer; provider: 'pollinations' }> {
     const prompt = encodeURIComponent(`${visualPrompt}, vertical 9:16 cinematic, high detail, no text, no watermark`);
     const url = `https://image.pollinations.ai/prompt/${prompt}?width=720&height=1280&seed=${seed}&nologo=true&model=flux`;
     let lastErr = 'unknown';
-    for (let attempt = 1; attempt <= 5; attempt += 1) {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 120_000);
       try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 120_000);
-        try {
-          const res = await fetch(url, { signal: ctrl.signal, headers: { 'user-agent': 'autocreator-pipeline/1.0' } });
-          if (res.status === 429 || res.status >= 500) {
-            lastErr = `pollinations image ${res.status}`;
-          } else if (!res.ok) {
-            throw new Error(`pollinations image ${res.status}`); // 4xx ≠ rate: fail fast
-          } else {
-            const buf = Buffer.from(await res.arrayBuffer());
-            if (buf.length < 10_000) throw new Error('image provider returned an empty image');
-            return buf;
-          }
-        } finally {
-          clearTimeout(timer);
+        const res = await fetch(url, { signal: ctrl.signal, headers: { 'user-agent': 'autocreator-pipeline/1.0' } });
+        if (res.status === 429 || res.status >= 500) {
+          lastErr = `http ${res.status}`;
+        } else if (!res.ok) {
+          throw new Error(`http ${res.status}`); // 4xx ≠ rate: fail fast
+        } else {
+          const buf = Buffer.from(await res.arrayBuffer());
+          if (buf.length < 10_000) throw new Error('empty image');
+          return { data: buf, provider: 'pollinations' };
         }
       } catch (err) {
         lastErr = err instanceof Error ? err.message : String(err);
-        if (attempt < 5) await new Promise((r) => setTimeout(r, 8_000 * attempt));
+      } finally {
+        clearTimeout(timer);
       }
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 6_000 * attempt));
     }
-    throw new Error(`image generation failed after 5 attempts: ${lastErr}`);
+    throw new Error(lastErr);
+  }
+
+  /** English keywords from the (contractually English) visual prompt. */
+  private static promptKeywords(prompt: string, max = 2): string {
+    const stop = new Set(['the', 'a', 'an', 'of', 'in', 'on', 'with', 'and', 'at', 'to', 'for', 'over', 'into', 'style', 'shot', 'vertical', 'cinematic', 'no', 'text', 'watermark', 'high', 'detail']);
+    const words = prompt
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length > 3 && !stop.has(w));
+    return words.slice(0, max).join(',') || 'landscape';
+  }
+
+  private async imageViaLoremFlickr(visualPrompt: string, seed: number): Promise<{ data: Buffer; provider: 'loremflickr' }> {
+    const kw = AiService.promptKeywords(visualPrompt);
+    const url = `https://loremflickr.com/720/1280/${encodeURIComponent(kw)}?lock=${seed}`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60_000);
+    try {
+      const res = await fetch(url, { signal: ctrl.signal, headers: { 'user-agent': 'autocreator-pipeline/1.0' } });
+      if (!res.ok) throw new Error(`http ${res.status}`);
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length < 10_000 || buf[0] !== 0xff || buf[1] !== 0xd8) throw new Error('not a real jpeg');
+      return { data: buf, provider: 'loremflickr' };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async imageViaOpenverse(visualPrompt: string): Promise<{ data: Buffer; provider: 'openverse' }> {
+    const q = AiService.promptKeywords(visualPrompt, 3).replaceAll(',', ' ');
+    const searchUrl = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(q)}&page_size=1&license_type=all`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60_000);
+    try {
+      const res = await fetch(searchUrl, {
+        signal: ctrl.signal,
+        headers: { 'user-agent': 'autocreator-pipeline/1.0 (contact: preview@autocreator.ai)' },
+      });
+      if (!res.ok) throw new Error(`search http ${res.status}`);
+      const json = (await res.json()) as { results?: Array<{ url?: string }> };
+      const imageUrl = json.results?.[0]?.url;
+      if (!imageUrl) throw new Error('no results');
+      const imgRes = await fetch(imageUrl, { signal: ctrl.signal, headers: { 'user-agent': 'autocreator-pipeline/1.0' } });
+      if (!imgRes.ok) throw new Error(`image http ${imgRes.status}`);
+      const buf = Buffer.from(await imgRes.arrayBuffer());
+      const isJpeg = buf.length > 1 && buf[0] === 0xff && buf[1] === 0xd8;
+      const isPng = buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50;
+      if (buf.length < 10_000 || !(isJpeg || isPng)) throw new Error('not a real image');
+      return { data: buf, provider: 'openverse' };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
