@@ -18,6 +18,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { TenantRequired } from '../../common/auth/tenant.guard.js';
+import { PROBLEM } from '../../common/http/problem-details.openapi.js';
 import { RequiresCapabilities } from '../../common/guards/rbac.guard.js';
 import { Idempotent } from '../../common/idempotency/idempotency.interceptor.js';
 import { UseZod } from '../../common/validation/zod-validation.pipe.js';
@@ -37,7 +38,6 @@ import {
 } from './teams.dto.js';
 import { TeamsService } from './teams.service.js';
 
-const PROBLEM = { $ref: '#/components/schemas/ProblemDetails' };
 const ORG_PARAM = { name: 'orgId' as const, format: 'uuid' };
 const TEAM_PARAM = { name: 'teamId' as const, format: 'uuid' };
 

@@ -21,6 +21,7 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { TenantRequired } from '../../common/auth/tenant.guard.js';
+import { PROBLEM } from '../../common/http/problem-details.openapi.js';
 import { RequiresCapabilities } from '../../common/guards/rbac.guard.js';
 import { Idempotent } from '../../common/idempotency/idempotency.interceptor.js';
 import { UseZod } from '../../common/validation/zod-validation.pipe.js';
@@ -40,7 +41,6 @@ import {
 } from './organizations.dto.js';
 import { OrganizationsService } from './organizations.service.js';
 
-const PROBLEM = { $ref: '#/components/schemas/ProblemDetails' };
 
 @ApiTags('organizations')
 @Controller({ path: 'organizations', version: '1' })

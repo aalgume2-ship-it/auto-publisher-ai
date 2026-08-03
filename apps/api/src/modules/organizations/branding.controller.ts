@@ -18,6 +18,7 @@ import {
 } from '@nestjs/swagger';
 import { Public } from '../../common/auth/auth.guard.js';
 import { TenantRequired } from '../../common/auth/tenant.guard.js';
+import { PROBLEM } from '../../common/http/problem-details.openapi.js';
 import { RequiresCapabilities } from '../../common/guards/rbac.guard.js';
 import { Idempotent } from '../../common/idempotency/idempotency.interceptor.js';
 import { UseZod } from '../../common/validation/zod-validation.pipe.js';
@@ -26,7 +27,6 @@ import { OrgParamsSchema } from './organizations.dto.js';
 import { BrandDoc, BrandingResolveDoc, BrandingResolveQuery, PutBrandBody, PutBrandBodyDoc } from './branding.dto.js';
 import { BrandingService } from './branding.service.js';
 
-const PROBLEM = { $ref: '#/components/schemas/ProblemDetails' };
 const ORG_PARAM = { name: 'orgId' as const, format: 'uuid' };
 
 @ApiTags('branding')

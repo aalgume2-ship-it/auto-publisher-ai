@@ -17,6 +17,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { TenantRequired } from '../../common/auth/tenant.guard.js';
+import { PROBLEM } from '../../common/http/problem-details.openapi.js';
 import { RequiresCapabilities } from '../../common/guards/rbac.guard.js';
 import { Idempotent } from '../../common/idempotency/idempotency.interceptor.js';
 import { UseZod } from '../../common/validation/zod-validation.pipe.js';
@@ -33,7 +34,6 @@ import {
 } from './departments.dto.js';
 import { DepartmentsService } from './departments.service.js';
 
-const PROBLEM = { $ref: '#/components/schemas/ProblemDetails' };
 const ORG_PARAM = { name: 'orgId' as const, format: 'uuid' };
 const DEPT_PARAM = { name: 'departmentId' as const, format: 'uuid' };
 

@@ -15,6 +15,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { TenantRequired } from '../../common/auth/tenant.guard.js';
+import { PROBLEM } from '../../common/http/problem-details.openapi.js';
 import { RequiresCapabilities } from '../../common/guards/rbac.guard.js';
 import { Idempotent } from '../../common/idempotency/idempotency.interceptor.js';
 import { UseZod } from '../../common/validation/zod-validation.pipe.js';
@@ -22,7 +23,6 @@ import { OrgParamsSchema } from './organizations.dto.js';
 import { BillingProfileBody, BillingProfileDoc, PutBillingProfileBodyDoc, SubscriptionResponseDoc } from './billing.dto.js';
 import { OrgBillingService } from './billing.service.js';
 
-const PROBLEM = { $ref: '#/components/schemas/ProblemDetails' };
 const ORG_PARAM = { name: 'orgId' as const, format: 'uuid' };
 
 @ApiTags('billing')

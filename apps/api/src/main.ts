@@ -17,6 +17,7 @@ import { createLogger } from '@aca/logger';
 import { AppModule } from './app.module.js';
 import { initTelemetry } from './common/telemetry/telemetry.js';
 import { registerLenientJsonBodyParser } from './common/http/json-body.js';
+import { registerProblemDetailsComponent } from './common/http/problem-details.openapi.js';
 
 async function bootstrap(): Promise<void> {
   const config = loadConfig(); // throws ConfigError listing ALL problems
@@ -56,6 +57,9 @@ async function bootstrap(): Promise<void> {
     .addServer('https://api.autocreator.ai', 'production')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
+  // RFC9457 error component — controllers reference it via shared PROBLEM const;
+  // without this registration Swagger UI shows "Could not resolve pointer" errors.
+  registerProblemDetailsComponent(document);
   SwaggerModule.setup('docs', app, document, {
     jsonDocumentUrl: 'openapi.json',
     customSiteTitle: 'AutoCreator AI API — OpenAPI',
