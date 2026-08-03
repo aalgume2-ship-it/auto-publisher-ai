@@ -16,6 +16,30 @@ interface Channel { id: string; displayName: string; handle: string | null; stat
 interface VideoItem {
   id: string; title: string; status: string; durationMs: number | null; failureReason: string | null;
   createdAt: string; publishedAt: string | null; thumbnail: string | null; videoUrl: string | null;
+  seo?: { step?: string; engine?: string; wallMs?: number; provider?: string } | null;
+}
+
+const STEP_LABEL: Record<string, string> = {
+  script: 'كتابة السيناريو بالذكاء الاصطناعي',
+  voice: 'توليد التعليق الصوتي',
+  scenes: 'توليد المشاهد',
+  clips: 'توليد مقاطع الفيديو المتحركة',
+  render: 'المونتاج النهائي (FFmpeg)',
+  ready: 'جاهز',
+};
+
+function liveStep(v: VideoItem): string | null {
+  const raw = (v.status === 'GENERATING' || v.status === 'QUEUED') ? v.seo?.step : undefined;
+  if (!raw) return null;
+  const [key, count] = raw.split(' ');
+  const label = STEP_LABEL[key ?? ''] ?? raw;
+  return count ? `${label} — ${count}` : label;
+}
+
+function engineBadge(v: VideoItem): string | null {
+  const e = v.seo?.engine;
+  if (v.status !== 'READY' || !e) return null;
+  return e.endsWith('-clips') ? 'مشاهد متحركة AI' : 'مشاهد سينمائية';
 }
 interface PostItem { id: string; status: string; scheduledAt: string | null; publishedAt: string | null; platformUrl: string | null; lastError: string | null; video: { id: string }; channel: { id: string; displayName: string } }
 interface Autopilot { enabled: boolean; postsPerDay: number; keywords: string[]; lastRunAt: string | null; channels: { id: string; displayName: string }[] }
@@ -277,6 +301,8 @@ function SeriesDetailInner() {
           {videos.map((v) => {
             const st = STATUS_LABEL[v.status] ?? STATUS_LABEL.DRAFT!;
             const vPosts = postsByVideo(v.id);
+            const step = liveStep(v);
+            const engine = engineBadge(v);
             return (
               <div key={v.id} className="card video-card">
                 <div className="poster-wrap">
@@ -295,7 +321,16 @@ function SeriesDetailInner() {
                   <div className="row" style={{ marginTop: 8, gap: 6 }}>
                     <span className={`stat-chip ${st.cls}`}>{st.text}</span>
                     {v.durationMs && <span className="stat-chip stat-plain">⏱ {Math.round(v.durationMs / 1000)}ث</span>}
+                    {typeof v.seo?.wallMs === 'number' && v.status === 'READY' && (
+                      <span className="stat-chip stat-plain">⚡ وُلّد خلال {Math.round((v.seo.wallMs as number) / 1000)}ث</span>
+                    )}
+                    {engine && <span className="stat-chip" style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }}>{engine}</span>}
                   </div>
+                  {step && (
+                    <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--brand-strong)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ display: 'inline-block', animation: 'pulse 1.4s ease-in-out infinite' }}>●</span> {step}
+                    </div>
+                  )}
                   {v.status === 'FAILED' && (
                     <div className="alert err" style={{ marginTop: 8, marginBottom: 0, fontSize: 12.5, lineHeight: 1.9 }}>
                       {v.failureReason}{' '}

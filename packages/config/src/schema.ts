@@ -139,6 +139,10 @@ export const AppConfigSchema = z.object({
       geminiApiKey: z.string().min(1).optional(),
       openrouterApiKey: z.string().min(1).optional(),
       pollinationsApiKey: z.string().min(1).optional(),
+      // moving-picture providers (no free tier exists today — org vault or env)
+      runwayApiKey: z.string().min(1).optional(),
+      lumaApiKey: z.string().min(1).optional(),
+      falKey: z.string().min(1).optional(),
     })
     .default({}),
 
@@ -200,6 +204,9 @@ export const ENV_MAP = {
   GEMINI_API_KEY: 'ai.geminiApiKey',
   OPENROUTER_API_KEY: 'ai.openrouterApiKey',
   POLLINATIONS_API_KEY: 'ai.pollinationsApiKey',
+  RUNWAY_API_KEY: 'ai.runwayApiKey',
+  LUMA_API_KEY: 'ai.lumaApiKey',
+  FAL_KEY: 'ai.falKey',
   PUBLIC_API_URL: 'urls.publicApi',
   PUBLIC_WEB_URL: 'urls.publicWeb',
 } as const satisfies Record<string, string>;

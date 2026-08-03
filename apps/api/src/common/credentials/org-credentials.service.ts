@@ -16,8 +16,9 @@ import { PRISMA } from '../prisma.provider.js';
 import { API_CONFIG } from '../redis.provider.js';
 import { ApiError } from '../errors/api-error.js';
 import { LLM_PROVIDERS, LLM_PROVIDER_MAP, type LlmCredential, type LlmProviderDef } from '../../modules/ai/providers.js';
+import { VIDEO_PROVIDERS, type VideoCredential, type VideoProviderDef } from '../../modules/ai/providers-video.js';
 
-export type VaultCapability = 'LLM' | 'PUBLISHER';
+export type VaultCapability = 'LLM' | 'PUBLISHER' | 'VIDEO_ENGINE';
 const GOOGLE_OAUTH_PROVIDER = 'google-oauth';
 const VAULT_LABEL = 'primary';
 
@@ -140,6 +141,27 @@ export class OrgCredentialsService {
     }
     for (const def of LLM_PROVIDERS) {
       const env = this.envKeyFor(def);
+      if (env) return { def, apiKey: env, source: 'env' };
+    }
+    return null;
+  }
+
+  /** env fallback for a moving-picture provider. */
+  private envVideoKeyFor(def: VideoProviderDef): string | null {
+    const ai = this.config.ai;
+    const map: Record<string, string | undefined> = { runway: ai.runwayApiKey, luma: ai.lumaApiKey, 'fal-kling': ai.falKey };
+    const v = map[def.id];
+    return v && v.length > 0 ? v : null;
+  }
+
+  /** The video-clip credential (moving scenes). Null ⇒ stills mode (legit default). */
+  async resolveVideo(orgId: string): Promise<VideoCredential | null> {
+    for (const def of VIDEO_PROVIDERS) {
+      const stored = await this.readSecret(orgId, 'VIDEO_ENGINE', def.id);
+      if (stored?.secret) return { def, apiKey: stored.secret, source: 'org' };
+    }
+    for (const def of VIDEO_PROVIDERS) {
+      const env = this.envVideoKeyFor(def);
       if (env) return { def, apiKey: env, source: 'env' };
     }
     return null;

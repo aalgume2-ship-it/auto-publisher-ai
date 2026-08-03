@@ -7,6 +7,10 @@ export const AiProviderParamsSchema = z.object({
   orgId: z.string().uuid(),
   provider: z.enum(LLM_PROVIDERS.map((p) => p.id) as [string, ...string[]]),
 });
+export const VideoProviderParamsSchema = z.object({
+  orgId: z.string().uuid(),
+  provider: z.enum(['runway', 'luma', 'fal-kling'] as [string, ...string[]]),
+});
 export const SaveAiKeyBodySchema = z.object({
   apiKey: z.string().min(8).max(512),
 });

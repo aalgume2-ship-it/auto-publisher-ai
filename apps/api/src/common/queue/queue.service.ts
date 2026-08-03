@@ -28,7 +28,7 @@ export type JobHandler = (payload: Record<string, unknown>, jobId: string, attem
 const GROUP = 'workers';
 const CONSUMER = `api-${process.pid}`;
 const MAX_ATTEMPTS = 3;
-const BLOCK_MS = 5_000;
+const BLOCK_MS = 1_000; // snappy pickup on the single free instance — an idle block still wakes instantly on XADD
 const CLAIM_IDLE_MS = 120_000; // reclaim jobs from a dead consumer after 2 min
 
 interface EnqueueOpts {

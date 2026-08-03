@@ -24,6 +24,22 @@ const VOICE_PROVIDER_TTS: Record<string, { provider: string; providerVoiceId: st
   openai: { provider: 'openai', providerVoiceId: 'alloy', name: 'OpenAI Alloy (HD)' },
 };
 
+/** Order-preserving async pool (network concurrency without rate-limit storms). */
+async function mapPool<T, R>(items: T[], size: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(size, items.length) }, async () => {
+      while (next < items.length) {
+        const i = next;
+        next += 1;
+        out[i] = await fn(items[i]!, i);
+      }
+    }),
+  );
+  return out;
+}
+
 @Injectable()
 export class GenerationService {
   constructor(
@@ -54,11 +70,19 @@ export class GenerationService {
     if (!video) throw new Error(`video ${videoId} not found`);
     if (video.status === 'PUBLISHED' || video.status === 'READY') return; // idempotent re-entry
     await this.prisma.video.update({ where: { id: videoId }, data: { status: 'GENERATING', failureReason: null } });
+    const t0 = Date.now();
 
     try {
       await this.wipePartialChildren(videoId);
       const keyword = (video.seo as { keyword?: string } | null)?.keyword ?? video.title;
       const wd = workDirFor('gen', videoId);
+
+      // live step surface: the UI polls `videos` and renders `seo.step`
+      const seoState: Record<string, unknown> = { keyword };
+      const markStep = (step: string) =>
+        // JSON round-trip narrows Record<string,unknown> → Prisma's InputJsonValue
+        this.prisma.video.update({ where: { id: videoId }, data: { seo: JSON.parse(JSON.stringify({ ...seoState })) } }).catch(() => undefined);
+      await markStep('script');
 
       /* 1 ── script (real LLM) */
       const { script, provider } = await this.ai.generateScript(
@@ -70,6 +94,8 @@ export class GenerationService {
         },
         video.orgId,
       );
+      seoState['provider'] = provider;
+      await markStep('voice');
       const narration = script.scenes.map((s) => s.narration).join(' ');
       const wordCount = narration.split(/\s+/).filter(Boolean).length;
       const readingSeconds = Math.max(15, Math.round(wordCount / 2.2));
@@ -118,16 +144,23 @@ export class GenerationService {
         data: { id: generateId(), scriptId: scriptRow.id, voiceId: voice.id, audioAssetId: audioAsset.id, durationMs: voiceMs },
       });
 
-      /* 3 ── per-scene visuals with narration-proportional timings */
+      /* 3 ── per-scene visuals (moving AI clips when a video key exists) */
+      const videoCred = await this.ai.resolveVideoCred(video.orgId);
+      const moving = videoCred !== null;
+      const engine = moving ? `${provider}-gtts-${videoCred!.def.id}-clips` : `${provider}-gtts-pollinations`;
       const sceneWords = script.scenes.map((s) => s.narration.split(/\s+/).filter(Boolean).length);
       const totalWords = sceneWords.reduce((a, b) => a + b, 0) || 1;
       let cursor = 0;
+      const windows: { startMs: number; durationMs: number }[] = [];
       const composeScenes: { imagePath: string; caption: string; durationMs: number }[] = [];
+      const movingScenes: { clipPath: string; caption: string; durationMs: number }[] = [];
       for (let i = 0; i < script.scenes.length; i += 1) {
         const scene = script.scenes[i]!;
         const isLast = i === script.scenes.length - 1;
         const durationMs = isLast ? Math.max(3_000, voiceMs - cursor) : Math.max(3_000, Math.round((sceneWords[i]! / totalWords) * voiceMs));
-        if (i > 0) await new Promise((r) => setTimeout(r, 6_000)); // pollinations anontier: 1 image at a time (429 otherwise)
+        windows.push({ startMs: cursor, durationMs });
+        if (i > 0) await new Promise((r) => setTimeout(r, 6_000)); // pollinations anon tier: 1 image at a time (429 otherwise)
+        await markStep(`scenes ${i + 1}/${script.scenes.length}`);
         const img = await this.ai.generateSceneImage(scene.visualPrompt, 1000 + i * 77);
         const imgStored = await this.store.put(video.orgId, `scene-${i}.jpg`, img.data);
         const imgAsset = await this.prisma.asset.create({
@@ -155,16 +188,51 @@ export class GenerationService {
             narrationText: scene.narration,
             visualPrompt: scene.visualPrompt,
             assetId: imgAsset.id,
-            startMs: cursor,
-            endMs: cursor + durationMs,
+            startMs: windows[i]!.startMs,
+            endMs: windows[i]!.startMs + windows[i]!.durationMs,
           },
         });
         composeScenes.push({ imagePath: this.store.fullPath(imgStored.storageKey), caption: scene.narration, durationMs });
         cursor += durationMs;
       }
 
-      /* 4 ── compose (real ffmpeg render) */
-      const { videoPath, durationMs } = await this.composer.compose(composeScenes, audioPath, wd);
+      /* 3.5 ── moving clips (only when a video provider key is configured) */
+      if (moving) {
+        await markStep(`clips 0/${script.scenes.length}`);
+        let clipsDone = 0;
+        await mapPool(script.scenes, 2, async (scene, i) => {
+          const w = windows[i]!;
+          const buf = await this.ai.generateSceneClip(videoCred!, scene.visualPrompt, this.ai.sceneImageUrl(scene.visualPrompt, 1000 + i * 77), w.durationMs / 1000);
+          const clipStored = await this.store.put(video.orgId, `clip-${i}.mp4`, buf);
+          const clipAsset = await this.prisma.asset.create({
+            data: {
+              id: generateId(),
+              orgId: video.orgId,
+              type: 'VIDEO_CLIP',
+              source: 'GENERATED',
+              storageKey: clipStored.storageKey,
+              cdnPath: 'pending',
+              mimeType: 'video/mp4',
+              bytes: BigInt(buf.length),
+              durationMs: w.durationMs,
+              width: 720,
+              height: 1280,
+              metadata: { prompt: scene.visualPrompt, provider: videoCred!.def.id, firstFrameStill: `scene-${i}.jpg` },
+            },
+          });
+          await this.prisma.asset.update({ where: { id: clipAsset.id }, data: { cdnPath: `/v1/organizations/${video.orgId}/assets/${clipAsset.id}/content` } });
+          movingScenes[i] = { clipPath: this.store.fullPath(clipStored.storageKey), caption: scene.narration, durationMs: w.durationMs };
+          clipsDone += 1;
+          await markStep(`clips ${clipsDone}/${script.scenes.length}`);
+        });
+      }
+
+      await markStep('render');
+
+      /* 4 ── compose (real ffmpeg render; moving path when clips exist) */
+      const { videoPath, durationMs } = moving
+        ? await this.composer.composeMoving(movingScenes, audioPath, wd)
+        : await this.composer.compose(composeScenes, audioPath, wd);
       const mp4 = await readFile(videoPath);
       if (mp4.byteLength < 50_000) throw new Error('render produced a suspiciously small mp4');
       const vidStored = await this.store.put(video.orgId, 'shorts-720x1280.mp4', mp4);
@@ -237,7 +305,7 @@ export class GenerationService {
           cta: script.cta,
           durationMs,
           qualityScore: Math.min(95, 60 + script.scenes.length * 6),
-          seo: { keyword, provider, engine: `${provider}-gtts-pollinations` },
+          seo: { keyword, provider, engine, wallMs: Date.now() - t0, step: 'ready' },
         },
       });
     } catch (err) {

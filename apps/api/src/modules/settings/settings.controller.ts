@@ -20,6 +20,7 @@ import {
   SaveAiKeyBodySchema,
   SaveGoogleOAuthBodySchema,
   SavedIntegrationDoc,
+  VideoProviderParamsSchema,
 } from './settings.dto.js';
 import { SettingsService } from './settings.service.js';
 
@@ -69,6 +70,33 @@ export class SettingsController {
   @ApiParam({ name: 'orgId', format: 'uuid' })
   deleteAiKey(@Param() params: { orgId: string; provider: string }) {
     return this.settings.deleteAiKey(params.orgId, params.provider);
+  }
+
+  @Put('integrations/video/:provider')
+  @TenantRequired()
+  @RequiresCapabilities('project.edit')
+  @UseZod({ params: VideoProviderParamsSchema, body: SaveAiKeyBodySchema })
+  @ApiOperation({
+    operationId: 'saveVideoKey',
+    summary: 'Validate an AI VIDEO provider key (Runway / Luma / Kling-via-fal) WITHOUT spending a generation credit, then store it encrypted — enables moving-scene clips',
+    description: 'Probe: bogus task id ⇒ 401/403 rejects the key; 200/404/422/429 proves it. 400 when the provider rejects.',
+  })
+  @ApiParam({ name: 'orgId', format: 'uuid' })
+  @ApiParam({ name: 'provider', enum: ['runway', 'luma', 'fal-kling'] })
+  @ApiOkResponse({ description: 'Key validated + stored', schema: SavedIntegrationDoc })
+  @ApiBadRequestResponse({ description: 'Provider rejected the key', content: { 'application/problem+json': { schema: PROBLEM } } })
+  saveVideoKey(@Param() params: { orgId: string; provider: string }, @Body() body: { apiKey: string }) {
+    return this.settings.saveVideoKey(params.orgId, params.provider, body.apiKey);
+  }
+
+  @Delete('integrations/video/:provider')
+  @TenantRequired()
+  @RequiresCapabilities('project.edit')
+  @UseZod({ params: VideoProviderParamsSchema })
+  @ApiOperation({ operationId: 'deleteVideoKey', summary: 'Remove a stored video provider key (reverts the engine to stills)' })
+  @ApiParam({ name: 'orgId', format: 'uuid' })
+  deleteVideoKey(@Param() params: { orgId: string; provider: string }) {
+    return this.settings.deleteVideoKey(params.orgId, params.provider);
   }
 
   @Put('integrations/oauth/google')

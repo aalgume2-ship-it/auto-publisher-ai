@@ -18,6 +18,7 @@ import { API_CONFIG } from '../../common/redis.provider.js';
 import { ApiError } from '../../common/errors/api-error.js';
 import { OrgCredentialsService } from '../../common/credentials/org-credentials.service.js';
 import { LLM_PROVIDERS, chatCompletion, type LlmCredential } from './providers.js';
+import { generateClip, type VideoCredential } from './providers-video.js';
 
 export const SceneSchema = z.object({
   narration: z.string().min(10),
@@ -165,6 +166,29 @@ export class AiService {
   /* ---------------------------------------------------------------- IMAGES */
 
   /* ---------------------------------------------------------------- IMAGES */
+
+  /* ----------------------------------------------------------------- CLIPS */
+
+  /**
+   * Real moving-picture generation for one scene. The scene still becomes the
+   * clip's FIRST FRAME (Runway/Luma/Kling all support it) so the whole cut
+   * stays visually coherent. Provider failures THROW (the pipeline marks the
+   * video FAILED honestly — stills mode is chosen only when no video key
+   * exists at all, before any clip is attempted).
+   */
+  async resolveVideoCred(orgId: string): Promise<VideoCredential | null> {
+    return this.creds.resolveVideo(orgId);
+  }
+
+  async generateSceneClip(cred: VideoCredential, visualPrompt: string, firstFrameUrl: string | null, windowSec: number): Promise<Buffer> {
+    return generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec });
+  }
+
+  /** Public URL of a scene still (passed as FIRST FRAME to clip providers). */
+  sceneImageUrl(visualPrompt: string, seed: number): string {
+    const prompt = encodeURIComponent(`${visualPrompt}, vertical 9:16 cinematic, high detail, no text, no watermark`);
+    return `https://image.pollinations.ai/prompt/${prompt}?width=720&height=1280&seed=${seed}&nologo=true&model=flux`;
+  }
 
   /**
    * Real scene artwork via a 3-provider REAL chain, recorded in metadata:

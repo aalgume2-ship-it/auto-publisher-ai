@@ -10,6 +10,7 @@ import { ApiError } from '../../common/errors/api-error.js';
 import { API_CONFIG } from '../../common/redis.provider.js';
 import { OrgCredentialsService } from '../../common/credentials/org-credentials.service.js';
 import { LLM_PROVIDERS, LLM_PROVIDER_MAP, validateApiKey } from '../ai/providers.js';
+import { VIDEO_PROVIDERS, VIDEO_PROVIDER_MAP, validateVideoKey } from '../ai/providers-video.js';
 
 const badKey = (detail: string) => new ApiError('VALIDATION_FAILED', 'Validation Failed', { detail });
 
@@ -63,7 +64,33 @@ export class SettingsService {
     });
     const google = await this.creds.resolveGoogleOAuth(orgId);
     const googleStored = await this.creds.readSecret(orgId, 'PUBLISHER', 'google-oauth');
+    const videoStored = await this.creds.listNamespace(orgId, 'VIDEO_ENGINE');
+    const videoActive = await this.creds.resolveVideo(orgId);
+    const videoStoredMap = new Map(videoStored.map((s) => [s.provider, s]));
+    const videoEnvConfigured = (id: string): boolean => {
+      const ai = this.config.ai as Record<string, string | undefined>;
+      const v = { runway: ai['runwayApiKey'], luma: ai['lumaApiKey'], 'fal-kling': ai['falKey'] }[id];
+      return typeof v === 'string' && v.length > 0;
+    };
+    const videoItems = VIDEO_PROVIDERS.map((def) => {
+      const row = videoStoredMap.get(def.id);
+      const env = videoEnvConfigured(def.id);
+      return {
+        id: def.id,
+        label: def.label,
+        free: false,
+        priceHint: def.priceHint,
+        consoleUrl: def.consoleUrl,
+        envKey: def.envKey,
+        configured: Boolean(row) || env,
+        source: row ? ('org' as const) : env ? ('env' as const) : null,
+        hint: row?.hint ?? (env ? 'env •••' : null),
+        validatedAt: row?.validatedAt ?? null,
+        active: videoActive?.def.id === def.id,
+      };
+    });
     return {
+      video: { active: videoActive ? { provider: videoActive.def.id, source: videoActive.source } : null, items: videoItems },
       ai: { active: active ? { provider: active.def.id, source: active.source } : null, items },
       youtube: {
         configured: Boolean(google),
@@ -90,6 +117,26 @@ export class SettingsService {
 
   async deleteAiKey(orgId: string, providerId: string) {
     const removed = await this.creds.deleteSecret(orgId, 'LLM', providerId);
+    if (!removed) throw new ApiError('NOT_FOUND', 'Not Found', { detail: 'لا يوجد مفتاح محفوظ لهذا المزود' });
+    return { ok: true as const };
+  }
+
+  async saveVideoKey(orgId: string, providerId: string, apiKey: string) {
+    const def = VIDEO_PROVIDER_MAP.get(providerId);
+    if (!def) throw badKey(`مزود فيديو غير معروف: ${providerId}`);
+    try {
+      await validateVideoKey(def, apiKey);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw badKey(`المفتاح غير صالح لدى ${def.label} — تحقق من نسخه من ${def.consoleUrl} — التفصيل: ${msg}`);
+    }
+    const payload = { secret: apiKey, hint: OrgCredentialsService.hint(apiKey), validatedAt: new Date().toISOString() };
+    await this.creds.writeSecret(orgId, 'VIDEO_ENGINE', providerId, payload);
+    return { ok: true as const, provider: providerId, hint: payload.hint, validatedAt: payload.validatedAt };
+  }
+
+  async deleteVideoKey(orgId: string, providerId: string) {
+    const removed = await this.creds.deleteSecret(orgId, 'VIDEO_ENGINE', providerId);
     if (!removed) throw new ApiError('NOT_FOUND', 'Not Found', { detail: 'لا يوجد مفتاح محفوظ لهذا المزود' });
     return { ok: true as const };
   }

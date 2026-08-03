@@ -140,6 +140,7 @@ export class VideosService {
         failureReason: v.failureReason,
         createdAt: v.createdAt,
         publishedAt: v.publishedAt,
+        seo: v.seo,
         thumbnail: this.media(v.thumbnails[0]?.storageKey),
         videoUrl: this.media(v.renditions[0]?.storageKey),
       })),

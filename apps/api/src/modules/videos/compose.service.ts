@@ -64,6 +64,12 @@ export interface ComposeScene {
   durationMs: number;
 }
 
+export interface MovingComposeScene {
+  clipPath: string;
+  caption: string;
+  durationMs: number;
+}
+
 /** ASS caption escaping (commas break Dialogue fields — escape stays literal-safe for libass). */
 function assEscape(text: string): string {
   return text.replace(/\{/g, '（').replace(/\}/g, '）').replace(/\n/g, '\\N').trim();
@@ -128,6 +134,60 @@ export class VideoComposer {
      * encoder thread caps thread-stack + row buffers; 24 fps cuts frame
      * volume 25%. Still a real cinema-grade render — just container-safe.
      */
+    await run(ffmpegPath, [
+      '-y', '-nostdin', '-hide_banner', '-v', 'warning',
+      ...inputs,
+      '-i', audioPath,
+      '-filter_complex', filters.join(';'),
+      '-map', '[vout]',
+      '-map', `${audioIndex}:a`,
+      '-shortest',
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '29', '-r', String(fps),
+      '-threads', '1',
+      '-x264-params', 'sliced-threads=0:sync-lookahead=0:rc-lookahead=0:mbtree=0',
+      '-c:a', 'aac', '-b:a', '96k',
+      '-movflags', '+faststart',
+      videoPath,
+    ]);
+    const durationMs = await probeDurationMs(videoPath);
+    return { videoPath, durationMs };
+  }
+
+  /**
+   * Renders the final cut from REAL moving clips (AI video generation).
+   * Every clip is normalized to its exact narration window (trim when long,
+   * gentle setpts stretch ≤1.6 when short — stays cinematic), scaled/cropped
+   * uniformly, concatenated, captions burned, voiceover muxed. Same OOM-safe
+   * encoder contract as the stills path (Render free = 512Mi).
+   */
+  async composeMoving(scenes: MovingComposeScene[], audioPath: string, workDir: string): Promise<{ videoPath: string; durationMs: number }> {
+    if (scenes.length === 0) throw new Error('composeMoving: no scenes');
+    await mkdir(workDir, { recursive: true });
+    const assPath = join(workDir, 'captions.ass');
+    // buildAss keys captions off {caption,durationMs} — shared shape
+    await writeFile(assPath, this.buildAss(scenes.map((s) => ({ imagePath: s.clipPath, caption: s.caption, durationMs: s.durationMs }))), 'utf8');
+
+    const fps = 24;
+    const clipDurations = await Promise.all(scenes.map((s) => probeDurationMs(s.clipPath)));
+    const inputs: string[] = [];
+    const filters: string[] = [];
+    scenes.forEach((s, i) => {
+      const windowS = s.durationMs / 1000;
+      const clipS = clipDurations[i]! / 1000;
+      const stretch = Math.min(1.6, Math.max(1, windowS / clipS)); // >1 ⇒ gentle slow-mo fill
+      const effS = clipS * stretch;
+      inputs.push('-i', s.clipPath);
+      const speed = stretch > 1 ? `setpts=${stretch.toFixed(3)}*PTS,` : '';
+      const trim = effS > windowS + 0.05 ? `,trim=duration=${windowS.toFixed(2)},setpts=PTS-STARTPTS` : '';
+      filters.push(
+        `[${i}:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=${fps},${speed}setsar=1,format=yuv420p${trim}[v${i}]`,
+      );
+    });
+    const audioIndex = scenes.length;
+    filters.push(`${scenes.map((_, i) => `[v${i}]`).join('')}concat=n=${scenes.length}:v=1:a=0[vcat]`);
+    filters.push(`[vcat]subtitles='${assPath.replace(/'/g, "'\\''")}':fontsdir='${FONTS_DIR.replace(/'/g, "'\\''")}'[vout]`);
+
+    const videoPath = join(workDir, 'final.mp4');
     await run(ffmpegPath, [
       '-y', '-nostdin', '-hide_banner', '-v', 'warning',
       ...inputs,

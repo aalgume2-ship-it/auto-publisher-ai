@@ -22,8 +22,22 @@ interface AiItem {
   validatedAt: string | null;
   active: boolean;
 }
+interface VideoItem {
+  id: string;
+  label: string;
+  free: boolean;
+  priceHint: string;
+  consoleUrl: string;
+  envKey: string;
+  configured: boolean;
+  source: 'org' | 'env' | null;
+  hint: string | null;
+  validatedAt: string | null;
+  active: boolean;
+}
 interface Integrations {
   ai: { active: { provider: string; source: string } | null; items: AiItem[] };
+  video: { active: { provider: string; source: string } | null; items: VideoItem[] };
   youtube: { configured: boolean; source: 'org' | 'env' | null; hint: string | null; redirectUri: string | null };
 }
 
@@ -43,6 +57,8 @@ export default function SettingsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [provider, setProvider] = useState('groq');
   const [apiKey, setApiKey] = useState('');
+  const [videoProvider, setVideoProvider] = useState('runway');
+  const [videoKey, setVideoKey] = useState('');
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [copied, setCopied] = useState(false);
@@ -103,6 +119,47 @@ export default function SettingsPage() {
     try {
       await api.del(`/v1/organizations/${session.orgId}/settings/integrations/ai/${id}`, session.accessToken);
       setNotice('تم حذف المفتاح نهائياً من الخزنة');
+      await load();
+    } catch (e) {
+      setError(arabicMessage(e as never));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const chosenVideo = data?.video.items.find((i) => i.id === videoProvider) ?? null;
+
+  const saveVideoKey = async () => {
+    if (!session?.orgId || videoKey.trim().length < 8) {
+      setError('ألصق مفتاح مزود الفيديو كاملاً أولاً');
+      return;
+    }
+    setBusy(`video:${videoProvider}`);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.put(
+        `/v1/organizations/${session.orgId}/settings/integrations/video/${videoProvider}`,
+        { apiKey: videoKey.trim() },
+        session.accessToken,
+      );
+      setNotice(`تُحقق من مفتاح ${chosenVideo?.label} وحُفظ مشفراً — ستُولَّد المشاهد الآن كمقاطع متحركة حقيقية.`);
+      setVideoKey('');
+      await load();
+    } catch (e) {
+      setError(arabicMessage(e as never));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const deleteVideoKey = async (id: string) => {
+    if (!session?.orgId) return;
+    setBusy(`vdel:${id}`);
+    setError(null);
+    try {
+      await api.del(`/v1/organizations/${session.orgId}/settings/integrations/video/${id}`, session.accessToken);
+      setNotice('حُذف مفتاح الفيديو — سيعود المحرك لوضع المشاهد السينمائية الثابتة');
       await load();
     } catch (e) {
       setError(arabicMessage(e as never));
@@ -270,7 +327,86 @@ export default function SettingsPage() {
 
       <div className="wizard" style={{ marginTop: 22 }}>
         <div className="wizard-body">
-          <div className="wizard-step-title">٢) عميل Google OAuth — لتفعيل ربط قنوات يوتيوب</div>
+          <div className="wizard-step-title">٢) مزوّد الفيديو المتحرك — اختياري: مشاهد متحركة حقيقية بالذكاء الاصطناعي</div>
+          <p className="wizard-step-sub">
+            بدون مفتاح: المحرك يركّب مشاهد سينمائية عالية الجودة من صور مولّدة (الوضع الافتراضي — مجاني بالكامل). بمفتاح أحد
+            المزودين أدناه يتحوّل كل مشهد إلى <strong>مقطع فيديو متحرك</strong> يُولَّد من الوصف نفسه (والصورة كإطار أول
+            للتجانس). تنبيه صريح: هؤلاء المزودون مدفوعون بالاستهلاك — لا طبقة مجانية فعلية لديهم اليوم — والتكلفة التقريبية
+            ظاهرة قبل الحفظ. التحقق من المفتاح هنا لا يستهلك أي رصيد توليد.
+          </p>
+
+          {data?.video.active && (
+            <div className="alert ok">
+              وضع المشاهد المتحركة مفعّل عبر: <strong>{data.video.items.find((i) => i.id === data.video.active?.provider)?.label}</strong>{' '}
+              {data.video.active.source === 'org' ? '(مفتاحك المحفوظ)' : '(من بيئة الخادم)'}
+            </div>
+          )}
+
+          <div className="row" style={{ alignItems: 'stretch', gap: 14 }}>
+            <div style={{ flex: '1 1 280px' }}>
+              <div className="field">
+                <label htmlFor="vprov">مزود الفيديو</label>
+                <select id="vprov" value={videoProvider} onChange={(e) => setVideoProvider(e.target.value)}>
+                  {(data?.video.items ?? []).map((i) => (
+                    <option key={i.id} value={i.id}>
+                      {i.label} — {i.priceHint}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="vkey">مفتاح API</label>
+                <input id="vkey" dir="ltr" type="password" autoComplete="off" placeholder="ألصق المفتاح هنا" value={videoKey} onChange={(e) => setVideoKey(e.target.value)} />
+              </div>
+              <button className="btn btn-primary btn-block" onClick={() => void saveVideoKey()} disabled={busy === `video:${videoProvider}`}>
+                {busy === `video:${videoProvider}` ? 'جارٍ التحقق لدى المزود…' : 'تحقق واحفظ'}
+              </button>
+            </div>
+            <div style={{ flex: '1 1 280px' }}>
+              <div className="alert" style={{ background: 'var(--bg-soft)', borderColor: 'var(--border)', color: 'var(--muted)', lineHeight: 2 }}>
+                <strong style={{ color: 'var(--text)' }}>كيف أفعّله؟</strong>
+                <br />
+                ١. أنشئ حساباً وافتح صفحة المفاتيح:{' '}
+                <a href={chosenVideo?.consoleUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--brand-strong)', fontWeight: 700 }}>
+                  {chosenVideo?.consoleUrl}
+                </a>
+                <br />
+                ٢. ألصق المفتاح هنا واضغط حفظ.
+                <br />
+                ٣. ولّد فيديو من السلاسل — ستحمل بطاقته لقطة «مشاهد متحركة AI».
+                <br />
+                <span style={{ fontSize: 13 }}>التكلفة التقريبية للمزود المختار: {chosenVideo?.priceHint}</span>
+              </div>
+            </div>
+          </div>
+
+          {(data?.video.items ?? []).some((i) => i.configured) && (
+            <div style={{ marginTop: 16 }}>
+              {(data?.video.items ?? [])
+                .filter((i) => i.configured)
+                .map((i) => (
+                  <div key={i.id} className="row" style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '10px 14px', marginTop: 8 }}>
+                    <span style={{ fontWeight: 700 }}>
+                      {i.label}
+                      {i.active && <span className="badge live" style={{ marginInlineStart: 8 }}>النشط الآن</span>}
+                    </span>
+                    <span className="mono">{i.hint}</span>
+                    <span className="spacer" />
+                    {i.source === 'org' && (
+                      <button className="btn btn-ghost" style={{ padding: '8px 14px' }} disabled={busy === `vdel:${i.id}`} onClick={() => void deleteVideoKey(i.id)}>
+                        حذف
+                      </button>
+                    )}
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="wizard" style={{ marginTop: 22 }}>
+        <div className="wizard-body">
+          <div className="wizard-step-title">٣) عميل Google OAuth — لتفعيل ربط قنوات يوتيوب</div>
           <p className="wizard-step-sub">
             إنشاء العميل مجاني (~٤ دقائق) من حساب Google الخاص بك. نتحقق من الزوج لدى Google قبل الحفظ، وبعدها يصبح زر
             «ربط قناة يوتيوب» في تبويب القنوات فعّالاً فوراً.
