@@ -380,6 +380,8 @@ erDiagram
     string id PK
     string userId FK
     string refreshTokenHash
+    string previousRefreshTokenHash "optional"
+    timestamptz previousRotatedAt "optional"
     string deviceName "optional"
     string ip "optional"
     string userAgent "optional"

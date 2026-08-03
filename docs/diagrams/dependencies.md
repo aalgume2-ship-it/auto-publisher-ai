@@ -46,12 +46,12 @@ flowchart BT
   end
   ai --> database
   ai --> shared
+  api --> auth
   api --> config
   api --> database
   api --> events
   api --> logger
   api --> shared
-  auth --> shared
   billing --> database
   billing --> events
   billing --> shared
@@ -93,20 +93,20 @@ flowchart BT
   worker_plugins --> plugin_kit
   worker_plugins --> shared
   workflows --> shared
-  api -.planned.-> auth %% @aca/api→@aca/auth
   api -.planned.-> billing %% @aca/api→@aca/billing
   api -.planned.-> email %% @aca/api→@aca/email
   api -.planned.-> feature_flags %% @aca/api→@aca/feature-flags
   api -.planned.-> search %% @aca/api→@aca/search
   api -.planned.-> storage %% @aca/api→@aca/storage
   api -.planned.-> workflows %% @aca/api→@aca/workflows
+  auth -.planned.-> shared %% @aca/auth→@aca/shared
   class shared built
   class config built
   class logger built
   class database built
+  class auth built
   class events built
   class api built
-  class auth planned
   class search planned
   class email planned
   class storage planned
@@ -124,8 +124,8 @@ flowchart BT
 
 ## Status at generation time
 
-- **Built (6):** `@aca/shared`, `@aca/config`, `@aca/logger`, `@aca/database`, `@aca/events`, `@aca/api`
-- **Planned (14):** `@aca/auth`, `@aca/search`, `@aca/email`, `@aca/storage`, `@aca/workflows`, `@aca/video-engine`, `@aca/plugin-kit`, `@aca/feature-flags`, `@aca/billing`, `@aca/ai`, `@aca/ui`, `@aca/web`, `@aca/worker`, `@aca/worker-plugins`
+- **Built (7):** `@aca/shared`, `@aca/config`, `@aca/logger`, `@aca/database`, `@aca/auth`, `@aca/events`, `@aca/api`
+- **Planned (13):** `@aca/search`, `@aca/email`, `@aca/storage`, `@aca/workflows`, `@aca/video-engine`, `@aca/plugin-kit`, `@aca/feature-flags`, `@aca/billing`, `@aca/ai`, `@aca/ui`, `@aca/web`, `@aca/worker`, `@aca/worker-plugins`
 
 ## Layer rules (recap, see docs/Dependency-Audit.md)
 
