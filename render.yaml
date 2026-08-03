@@ -31,7 +31,7 @@ services:
       export PATH="$HOME/.npm-global/bin:$PATH" &&
       pnpm install --no-frozen-lockfile &&
       pnpm db:generate &&
-      pnpm build
+      pnpm exec turbo run build --filter=@aca/api...
     # Order matters: pgvector first (schema requires it), then the schema,
     # then the catalog + demo seed. All three steps are idempotent.
     preDeployCommand: >-
