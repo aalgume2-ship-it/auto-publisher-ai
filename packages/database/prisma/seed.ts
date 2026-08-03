@@ -170,6 +170,10 @@ async function main(): Promise<void> {
   const stats: Record<string, number> = {};
 
   try {
+    // The whole seed is ONE interactive transaction so a partial seed can never
+    // leak into a database. Cross-region previews (e.g. Render Oregon → Supabase
+    // Mumbai, ~250 ms/statement) blow past Prisma's 5 s default tx timeout, so
+    // allow generous bounds here — bounded work, idempotent by design.
     await prisma.$transaction(async (tx) => {
       /* ---- Plans (Business-Model §4) ---- */
       for (const plan of plansFile.plans) {
@@ -353,7 +357,7 @@ async function main(): Promise<void> {
       if (process.env.NODE_ENV !== 'production') {
         stats.demoOrg = await seedDemoOrg(tx);
       }
-    });
+    }, { timeout: 600_000, maxWait: 30_000 });
   } finally {
     await prisma.$disconnect();
   }
