@@ -29,6 +29,7 @@ import {
   PROBLEM_DETAILS_SCHEMA_NAME,
   problemDetailsSchema,
   registerProblemDetailsComponent,
+  REGISTERED_COMPONENT_SCHEMAS,
 } from '../src/common/http/problem-details.openapi.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -86,7 +87,7 @@ describe('OpenAPI ProblemDetails component', () => {
   });
 
   it('every hardcoded #/components/schemas/* $ref in src resolves to a registered schema', () => {
-    const registered = new Set([PROBLEM_DETAILS_SCHEMA_NAME]); // extend when new shared components land
+    const registered = REGISTERED_COMPONENT_SCHEMAS; // single allow-list, lives with the registrars
     const offenders: string[] = [];
     for (const file of walk(SRC)) {
       const text = readFileSync(file, 'utf8');

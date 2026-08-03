@@ -25,9 +25,10 @@ import { IdempotencyInterceptor } from './common/idempotency/idempotency.interce
 import { HealthController } from './health/health.controller.js';
 import { MetricsController } from './metrics/metrics.controller.js';
 import { OrganizationsModule } from './modules/organizations/organizations.module.js';
+import { AuthModule } from './modules/auth/auth.module.js';
 
 @Module({
-  imports: [CommonModule, OrganizationsModule],
+  imports: [CommonModule, AuthModule, OrganizationsModule],
   controllers: [HealthController, MetricsController],
   providers: [
     Reflector,

@@ -66,3 +66,37 @@ export function registerProblemDetailsComponent(document: OpenAPIObject): void {
   components.schemas ??= {};
   components.schemas[PROBLEM_DETAILS_SCHEMA_NAME] ??= problemDetailsSchema();
 }
+
+/* ---------------------------------------------------------------------- */
+/* AuthUser — shared component referenced by /v1/auth responses            */
+/* ---------------------------------------------------------------------- */
+
+export const AUTH_USER_SCHEMA_NAME = 'AuthUser' as const;
+
+/** Mirrors @aca/auth PublicUser (packages/auth/src/service.ts) — co-evolve on contract change. */
+export function authUserSchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    required: ['id', 'email', 'displayName', 'locale', 'timezone', 'emailVerifiedAt', 'mfaEnabled'],
+    properties: {
+      id: { type: 'string', format: 'uuid', example: '019fc72a-1111-7cd3-a1b2-390aaf0d2f71' },
+      email: { type: 'string', format: 'email', example: 'sara@noormedia.sa' },
+      displayName: { type: 'string', example: 'Sara Alotaibi' },
+      locale: { type: 'string', example: 'ar-SA' },
+      timezone: { type: 'string', example: 'Asia/Riyadh' },
+      emailVerifiedAt: { type: 'string', format: 'date-time', nullable: true, example: null },
+      mfaEnabled: { type: 'boolean', example: false },
+    },
+  };
+}
+
+/** Registers the AuthUser component schema (idempotent). */
+export function registerAuthUserComponent(document: OpenAPIObject): void {
+  document.components ??= {};
+  const components = document.components as { schemas?: Record<string, unknown> };
+  components.schemas ??= {};
+  components.schemas[AUTH_USER_SCHEMA_NAME] ??= authUserSchema();
+}
+
+/** Every shared component configured above — the allow-list for the repo-wide $ref contract test. */
+export const REGISTERED_COMPONENT_SCHEMAS: ReadonlySet<string> = new Set([PROBLEM_DETAILS_SCHEMA_NAME, AUTH_USER_SCHEMA_NAME]);
