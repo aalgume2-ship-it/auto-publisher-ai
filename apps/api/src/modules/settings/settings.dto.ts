@@ -11,7 +11,8 @@ export const SaveAiKeyBodySchema = z.object({
   apiKey: z.string().min(8).max(512),
 });
 export const SaveGoogleOAuthBodySchema = z.object({
-  clientId: z.string().min(10).max(512).regex(/\.apps\.googleapis\.com$/, 'clientId must end with .apps.googleusercontent.com or .apps.googleapis.com'),
+  // real Google OAuth web client IDs end with .apps.googleusercontent.com
+  clientId: z.string().min(10).max(512).regex(/\.apps\.googleusercontent\.com$/, 'clientId must end with .apps.googleusercontent.com'),
   clientSecret: z.string().min(10).max(256),
 });
 
