@@ -39,7 +39,7 @@ flowchart BT
     ui["@aca/ui<br/>packages/ui"]
   end
   subgraph L5["Layer 5"]
-    web["@aca/web<br/>packages/web"]
+    web["@aca/web<br/>apps/web"]
     api["@aca/api<br/>apps/api"]
     worker["@aca/worker<br/>packages/worker"]
     worker_plugins["@aca/worker-plugins<br/>packages/worker-plugins"]
@@ -70,9 +70,7 @@ flowchart BT
   storage --> shared
   ui --> shared
   video_engine --> shared
-  web --> config
   web --> shared
-  web --> ui
   worker --> ai
   worker --> auth
   worker --> billing
@@ -100,12 +98,15 @@ flowchart BT
   api -.planned.-> storage %% @aca/api→@aca/storage
   api -.planned.-> workflows %% @aca/api→@aca/workflows
   auth -.planned.-> shared %% @aca/auth→@aca/shared
+  web -.planned.-> config %% @aca/web→@aca/config
+  web -.planned.-> ui %% @aca/web→@aca/ui
   class shared built
   class config built
   class logger built
   class database built
   class auth built
   class events built
+  class web built
   class api built
   class search planned
   class email planned
@@ -117,15 +118,14 @@ flowchart BT
   class billing planned
   class ai planned
   class ui planned
-  class web planned
   class worker planned
   class worker_plugins planned
 ```
 
 ## Status at generation time
 
-- **Built (7):** `@aca/shared`, `@aca/config`, `@aca/logger`, `@aca/database`, `@aca/auth`, `@aca/events`, `@aca/api`
-- **Planned (13):** `@aca/search`, `@aca/email`, `@aca/storage`, `@aca/workflows`, `@aca/video-engine`, `@aca/plugin-kit`, `@aca/feature-flags`, `@aca/billing`, `@aca/ai`, `@aca/ui`, `@aca/web`, `@aca/worker`, `@aca/worker-plugins`
+- **Built (8):** `@aca/shared`, `@aca/config`, `@aca/logger`, `@aca/database`, `@aca/auth`, `@aca/events`, `@aca/web`, `@aca/api`
+- **Planned (12):** `@aca/search`, `@aca/email`, `@aca/storage`, `@aca/workflows`, `@aca/video-engine`, `@aca/plugin-kit`, `@aca/feature-flags`, `@aca/billing`, `@aca/ai`, `@aca/ui`, `@aca/worker`, `@aca/worker-plugins`
 
 ## Layer rules (recap, see docs/Dependency-Audit.md)
 

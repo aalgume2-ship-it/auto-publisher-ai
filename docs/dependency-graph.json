@@ -76,9 +76,7 @@
       "@aca/shared"
     ],
     "@aca/web": [
-      "@aca/shared",
-      "@aca/ui",
-      "@aca/config"
+      "@aca/shared"
     ],
     "@aca/api": [
       "@aca/shared",
@@ -152,6 +150,11 @@
     ],
     "@aca/auth": [
       "@aca/shared"
+    ],
+    "@aca/web": [
+      "@aca/shared",
+      "@aca/ui",
+      "@aca/config"
     ]
   },
   "comment_plannedEdges": "ADR-025 cumulative wiring: edges[] must equal packages that EXIST today; plannedEdges records the target wiring, each edge moves into edges[] in the commit that first consumes it."
