@@ -493,10 +493,13 @@ model UserSession {
   id               String    @id @db.Uuid
   userId           String    @map("user_id") @db.Uuid
   refreshTokenHash String    @unique @map("refresh_token_hash")
+  // Hash replaced by the CURRENT one — kept for the rotation grace window (reuse detection, @aca/auth)
+  previousRefreshTokenHash String? @map("previous_refresh_token_hash")
+  previousRotatedAt        DateTime? @map("previous_rotated_at")
   deviceName       String?   @map("device_name")
   ip               String?
   userAgent        String?   @map("user_agent")
-  authMethod       String    @default("password") @map("auth_method") // password | google | sso
+  authMethod       String    @default("password") @map("auth_method") // password | password+totp | google | sso
   expiresAt        DateTime  @map("expires_at")
   revokedAt        DateTime? @map("revoked_at")
   createdAt        DateTime  @default(now()) @map("created_at")
@@ -504,6 +507,7 @@ model UserSession {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, revokedAt])
+  @@index([previousRefreshTokenHash])
   @@map("user_sessions")
 }
 
