@@ -32,7 +32,8 @@
   },
   "dependencies": {
     "@aca/shared": "workspace:*",
-    "@prisma/client": "catalog:"
+    "@prisma/client": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@aca/typescript-config": "workspace:*",
