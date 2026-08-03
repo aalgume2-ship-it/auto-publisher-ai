@@ -22,7 +22,8 @@ import { PRISMA } from '../prisma.provider.js';
 import { API_CONFIG } from '../redis.provider.js';
 
 export type QueueName = 'generation' | 'publish';
-export type JobHandler = (payload: Record<string, unknown>, jobId: string) => Promise<void>;
+/** attempt is 1-based; maxAttempt excluded for future extensions. */
+export type JobHandler = (payload: Record<string, unknown>, jobId: string, attempt: number) => Promise<void>;
 
 const GROUP = 'workers';
 const CONSUMER = `api-${process.pid}`;
@@ -211,7 +212,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       data: { status: 'ACTIVE', attemptsMade: { increment: 1 }, processedAt: new Date() },
     });
     try {
-      await handler(rec.payload as Record<string, unknown>, jobId);
+      await handler(rec.payload as Record<string, unknown>, jobId, rec.attemptsMade + 1);
       await this.prisma.jobRecord.update({ where: { id: rec.id }, data: { status: 'COMPLETED', finishedAt: new Date() } });
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 500) : 'unknown error';

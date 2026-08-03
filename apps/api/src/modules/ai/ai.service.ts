@@ -112,27 +112,27 @@ export class AiService {
     return msg.choices[0].message.content;
   }
 
+  /**
+   * Pollinations text — GET form (their POST/chat endpoint now returns 402 on
+   * the free tier; the GET /{prompt}?system=… endpoint is the stable free
+   * route). Returns the raw completion text; the caller extracts the JSON.
+   */
   private async scriptViaPollinations(system: string, user: string): Promise<string> {
-    const { status, body } = await fetchJson(
-      'https://text.pollinations.ai/',
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: user },
-          ],
-          model: 'openai',
-          jsonMode: true,
-        }),
-      },
-      120_000,
-    );
-    if (status !== 200 || typeof body !== 'string' || body.trim().length < 40) {
-      throw new Error(`pollinations text ${status}: provider returned ${typeof body === 'string' ? body.slice(0, 160) : 'non-text'}`);
+    const url =
+      `https://text.pollinations.ai/${encodeURIComponent(user)}` +
+      `?model=openai&system=${encodeURIComponent(system)}`;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 120_000);
+    try {
+      const res = await fetch(url, { signal: ctrl.signal, headers: { 'user-agent': 'autocreator-pipeline/1.0' } });
+      const text = await res.text();
+      if (res.status !== 200 || text.trim().length < 40) {
+        throw new Error(`pollinations text ${res.status}: provider returned ${text.slice(0, 160) || 'empty'}`);
+      }
+      return text;
+    } finally {
+      clearTimeout(t);
     }
-    return body;
   }
 
   /* ----------------------------------------------------------------- VOICE */

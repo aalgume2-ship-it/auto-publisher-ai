@@ -36,7 +36,9 @@ export class GenerationService {
   ) {
     // register the durable worker at construction (QueueService boots after
     // every module's onModuleInit — singleton discipline via CommonModule).
-    this.queue.registerWorker('generation', (payload) => this.process(String(payload.videoId)));
+    // attempt-aware: only the FINAL attempt flips the video to FAILED, so a
+    // transient provider hiccup doesn't show a false-dead status mid-retry.
+    this.queue.registerWorker('generation', (payload, _jobId, attempt) => this.process(String(payload.videoId), attempt));
   }
 
   /** Enqueue generation for a video row created by VideosService. */
@@ -44,7 +46,7 @@ export class GenerationService {
     return this.queue.enqueue('generation', 'video.generate', { videoId });
   }
 
-  async process(videoId: string): Promise<void> {
+  async process(videoId: string, attempt = 1): Promise<void> {
     const video = await this.prisma.video.findUnique({
       where: { id: videoId },
       include: { project: true },
@@ -236,7 +238,9 @@ export class GenerationService {
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message.slice(0, 480) : 'generation failed';
-      await this.prisma.video.update({ where: { id: videoId }, data: { status: 'FAILED', failureReason: msg } });
+      // terminal failure only (attempt 3 of 3); retries keep GENERATING.
+      const statusData = attempt >= 3 ? { status: 'FAILED' as const, failureReason: msg } : { failureReason: `retry ${attempt}/3: ${msg}` };
+      await this.prisma.video.update({ where: { id: videoId }, data: statusData });
       throw err;
     }
   }
