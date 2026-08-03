@@ -224,15 +224,34 @@ export class AiService {
     throw new Error(lastErr);
   }
 
-  /** English keywords from the (contractually English) visual prompt. */
+  /**
+   * English keywords from the (contractually English) visual prompt.
+   * Stock-photo fallbacks live or die on these: visuals adjectives
+   * ('animated', 'deep', 'futuristic') produce irrelevant photos — verified
+   * 2026-08-03 ('animated,creatures' → street-meme photo). So we keep only
+   * concrete nouns: drop adjectives/verbs/technical-term noise, prefer the
+   * back half of the prompt where subjects conventionally live.
+   */
   private static promptKeywords(prompt: string, max = 2): string {
-    const stop = new Set(['the', 'a', 'an', 'of', 'in', 'on', 'with', 'and', 'at', 'to', 'for', 'over', 'into', 'style', 'shot', 'vertical', 'cinematic', 'no', 'text', 'watermark', 'high', 'detail']);
+    const stop = new Set([
+      // articles/prepositions
+      'the', 'a', 'an', 'of', 'in', 'on', 'with', 'and', 'at', 'to', 'for', 'over', 'into', 'from', 'under', 'through',
+      // visual/technical adjectives & style noise
+      'style', 'shot', 'vertical', 'cinematic', 'animated', 'detail', 'high', 'deep', 'dark', 'soft', 'glow', 'glowing',
+      'dramatic', 'futuristic', 'mysterious', 'ancient', 'modern', 'massive', 'tiny', 'huge', 'beautiful', 'stunning',
+      'background', 'foreground', 'closeup', 'macro', 'wide', 'aerial', 'view', 'scene', 'showing', 'illustration',
+      'diagram', 'concept', 'realistic', 'abstract', 'digital', 'artwork', 'moody', 'tones', 'lighting', 'shadows',
+      'misty', 'eerie', 'vibrant', 'depth', 'light', 'lights', 'blue', 'teal', 'orange', 'photo', 'image', 'real',
+      'true', 'spiraling', 'infinite', 'geometric', 'fractal', 'botanical', 'petals', 'patterns', 'microscopic',
+      'text', 'words', 'watermark', 'logo', 'faces', 'people', 'person', 'human',
+    ]);
     const words = prompt
       .toLowerCase()
       .replace(/[^a-z0-9\s]/g, ' ')
       .split(/\s+/)
-      .filter((w) => w.length > 3 && !stop.has(w));
-    return words.slice(0, max).join(',') || 'landscape';
+      .filter((w) => w.length > 3 && !stop.has(w) && !w.endsWith('ing')); // gerunds = actions, not photo subjects
+    const picked = words.slice(-max); // subjects tend to close the phrase list
+    return (picked.length > 0 ? picked : ['nature']).join(',');
   }
 
   private async imageViaLoremFlickr(visualPrompt: string, seed: number): Promise<{ data: Buffer; provider: 'loremflickr' }> {
