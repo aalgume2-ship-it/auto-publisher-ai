@@ -67,6 +67,30 @@ async function bootstrap(): Promise<void> {
     'api.listening',
   );
 
+  // Dev-only preview wiring aid: surface demo ids in RUNTIME logs (preDeploy
+  // seed logs are not reachable via the Render logs API), letting operators
+  // mint demo-session JWTs for hosted previews without direct DB access.
+  // Never runs in production; failure is non-fatal for boot.
+  if (config.nodeEnv !== 'production') {
+    try {
+      const { createPrismaClient } = await import('@aca/database');
+      const prisma = createPrismaClient();
+      const demo = await prisma.organization.findUnique({
+        where: { slug: 'demo-org' },
+        select: { id: true, members: { where: { role: 'OWNER' }, select: { userId: true }, take: 1 } },
+      });
+      if (demo) {
+        logger.info(
+          { module: 'bootstrap', demoWiring: { demoOrgId: demo.id, demoUserId: demo.members[0]?.userId ?? null } },
+          'demo.wiring.ids',
+        );
+      }
+      await prisma.$disconnect();
+    } catch (err: unknown) {
+      logger.warn({ module: 'bootstrap', err }, 'demo.wiring.ids.unavailable');
+    }
+  }
+
   const shutdown = (signal: string): void => {
     logger.info({ signal, module: 'bootstrap' }, 'api.shutdown.started');
     void app
