@@ -122,22 +122,51 @@ a { color: inherit; text-decoration: none; }
 .steps {
   background: #fff; border: 1px solid var(--border); border-radius: 20px;
   padding: 20px 24px 18px; box-shadow: var(--shadow-sm);
+  direction: rtl; /* explicit RTL: step 1 is always the rightmost segment */
 }
-.steps-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.steps.embedded { border: 0; box-shadow: none; border-radius: 0; padding: 0; background: transparent; }
+.steps-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; direction: rtl; }
 .steps-title { font-weight: 800; font-size: 16.5px; color: var(--text); }
 .steps-count {
   font-weight: 800; font-size: 13.5px; color: var(--brand-strong);
   background: var(--brand-softer); border: 1px solid var(--brand-soft);
   padding: 4px 14px; border-radius: 999px; white-space: nowrap;
 }
-.steps-segments { display: flex; gap: 6px; }
+.steps-segments { display: flex; gap: 6px; direction: rtl; }
 .seg { flex: 1; height: 8px; border-radius: 999px; background: #e2e8f0; transition: background 0.25s ease; }
 .seg.done { background: linear-gradient(90deg, var(--brand-2), var(--brand)); }
 .seg.current { background: linear-gradient(90deg, var(--brand-2), var(--brand)); box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.14); }
-.steps-names { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin-top: 12px; }
-.step-name { font-size: 12px; color: var(--muted); text-align: center; line-height: 1.5; }
-.step-name.done { color: var(--brand-strong); font-weight: 700; }
-.step-name.current { color: var(--brand); font-weight: 800; }
+.steps-names {
+  display: flex; gap: 6px; margin: 14px 0 0; padding: 0;
+  list-style: none; direction: rtl; /* columns mirror segments 1:1, right→left */
+}
+.step-col { flex: 1; min-width: 0; text-align: center; }
+.step-dot {
+  width: 26px; height: 26px; margin: 0 auto 7px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 12.5px; font-weight: 800;
+  background: #fff; color: var(--muted); border: 2px solid var(--border-strong);
+  transition: 0.2s ease;
+}
+.step-name { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+.step-col.done .step-dot { background: linear-gradient(135deg, var(--brand-2), var(--brand)); border-color: transparent; color: #fff; }
+.step-col.done .step-name { color: var(--brand-strong); font-weight: 700; }
+.step-col.current .step-dot { border-color: var(--brand); color: var(--brand); box-shadow: 0 0 0 5px rgba(124, 58, 237, 0.12); }
+.step-col.current .step-name { color: var(--brand); font-weight: 800; }
+
+/* ---------- wizard card (dashboard setup flow) ---------- */
+.wizard {
+  background: #fff; border: 1px solid var(--border); border-radius: 22px;
+  box-shadow: var(--shadow-lg); padding: 24px 28px; direction: rtl;
+}
+.wizard-body { padding: 22px 0 4px; }
+.wizard-step-title { font-size: 19px; font-weight: 800; color: var(--text); margin-bottom: 6px; }
+.wizard-step-sub { color: var(--muted); font-size: 14px; margin-bottom: 18px; }
+.wizard-nav {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border);
+  direction: rtl; /* رجوع hugs the start (right), التالي hugs the end (left) */
+}
+.wizard-done { display: flex; align-items: center; gap: 12px; background: var(--ok-soft); border: 1px solid #a7f3d0; border-radius: 14px; padding: 14px 16px; color: #065f46; font-weight: 700; font-size: 14.5px; margin-bottom: 16px; }
 
 /* ---------- forms ---------- */
 .auth-wrap { max-width: 440px; margin: 72px auto; }
@@ -191,8 +220,9 @@ select {
 .site-footer .container { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
 .site-footer a:hover { color: var(--brand-strong); }
 
-@media (max-width: 900px) {
-  .steps-names { display: none; }
+@media (max-width: 700px) {
+  .steps-names .step-name { display: none; }   /* keep numbered dots visible: 1..8 right→left */
+  .steps-names { margin-top: 12px; }
 }
 @media (max-width: 860px) {
   .grid-3 { grid-template-columns: 1fr; }
