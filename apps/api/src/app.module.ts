@@ -26,9 +26,11 @@ import { HealthController } from './health/health.controller.js';
 import { MetricsController } from './metrics/metrics.controller.js';
 import { OrganizationsModule } from './modules/organizations/organizations.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
+import { ChannelsModule } from './modules/channels/channels.module.js';
+import { VideosModule } from './modules/videos/videos.module.js';
 
 @Module({
-  imports: [CommonModule, AuthModule, OrganizationsModule],
+  imports: [CommonModule, AuthModule, OrganizationsModule, ChannelsModule, VideosModule],
   controllers: [HealthController, MetricsController],
   providers: [
     Reflector,

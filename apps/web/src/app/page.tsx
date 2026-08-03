@@ -6,43 +6,31 @@ const FEATURES = [
     icon: '🏢',
     title: 'منظمات وفِرق وأدوار',
     body: 'عدّة منظمات بحساب واحد، أقسام وفِرق، أدوار مخصّصة وصلاحيات دقيقة، علامة تجارية ونطاقات خاصة — حوكمة مؤسسية كاملة.',
-    badge: 'live' as const,
-    badgeText: 'يعمل الآن',
   },
   {
     icon: '🔐',
     title: 'مصادقة آمنة + معيار MFA',
     body: 'تسجيل بالبريد وكلمة المرور، جلسات بتدوير تلقائي للرموز مع كشف إعادة الاستخدام، ومصادقة ثنائية (TOTP) متوافقة مع تطبيقات التحقق.',
-    badge: 'live' as const,
-    badgeText: 'يعمل الآن',
-  },
-  {
-    icon: '📊',
-    title: 'فوترة وحدود خطط',
-    body: 'خطط اشتراك بحدود واستخدامات، رصيد أرصدة ذكاء اصطناعي بدفتر حسابات، وتتبّع استهلاك لكل عملية.',
-    badge: 'live' as const,
-    badgeText: 'يعمل الآن',
   },
   {
     icon: '📺',
-    title: 'ربط القنوات (YouTube ثم TikTok)',
-    body: 'ربط آمن للقنوات عبر OAuth مع تخزين رموز مشفّر — يوتيوب أولاً ثم المنصات تباعاً حسب مسار الإيراد.',
-    badge: 'soon' as const,
-    badgeText: 'المرحلة القادمة',
+    title: 'ربط قنوات YouTube (OAuth)',
+    body: 'ربط بنقرة واحدة عبر OAuth الرسمي من Google — تُخزَّن الرموز مشفّرة بمظروف AES-256-GCM وتُحدَّث تلقائياً قبل كل نشر.',
   },
   {
     icon: '🤖',
-    title: 'خط إنتاج الفيديو بالذكاء الاصطناعي',
-    body: 'من الكلمة المفتاحية إلى مقطع قصير جاهز: أفكار، سيناريو، تعليق صوتي، مشاهد، ترجمة — مع بوابات جودة قبل الاعتماد.',
-    badge: 'soon' as const,
-    badgeText: 'المرحلة القادمة',
+    title: 'محرك توليد الفيديو بالذكاء الاصطناعي',
+    body: 'من الكلمة المفتاحية إلى مقطع قصير جاهز: سيناريو عربي، تعليق صوتي حقيقي، مشاهد مولّدة، ترجمة محروقة — مُركَّب بـ FFmpeg على طوابير Redis Streams حقيقية.',
   },
   {
-    icon: '🚀',
-    title: 'نشر تلقائي وجدولة',
-    body: 'تشغيل آلي كامل للقناة: جدولة نشر، تحسين عناوين ووسوم، وتحليلات يومية تغذي قرارات المحتوى التالية.',
-    badge: 'soon' as const,
-    badgeText: 'المرحلة القادمة',
+    icon: '🗓️',
+    title: 'جدولة ونشر تلقائي',
+    body: 'حدد الموعد أو انشر فوراً — طابور النشر يرفع المقطع إلى يوتيوب عبر واجهة الرفع الرسمية مع متابعة حيّة للحالات والروابط.',
+  },
+  {
+    icon: '🛩️',
+    title: 'الطيار الآلي للقناة',
+    body: 'فعّله على أي سلسلة بالكلمات المفتاحية والإيقاع اليومي — المنصة تولّد وتنشر تلقائياً كل يوم دون أي تدخل منك.',
   },
 ];
 
@@ -59,10 +47,10 @@ const VISITOR_JOURNEY: JourneyStep[] = [
   { key: 'workspace', label: 'إنشاء مساحة العمل', state: 'upcoming' },
   { key: 'channel', label: 'ربط قناة يوتيوب', state: 'upcoming' },
   { key: 'series', label: 'إنشاء أول سلسلة', state: 'upcoming' },
-  { key: 'generate', label: 'توليد المقاطع بالذكاء الاصطناعي', state: 'upcoming' },
+  { key: 'generate', label: 'توليد أول مقطع بالذكاء الاصطناعي', state: 'upcoming' },
   { key: 'schedule', label: 'الجدولة والنشر التلقائي', state: 'upcoming' },
-  { key: 'analytics', label: 'تحليلات وتحسين مستمر', state: 'upcoming' },
-  { key: 'scale', label: 'التوسّع التلقائي للقنوات', state: 'upcoming' },
+  { key: 'analytics', label: 'متابعة النتائج والتحسين', state: 'upcoming' },
+  { key: 'scale', label: 'الطيار الآلي والتوسّع', state: 'upcoming' },
 ];
 
 export default function LandingPage() {
@@ -103,17 +91,14 @@ export default function LandingPage() {
 
       <section className="section" id="features" style={{ paddingTop: 24 }}>
         <div className="container">
-          <h2>ماذا تحصل اليوم — وما الذي يصل تالياً؟</h2>
-          <p className="sub">كل بطاقة «يعمل الآن» موصولة فعلياً بالخادم الحي وتُدار عبر واجهة البرمجة العامة الموثّقة.</p>
+          <h2>منظومة متكاملة — كل الوحدات تعمل الآن</h2>
+          <p className="sub">من ربط القناة إلى النشر اليومي الآلي — بلا مقاطع مؤقتة أو وعود: كل ما تقرأه هنا يعمل على الخادم الحي.</p>
           <div className="grid grid-3">
             {FEATURES.map((f) => (
               <article key={f.title} className="card">
                 <div className="icon">{f.icon}</div>
                 <h3>{f.title}</h3>
                 <p>{f.body}</p>
-                <p style={{ marginTop: 12 }}>
-                  <span className={`badge ${f.badge}`}>{f.badgeText}</span>
-                </p>
               </article>
             ))}
           </div>

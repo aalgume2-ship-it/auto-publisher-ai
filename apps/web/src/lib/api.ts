@@ -72,5 +72,6 @@ export const api = {
   get: <T>(path: string, token?: string | null) => request<T>('GET', path, { ...(token !== undefined ? { token } : {}) }),
   post: <T>(path: string, body: unknown, token?: string | null) =>
     request<T>('POST', path, { body, ...(token !== undefined ? { token } : {}) }),
+  del: <T>(path: string, token?: string | null) => request<T>('DELETE', path, { ...(token !== undefined ? { token } : {}) }),
   health: () => request<{ status: string; version?: string; env?: string }>('GET', '/health'),
 };
