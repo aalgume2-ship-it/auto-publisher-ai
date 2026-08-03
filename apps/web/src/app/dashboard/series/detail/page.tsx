@@ -108,6 +108,24 @@ function SeriesDetailInner() {
     };
   }, [videos, loadAll]);
 
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function regenerate(videoId: string) {
+    if (!orgPath || !session) return;
+    setBusyId(videoId);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.post(`${orgPath}/videos/${videoId}/regenerate`, {}, session.accessToken);
+      setNotice('أُعيد وضع الفيديو في طابور التوليد — يكتمل خلال دقائق.');
+      void loadAll();
+    } catch (err) {
+      setError(err instanceof ApiProblem ? arabicMessage(err) : 'تعذّرت إعادة التوليد');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function generate(e: React.FormEvent) {
     e.preventDefault();
     if (!orgPath || !session) return;
@@ -278,12 +296,21 @@ function SeriesDetailInner() {
                     <span className={`stat-chip ${st.cls}`}>{st.text}</span>
                     {v.durationMs && <span className="stat-chip stat-plain">⏱ {Math.round(v.durationMs / 1000)}ث</span>}
                   </div>
-                  {v.status === 'FAILED' && v.failureReason && (
+                  {v.status === 'FAILED' && (
                     <div className="alert err" style={{ marginTop: 8, marginBottom: 0, fontSize: 12.5, lineHeight: 1.9 }}>
                       {v.failureReason}{' '}
                       <Link href="/dashboard/settings/" style={{ fontWeight: 800, textDecoration: 'underline' }}>
                         فتح الإعدادات
-                      </Link>
+                      </Link>{' '}
+                      — أو
+                      <button
+                        className="btn btn-ghost"
+                        style={{ padding: '6px 14px', marginInlineStart: 8 }}
+                        disabled={busyId === v.id}
+                        onClick={() => void regenerate(v.id)}
+                      >
+                        {busyId === v.id ? 'يُعاد التوليد…' : '↻ إعادة التوليد'}
+                      </button>
                     </div>
                   )}
                   {vPosts.map((p) => (

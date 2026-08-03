@@ -94,12 +94,23 @@ export class VideoComposer {
     const inputs: string[] = [];
     const filters: string[] = [];
     scenes.forEach((s, i) => {
-      const frames = Math.max(1, Math.round((s.durationMs / 1000) * fps));
       const sec = (s.durationMs / 1000).toFixed(2);
-      inputs.push('-loop', '1', '-t', sec, '-i', s.imagePath);
-      const zoom = i % 2 === 0 ? "z='min(zoom+0.0012,1.14)'" : "z='max(1.14-0.0012*on,1.0)'";
+      /**
+       * SCENE-MAPPING FIX (verified bug 2026-08-03, video 019fc96d-…): the
+       * old graph ran zoompan with d=<frames per branch> on a 24 fps LOOPED
+       * still — d multiplies per INPUT frame, so each branch exploded to
+       * (duration × fps × d) frames and the -shortest audio clamp froze the
+       * whole video on scene-0's image. Correct stills recipe: -framerate
+       * = fps + d=1 (1 zoomed frame per input frame) → branch length is
+       * EXACTLY the scene duration, and concat order is honored.
+       */
+      inputs.push('-loop', '1', '-framerate', String(fps), '-t', sec, '-i', s.imagePath);
+      const zoom =
+        i % 2 === 0
+          ? "z='min(1+0.0005*on,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+          : "z='max(1.12-0.0005*on,1.0)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'";
       filters.push(
-        `[${i}:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,zoompan=${zoom}:d=${frames}:s=720x1280:fps=${fps},setsar=1,format=yuv420p[v${i}]`,
+        `[${i}:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,zoompan=${zoom}:d=1:s=720x1280:fps=${fps},setsar=1,format=yuv420p[v${i}]`,
       );
     });
     const audioIndex = scenes.length;

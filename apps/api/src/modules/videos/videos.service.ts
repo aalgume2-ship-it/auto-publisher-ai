@@ -106,6 +106,23 @@ export class VideosService {
     return { video: { id: video.id, status: 'QUEUED' }, jobId };
   }
 
+  /**
+   * Re-run generation for an existing video row (e.g. after a pipeline or
+   * render fix — the row keeps its identity; the worker wipes partial
+   * children at entry, so re-entry is idempotent). Allowed for FAILED and
+   * READY (re-render); refused while a run is in flight or after publish.
+   */
+  async regenerate(orgId: string, videoId: string) {
+    const video = await this.prisma.video.findFirst({ where: { id: videoId, orgId } });
+    if (!video) throw notFound('video not found');
+    if ((video.status as string) === 'GENERATING' || video.status === 'QUEUED' || (video.status as string) === 'RENDERING' || video.status === 'PUBLISHED') {
+      throw new ApiError('CONFLICT', 'Conflict', { detail: `لا يمكن إعادة التوليد والحالة ${video.status} — انتظر انتهاء التشغيل الحالي` });
+    }
+    await this.prisma.video.update({ where: { id: videoId }, data: { status: 'QUEUED', failureReason: null } });
+    const jobId = await this.generation.enqueue(videoId);
+    return { video: { id: videoId, status: 'QUEUED' }, jobId };
+  }
+
   async listVideos(orgId: string, filter: { seriesId?: string; status?: string }) {
     const rows = await this.prisma.video.findMany({
       where: { orgId, ...(filter.seriesId ? { projectId: filter.seriesId } : {}), ...(filter.status ? { status: filter.status as never } : {}) },

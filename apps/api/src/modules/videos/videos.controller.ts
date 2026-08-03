@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Res } from
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { Req } from '@nestjs/common';
 import {
+  ApiAcceptedResponse,
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
@@ -130,6 +131,22 @@ export class VideosController {
   @ApiOperation({ operationId: 'listVideos', summary: 'List videos (filterable by series/status)' })
   listVideos(@Param() params: { orgId: string }, @Query() query: { seriesId?: string; status?: string }) {
     return this.videos.listVideos(params.orgId, query);
+  }
+
+  @Post('videos/:videoId/regenerate')
+  @HttpCode(202)
+  @TenantRequired()
+  @RequiresCapabilities('video.create')
+  @UseZod({ params: VideoParamsSchema })
+  @ApiOperation({
+    operationId: 'regenerateVideo',
+    summary: 'Re-run the generation pipeline for an existing video (idempotent worker re-entry)',
+    description: '409 while a run is in flight or after publish; 202 + jobId otherwise.',
+  })
+  @ApiAcceptedResponse({ description: 'Generation re-enqueued' })
+  @ApiConflictResponse({ description: 'Already running or published', content: { 'application/problem+json': { schema: PROBLEM } } })
+  regenerate(@Param() params: { orgId: string; videoId: string }) {
+    return this.videos.regenerate(params.orgId, params.videoId);
   }
 
   @Get('videos/:videoId')
