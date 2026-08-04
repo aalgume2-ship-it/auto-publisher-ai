@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "pnpm install --no-frozen-lockfile",
-  "buildCommand": "pnpm build",
+  "installCommand": "npm install --global --prefix=\"$HOME/.npm-global\" pnpm@9.15.9 && export PATH=\"$HOME/.npm-global/bin:$PATH\" && pnpm install --no-frozen-lockfile --ignore-scripts",
+  "buildCommand": "export PATH=\"$HOME/.npm-global/bin:$PATH\" && VERCEL=1 pnpm build",
   "outputDirectory": "apps/web/out"
 }
