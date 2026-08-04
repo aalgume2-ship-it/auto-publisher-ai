@@ -1,0 +1,31 @@
+{
+  "name": "@aca/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@aca/config": "workspace:*",
+    "@aca/database": "workspace:*",
+    "@aca/events": "workspace:*",
+    "@aca/logger": "workspace:*",
+    "@aca/shared": "workspace:*",
+    "@nestjs/bullmq": "^11.0.4",
+    "@nestjs/common": "^11.1.24",
+    "@nestjs/core": "^11.1.24",
+    "@prisma/client": "^7.9.1",
+    "bullmq": "^6.0.7",
+    "ioredis": "^5.4.2",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@aca/typescript-config": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
