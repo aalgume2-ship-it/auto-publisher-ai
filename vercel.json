@@ -1,6 +1,0 @@
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "echo 'using committed static bundle'",
-  "buildCommand": "echo 'deploying committed static bundle'",
-  "outputDirectory": "apps/api/vercel-static"
-}
