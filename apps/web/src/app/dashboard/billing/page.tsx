@@ -1,7 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import DashboardNav from '../../../components/DashboardNav';
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { CreditCard, ReceiptText, ShieldCheck, Wallet } from 'lucide-react';
+import AppShell from '../../../components/dashboard/app-shell';
+import { EmptyState, GlassCard, SectionHeader, StatTile } from '../../../components/ui/chrome';
+import { HoverLift, Reveal } from '../../../components/ui/reveal';
 import { ApiProblem, api, arabicMessage } from '../../../lib/api';
 import { useAuthenticatedSession } from '../../../lib/use-authenticated-session';
 
@@ -84,7 +87,7 @@ export default function BillingPage() {
 
   useEffect(() => {
     if (!ready || !session?.orgId) return;
-    void load().catch((e) => setError(e instanceof ApiProblem ? arabicMessage(e) : 'تعذّر تحميل بيانات الفوترة'));
+    void load().catch((e) => setError(e instanceof ApiProblem ? arabicMessage(e) : 'تعذّر تحميل بيانات Billing'));
   }, [ready, session, load]);
 
   async function save(e: React.FormEvent) {
@@ -128,83 +131,88 @@ export default function BillingPage() {
     }
   }
 
-  if (!ready || !session) {
-    return <div className="container dash"><p style={{ color: 'var(--muted)' }}>يتم التحقق من الجلسة…</p></div>;
-  }
+  if (!ready || !session) return <div className="auth-shell"><div className="glass-card" style={{ padding: 28 }}>Checking session…</div></div>;
 
   return (
-    <div className="container dash" style={{ maxWidth: 980 }}>
-      <DashboardNav />
-      <div className="dash-head">
-        <div>
-          <h1 style={{ fontSize: 26 }}>Billing</h1>
-          <p style={{ color: 'var(--muted)', fontSize: 14 }}>إدارة بيانات الفوترة والخطة الحالية وتجهيز Stripe Checkout Test Mode.</p>
-        </div>
-      </div>
-
+    <AppShell session={session} title="Billing" subtitle="A polished commercial console for plans, legal billing identity and Stripe checkout readiness.">
       {error && <div className="alert err">{error}</div>}
       {notice && <div className="alert ok">{notice}</div>}
 
-      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-        <section className="panel">
-          <h2 style={{ fontSize: 20, marginBottom: 12 }}>بيانات الفوترة</h2>
-          <form onSubmit={save}>
-            {renderField('legalName', 'الاسم القانوني', form, setForm)}
-            {renderField('billingEmail', 'البريد المالي', form, setForm, 'email')}
-            {renderField('taxId', 'الرقم الضريبي', form, setForm)}
-            {renderField('addressLine1', 'العنوان 1', form, setForm)}
-            {renderField('addressLine2', 'العنوان 2', form, setForm)}
-            {renderField('city', 'المدينة', form, setForm)}
-            {renderField('state', 'المنطقة', form, setForm)}
-            {renderField('postalCode', 'الرمز البريدي', form, setForm)}
-            {renderField('countryCode', 'رمز الدولة', form, setForm)}
-            {renderField('purchaseOrderRef', 'مرجع أمر الشراء', form, setForm)}
-            <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? 'يحفظ…' : 'حفظ بيانات Billing'}</button>
-          </form>
-        </section>
+      <Reveal>
+        <div className="section-grid three">
+          <StatTile label="Provider" value={subscription?.subscription.provider ?? 'stripe'} hint="The active commercial processor for this workspace." />
+          <StatTile label="Credit Balance" value={subscription?.credits.balance ?? 0} hint="Current AI credit balance reported by the API." />
+          <StatTile label="Plan Status" value={subscription?.subscription.status ?? 'UNCONFIGURED'} hint="Subscription state and checkout readiness." />
+        </div>
+      </Reveal>
 
-        <section className="panel">
-          <h2 style={{ fontSize: 20, marginBottom: 12 }}>الخطة الحالية</h2>
-          {subscription ? (
-            <div className="card" style={{ marginBottom: 16 }}>
-              <h3>{subscription.subscription.plan.name}</h3>
-              <p>الحالة: {subscription.subscription.status}</p>
-              <p>المزود: {subscription.subscription.provider}</p>
-              <p>الرصيد الحالي: {subscription.credits.balance} credit</p>
-              <p>الفترة: {new Date(subscription.subscription.currentPeriodStart).toLocaleDateString('ar-SA-u-nu-latn')} → {new Date(subscription.subscription.currentPeriodEnd).toLocaleDateString('ar-SA-u-nu-latn')}</p>
-            </div>
-          ) : (
-            <p style={{ color: 'var(--muted)', marginBottom: 16 }}>لا توجد Subscription مفعلة بعد لهذه المنظمة.</p>
-          )}
-
-          <h3 style={{ marginBottom: 10 }}>الخطط المتاحة</h3>
-          <div className="grid" style={{ gridTemplateColumns: '1fr' }}>
-            {plans.map((plan) => (
-              <div key={plan.code} className="card">
-                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'start' }}>
-                  <div>
-                    <h3>{plan.name}</h3>
-                    <p>{plan.code}</p>
-                  </div>
-                  <span className="stat-chip stat-plain">{plan.aiCreditsMonthly} credits</span>
-                </div>
-                <div className="row" style={{ marginTop: 14, gap: 8 }}>
-                  <button className="btn btn-primary" onClick={() => void startCheckout(plan.code, 'month')} disabled={checkoutBusy === `${plan.code}:month`}>
-                    {checkoutBusy === `${plan.code}:month` ? '...' : `دفع شهري $${(plan.monthlyPriceCents / 100).toFixed(0)}`}
-                  </button>
-                  <button className="btn btn-ghost" onClick={() => void startCheckout(plan.code, 'year')} disabled={checkoutBusy === `${plan.code}:year`}>
-                    {checkoutBusy === `${plan.code}:year` ? '...' : `دفع سنوي $${(plan.yearlyPriceCents / 100).toFixed(0)}`}
-                  </button>
-                </div>
+      <div className="section-grid two">
+        <Reveal>
+          <GlassCard>
+            <SectionHeader eyebrow="Legal Billing Identity" title="Workspace billing profile." body="This information is used for checkout, invoicing and Stripe customer creation in test mode." />
+            <form onSubmit={save}>
+              <div className="section-grid two">
+                {renderField('legalName', 'الاسم القانوني', form, setForm)}
+                {renderField('billingEmail', 'البريد المالي', form, setForm, 'email')}
+                {renderField('taxId', 'الرقم الضريبي', form, setForm)}
+                {renderField('purchaseOrderRef', 'مرجع أمر الشراء', form, setForm)}
+                {renderField('addressLine1', 'العنوان 1', form, setForm)}
+                {renderField('addressLine2', 'العنوان 2', form, setForm)}
+                {renderField('city', 'المدينة', form, setForm)}
+                {renderField('state', 'المنطقة', form, setForm)}
+                {renderField('postalCode', 'الرمز البريدي', form, setForm)}
+                {renderField('countryCode', 'رمز الدولة', form, setForm)}
               </div>
+              <div className="row" style={{ marginTop: 18 }}>
+                <button className="btn btn-primary" type="submit" disabled={busy}><ShieldCheck size={16} /> {busy ? 'Saving…' : 'Save Billing Profile'}</button>
+                {profile && <span className="stat-chip stat-plain"><ReceiptText size={14} /> Ready for checkout customer creation</span>}
+              </div>
+            </form>
+          </GlassCard>
+        </Reveal>
+
+        <Reveal delay={0.08}>
+          <GlassCard>
+            <SectionHeader eyebrow="Current Subscription" title={subscription ? subscription.subscription.plan.name : 'No active subscription'} body={subscription ? `Current period: ${new Date(subscription.subscription.currentPeriodStart).toLocaleDateString('en-GB')} → ${new Date(subscription.subscription.currentPeriodEnd).toLocaleDateString('en-GB')}` : 'The workspace can still be configured and prepared for Stripe checkout test mode.'} />
+            {subscription ? (
+              <div className="section-grid two">
+                <StatTile label="Plan Code" value={subscription.subscription.plan.code} />
+                <StatTile label="Credits" value={subscription.credits.balance} />
+              </div>
+            ) : (
+              <EmptyState title="No subscription connected" body="Once Stripe test mode is fully configured, checkout sessions from this screen will create a real test subscription flow." />
+            )}
+          </GlassCard>
+        </Reveal>
+      </div>
+
+      <Reveal>
+        <GlassCard>
+          <SectionHeader eyebrow="Plan Catalog" title="Choose a commercial path." body="A premium pricing deck embedded inside the operator shell. These actions create Stripe Checkout sessions when the backend deployment is configured." />
+          <div className="section-grid three">
+            {plans.map((plan, index) => (
+              <HoverLift key={plan.code}>
+                <div className="glass-card plan-card">
+                  <p className="eyebrow subtle">{plan.code}</p>
+                  <h3>{plan.name}</h3>
+                  <div className="price">${(plan.monthlyPriceCents / 100).toFixed(0)} <small>/ month</small></div>
+                  <p>{plan.aiCreditsMonthly} credits included every month.</p>
+                  <ul>
+                    <li>Stripe test checkout</li>
+                    <li>Workspace billing profile</li>
+                    <li>Subscription state surface</li>
+                  </ul>
+                  <div className="row">
+                    <button className="btn btn-primary" onClick={() => void startCheckout(plan.code, 'month')} disabled={checkoutBusy === `${plan.code}:month`}><CreditCard size={16} /> {checkoutBusy === `${plan.code}:month` ? 'Opening…' : 'Monthly'}</button>
+                    <button className="btn btn-ghost" onClick={() => void startCheckout(plan.code, 'year')} disabled={checkoutBusy === `${plan.code}:year`}><Wallet size={16} /> {checkoutBusy === `${plan.code}:year` ? 'Opening…' : 'Yearly'}</button>
+                  </div>
+                </div>
+              </HoverLift>
             ))}
           </div>
-          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 12 }}>
-            إذا ظهرت رسالة بأن Stripe غير مُهيأ بعد، فهذا يعني أن مفاتيح Test Mode لم تُربط بعد على الخادم.
-          </p>
-        </section>
-      </div>
-    </div>
+        </GlassCard>
+      </Reveal>
+    </AppShell>
   );
 }
 
@@ -212,7 +220,7 @@ function renderField(
   key: keyof BillingProfile,
   label: string,
   form: BillingProfile,
-  setForm: React.Dispatch<React.SetStateAction<BillingProfile>>,
+  setForm: Dispatch<SetStateAction<BillingProfile>>,
   type = 'text',
 ) {
   return (
@@ -224,7 +232,5 @@ function renderField(
 }
 
 function normalizeProfile(form: BillingProfile) {
-  return Object.fromEntries(
-    Object.entries(form).map(([key, value]) => [key, value && value.trim().length > 0 ? value.trim() : null]),
-  );
+  return Object.fromEntries(Object.entries(form).map(([key, value]) => [key, value && value.trim().length > 0 ? value.trim() : null]));
 }

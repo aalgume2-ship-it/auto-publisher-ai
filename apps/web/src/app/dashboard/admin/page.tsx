@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import DashboardNav from '../../../components/DashboardNav';
+import { BadgeCheck, FolderCog, Settings2, ShieldCheck, SwatchBook, UsersRound } from 'lucide-react';
+import AppShell from '../../../components/dashboard/app-shell';
+import { EmptyState, GlassCard, SectionHeader, StatTile } from '../../../components/ui/chrome';
+import { HoverLift, Reveal } from '../../../components/ui/reveal';
 import { ApiProblem, api, arabicMessage } from '../../../lib/api';
 import { useAuthenticatedSession } from '../../../lib/use-authenticated-session';
 
@@ -85,88 +88,95 @@ export default function AdminPage() {
     }
   }
 
-  if (!ready || !session) {
-    return <div className="container dash"><p style={{ color: 'var(--muted)' }}>يتم التحقق من الجلسة…</p></div>;
-  }
+  if (!ready || !session) return <div className="auth-shell"><div className="glass-card" style={{ padding: 28 }}>Checking session…</div></div>;
 
   return (
-    <div className="container dash" style={{ maxWidth: 980 }}>
-      <DashboardNav />
-      <div className="dash-head">
-        <div>
-          <h1 style={{ fontSize: 26 }}>لوحة الإدارة</h1>
-          <p style={{ color: 'var(--muted)', fontSize: 14 }}>مركز إدارة Workspace: الإعدادات، العلامة التجارية، الفوترة، والأصول.</p>
-        </div>
-      </div>
+    <AppShell session={session} title="Admin" subtitle="An executive layer for workspace governance, security defaults, branding signals and operational shortcuts.">
       {error && <div className="alert err">{error}</div>}
       {notice && <div className="alert ok">{notice}</div>}
 
-      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-        <section className="panel">
-          <h2 style={{ fontSize: 20, marginBottom: 12 }}>ملخص المنظمة</h2>
-          {org ? (
-            <dl className="kv">
-              <dt>الاسم</dt><dd>{org.name}</dd>
-              <dt>Slug</dt><dd>{org.slug}</dd>
-              <dt>الحالة</dt><dd>{org.status}</dd>
-              <dt>الأعضاء</dt><dd>{String(org.counts?.members ?? 0)}</dd>
-              <dt>الفرق</dt><dd>{String(org.counts?.teams ?? 0)}</dd>
-              <dt>الأقسام</dt><dd>{String(org.counts?.departments ?? 0)}</dd>
-            </dl>
-          ) : <p style={{ color: 'var(--muted)' }}>يتم التحميل…</p>}
+      <Reveal>
+        <div className="section-grid three">
+          <StatTile label="Members" value={org?.counts?.members ?? 0} hint="Active people inside this workspace." />
+          <StatTile label="Teams" value={org?.counts?.teams ?? 0} hint="Operational groups organized under this workspace." />
+          <StatTile label="Security" value={form.enforceMfa ? 'MFA ON' : 'MFA OFF'} hint="Default protection state for member sessions." />
+        </div>
+      </Reveal>
 
-          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 18 }}>
-            <Link className="card" href="/dashboard/billing/" style={{ display: 'block' }}>
-              <h3>Billing</h3>
-              <p>إدارة الملف المالي والخطط وStripe Checkout.</p>
-            </Link>
-            <Link className="card" href="/dashboard/assets/" style={{ display: 'block' }}>
-              <h3>الأصول</h3>
-              <p>رفع الشعارات والصور والفيديوهات وإدارتها.</p>
-            </Link>
-            <Link className="card" href="/dashboard/settings/" style={{ display: 'block' }}>
-              <h3>التكاملات</h3>
-              <p>AI providers وGoogle OAuth ومفاتيح الفيديو.</p>
-            </Link>
-            <Link className="card" href="/dashboard/channels/" style={{ display: 'block' }}>
-              <h3>القنوات</h3>
-              <p>إدارة روابط المنصات والقنوات.</p>
-            </Link>
-          </div>
-        </section>
+      <div className="section-grid two">
+        <Reveal>
+          <GlassCard>
+            <SectionHeader eyebrow="Workspace Overview" title={org?.name ?? 'Workspace overview'} body={org ? `Slug: ${org.slug} • Timezone: ${org.timezone}` : 'Workspace metadata will appear here once loaded.'} />
+            {org ? (
+              <div className="section-grid two">
+                <StatTile label="Status" value={org.status} />
+                <StatTile label="Locale" value={org.defaultLocale} />
+                <StatTile label="Departments" value={org.counts?.departments ?? 0} />
+                <StatTile label="Role Layer" value="Admin ready" />
+              </div>
+            ) : (
+              <EmptyState title="Workspace not loaded" body="The admin overview will appear once the workspace context has been resolved from your authenticated session." />
+            )}
+          </GlassCard>
+        </Reveal>
 
-        <section className="panel">
-          <h2 style={{ fontSize: 20, marginBottom: 12 }}>سياسات الإدارة الأساسية</h2>
-          <form onSubmit={saveSettings}>
-            <div className="field">
-              <label htmlFor="timezone">المنطقة الزمنية</label>
-              <input id="timezone" value={form.timezone} onChange={(e) => setForm((cur) => ({ ...cur, timezone: e.target.value }))} />
-            </div>
-            <div className="field">
-              <label htmlFor="locale">اللغة الافتراضية</label>
-              <input id="locale" value={form.defaultLocale} onChange={(e) => setForm((cur) => ({ ...cur, defaultLocale: e.target.value }))} />
-            </div>
-            <div className="field">
-              <label htmlFor="sessionMaxHours">أقصى مدة للجلسة (ساعة)</label>
-              <input id="sessionMaxHours" type="number" min={1} max={720} value={form.sessionMaxHours} onChange={(e) => setForm((cur) => ({ ...cur, sessionMaxHours: Number(e.target.value) }))} />
-            </div>
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16 }}>
-              <input type="checkbox" checked={form.enforceMfa} onChange={(e) => setForm((cur) => ({ ...cur, enforceMfa: e.target.checked }))} style={{ width: 18, height: 18 }} />
-              فرض MFA على أعضاء المساحة
-            </label>
-            <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? 'يحفظ…' : 'حفظ الإعدادات'}</button>
-          </form>
-
-          {brand && (
-            <div className="card" style={{ marginTop: 18 }}>
-              <h3>العلامة التجارية الحالية</h3>
-              <p>الاسم: {brand.brandName ?? 'الافتراضي'}</p>
-              <p>اللون الرئيسي: <span className="mono">{brand.primaryColor}</span></p>
-              <p>Hide Powered By: {brand.hidePoweredBy ? 'Yes' : 'No'}</p>
-            </div>
-          )}
-        </section>
+        <Reveal delay={0.08}>
+          <GlassCard>
+            <SectionHeader eyebrow="Policies" title="Control the default operating rules." body="These settings shape security posture and locale/time behavior for the current workspace." />
+            <form onSubmit={saveSettings}>
+              <div className="field">
+                <label htmlFor="timezone">Timezone</label>
+                <input id="timezone" value={form.timezone} onChange={(e) => setForm((cur) => ({ ...cur, timezone: e.target.value }))} />
+              </div>
+              <div className="field">
+                <label htmlFor="locale">Default Locale</label>
+                <input id="locale" value={form.defaultLocale} onChange={(e) => setForm((cur) => ({ ...cur, defaultLocale: e.target.value }))} />
+              </div>
+              <div className="field">
+                <label htmlFor="sessionMaxHours">Session Lifetime (hours)</label>
+                <input id="sessionMaxHours" type="number" min={1} max={720} value={form.sessionMaxHours} onChange={(e) => setForm((cur) => ({ ...cur, sessionMaxHours: Number(e.target.value) }))} />
+              </div>
+              <label className="row" style={{ alignItems: 'center', marginBottom: 18 }}>
+                <input type="checkbox" checked={form.enforceMfa} onChange={(e) => setForm((cur) => ({ ...cur, enforceMfa: e.target.checked }))} style={{ width: 18, height: 18 }} />
+                <span>فرض MFA على الأعضاء</span>
+              </label>
+              <button className="btn btn-primary" type="submit" disabled={busy}><ShieldCheck size={16} /> {busy ? 'Saving…' : 'Save Policies'}</button>
+            </form>
+          </GlassCard>
+        </Reveal>
       </div>
-    </div>
+
+      <Reveal>
+        <GlassCard>
+          <SectionHeader eyebrow="Admin Shortcuts" title="Jump into adjacent control surfaces." body="Everything here points to a focused area of the product shell, while preserving one unified premium dashboard language." />
+          <div className="section-grid two">
+            {[
+              { href: '/dashboard/billing/', title: 'Billing Console', body: 'Commercial profile, plan selection and Stripe test mode.', icon: BadgeCheck },
+              { href: '/dashboard/assets/', title: 'Asset Governance', body: 'Curate and classify images, videos and brand assets.', icon: FolderCog },
+              { href: '/dashboard/channels/', title: 'Channel Control', body: 'Wire output destinations and distribution readiness.', icon: UsersRound },
+              { href: '/dashboard/settings/', title: 'Integration Setup', body: 'AI providers, video engines and OAuth credentials.', icon: Settings2 },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <HoverLift key={item.href}>
+                  <Link href={item.href} className="glass-card" style={{ display: 'block' }}>
+                    <div className="feature-icon"><Icon size={20} /></div>
+                    <h3>{item.title}</h3>
+                    <p>{item.body}</p>
+                  </Link>
+                </HoverLift>
+              );
+            })}
+          </div>
+          {brand ? (
+            <div className="glass-card" style={{ marginTop: 18 }}>
+              <p className="eyebrow subtle">Brand Signal</p>
+              <h3>{brand.brandName ?? 'Default brand identity'}</h3>
+              <p>Primary color: <span className="mono">{brand.primaryColor}</span> • Powered by hidden: {brand.hidePoweredBy ? 'Yes' : 'No'}</p>
+            </div>
+          ) : null}
+        </GlassCard>
+      </Reveal>
+    </AppShell>
   );
 }
