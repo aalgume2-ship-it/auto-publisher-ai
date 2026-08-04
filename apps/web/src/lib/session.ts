@@ -1,9 +1,10 @@
 /**
- * Client session pocket — access token + current org in localStorage.
- * Deliberately minimal: the API's refresh-rotation flow arrives with the
- * account screen slice; today the 15-min access token is refreshed by a
- * fresh login (preview audiences).
+ * Client session pocket — access token + refresh token + current workspace.
+ * Access tokens are short-lived; the browser renews them through the API's
+ * refresh-rotation endpoint when a refresh token is present.
  */
+import { API_BASE } from './api';
+
 export interface StoredSession {
   accessToken: string;
   refreshToken?: string;
@@ -38,6 +39,38 @@ export function patchSession(patch: Partial<StoredSession>): void {
 
 export function clearSession(): void {
   window.localStorage.removeItem(KEY);
+}
+
+export async function refreshStoredSession(): Promise<StoredSession | null> {
+  const current = loadSession();
+  if (!current?.refreshToken) return current;
+  try {
+    const res = await fetch(`${API_BASE}/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: current.refreshToken }),
+    });
+    if (!res.ok) {
+      clearSession();
+      return null;
+    }
+    const json = (await res.json()) as {
+      user: { email: string; displayName: string };
+      tokens: { accessToken: string; refreshToken: string };
+    };
+    const next: StoredSession = {
+      ...current,
+      accessToken: json.tokens.accessToken,
+      refreshToken: json.tokens.refreshToken,
+      email: json.user.email,
+      displayName: json.user.displayName,
+    };
+    saveSession(next);
+    return next;
+  } catch {
+    clearSession();
+    return null;
+  }
 }
 
 /** Decodes JWT claims WITHOUT verification (display only — the API is the verifier). */

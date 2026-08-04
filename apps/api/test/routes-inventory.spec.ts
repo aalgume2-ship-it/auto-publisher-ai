@@ -172,12 +172,14 @@ describe('route-inventory contract (Module 1: organizations)', () => {
         'DELETE /v1/organizations/:orgId/teams/:teamId',
         'DELETE /v1/organizations/:orgId/teams/:teamId/members/:userId',
         'GET /v1/branding/resolve',
+        'GET /v1/organizations',
         'GET /v1/organizations/:orgId',
         'GET /v1/organizations/:orgId/billing-profile',
         'GET /v1/organizations/:orgId/brand',
         'GET /v1/organizations/:orgId/departments',
         'GET /v1/organizations/:orgId/departments/:departmentId',
         'GET /v1/organizations/:orgId/domains',
+        'GET /v1/organizations/:orgId/plans',
         'GET /v1/organizations/:orgId/settings',
         'GET /v1/organizations/:orgId/subscription',
         'GET /v1/organizations/:orgId/teams',
@@ -196,6 +198,7 @@ describe('route-inventory contract (Module 1: organizations)', () => {
         'POST /v1/organizations/:orgId/teams/:teamId/members',
         'PUT /v1/organizations/:orgId/billing-profile',
         'PUT /v1/organizations/:orgId/brand',
+        'PUT /v1/organizations/:orgId/checkout-session',
       ].sort(),
     );
   });

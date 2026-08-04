@@ -54,6 +54,13 @@ export interface OrganizationDto {
   counts?: OrganizationCounts;
 }
 
+export interface OrganizationMembershipDto {
+  role: string;
+  status: string;
+  joinedAt: Date;
+  organization: OrganizationDto;
+}
+
 export interface SettingsDto {
   timezone: string;
   defaultLocale: string;
@@ -91,6 +98,31 @@ export class OrganizationsService {
     private readonly audit: AuditService,
     private readonly ops: DomainOperations,
   ) {}
+
+  async listOrganizationsForUser(userId: string): Promise<{ items: OrganizationMembershipDto[] }> {
+    return this.ops.measure(MODULE, 'organization.list_for_user', async () => {
+      const rows = await this.db.organizationMember.findMany({
+        where: { userId, status: 'ACTIVE' },
+        orderBy: { createdAt: 'asc' },
+        include: {
+          organization: {
+            include: { _count: { select: { members: true, teams: true, departments: true } } },
+          },
+        },
+      });
+      return {
+        items: rows.map((row) => {
+          const { _count, ...org } = row.organization;
+          return {
+            role: row.role,
+            status: row.status,
+            joinedAt: row.createdAt,
+            organization: toOrganizationDto(org, _count),
+          };
+        }),
+      };
+    });
+  }
 
   /**
    * Creates an organization + OWNER membership for the caller. Authorization:

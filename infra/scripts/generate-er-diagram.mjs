@@ -33,7 +33,7 @@ const DOMAINS = [
   ['channels-content', 'Channels, Content & Publishing', [
     'ProviderCredential', 'Channel', 'ChannelCredential', 'Project', 'AutomationConfig',
     'TrendSnapshot', 'Idea', 'Video', 'Script', 'Voiceover', 'Voice', 'Scene', 'Asset',
-    'AssetUsage', 'VideoRendition', 'SubtitleTrack', 'Thumbnail', 'PublishingTask',
+    'AssetBlob', 'AssetUsage', 'VideoRendition', 'SubtitleTrack', 'Thumbnail', 'PublishingTask',
   ]],
   ['pipeline-workflows', 'Pipeline & Workflow Engine', [
     'Workflow', 'WorkflowVersion', 'PipelineRun', 'PipelineStepRun', 'JobRecord',

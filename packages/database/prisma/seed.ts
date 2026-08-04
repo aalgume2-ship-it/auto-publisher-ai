@@ -14,7 +14,7 @@
  * Requires: @aca/shared built (pnpm --filter @aca/shared build) and DATABASE_URL
  * pointing at a migrated PostgreSQL 16 + pgvector instance.
  *
- * Demo org is seeded ONLY when NODE_ENV !== 'production' (Database.md §7).
+ * Optional preview/demo data is seeded ONLY when SEED_DEMO_DATA=true.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -353,9 +353,9 @@ async function main(): Promise<void> {
         throw new Error('autopilot-v1 exists without any version — manual repair required');
       }
 
-      /* ---- Demo org (never in production) ---- */
-      if (process.env.NODE_ENV !== 'production') {
-        stats.demoOrg = await seedDemoOrg(tx);
+      /* ---- Optional preview workspace data (opt-in only) ---- */
+      if (process.env.SEED_DEMO_DATA === 'true') {
+        stats.previewWorkspace = await seedPreviewWorkspace(tx);
       }
     }, { timeout: 600_000, maxWait: 30_000 });
   } finally {
@@ -365,41 +365,46 @@ async function main(): Promise<void> {
   console.log('✔ seed complete (idempotent) —', {
     ...stats,
     autopilotV1: { nodes: order.length, order },
-    demoOrgSeeded: process.env.NODE_ENV !== 'production',
+    previewWorkspaceSeeded: process.env.SEED_DEMO_DATA === 'true',
   });
 }
 
 /* ------------------------------------------------------------------ */
-/* Demo org (NODE_ENV != production)                                   */
+/* Optional preview workspace (SEED_DEMO_DATA=true only)               */
 /* ------------------------------------------------------------------ */
 
 type SeedTx = Prisma.TransactionClient;
 
-async function seedDemoOrg(tx: SeedTx): Promise<number> {
+async function seedPreviewWorkspace(tx: SeedTx): Promise<number> {
   let created = 0;
 
+  const adminEmail = process.env.SEED_ADMIN_EMAIL ?? 'owner@example.local';
+  const adminName = process.env.SEED_ADMIN_NAME ?? 'Workspace Owner';
+  const workspaceName = process.env.SEED_WORKSPACE_NAME ?? 'Preview Workspace';
+  const workspaceSlug = process.env.SEED_WORKSPACE_SLUG ?? 'preview-workspace';
+
   const demoUser =
-    (await tx.user.findUnique({ where: { email: 'demo@autocreator.test' } })) ??
+    (await tx.user.findUnique({ where: { email: adminEmail } })) ??
     (await tx.user.create({
       data: {
         id: generateId(),
-        email: 'demo@autocreator.test',
+        email: adminEmail,
         emailVerifiedAt: new Date(),
-        passwordHash: null, // passwordless until packages/auth lands; dev sign-in via that package's hasher
-        displayName: 'Demo Owner',
+        passwordHash: null,
+        displayName: adminName,
         locale: 'en',
         timezone: 'UTC',
         status: 'ACTIVE',
       },
     }));
 
-  let org = await tx.organization.findUnique({ where: { slug: 'demo-org' } });
+  let org = await tx.organization.findUnique({ where: { slug: workspaceSlug } });
   if (!org) {
     org = await tx.organization.create({
       data: {
         id: generateId(),
-        name: 'Demo Org',
-        slug: 'demo-org',
+        name: workspaceName,
+        slug: workspaceSlug,
         status: 'ACTIVE',
         billingCustomerRefs: {},
         billingProvider: 'local',
@@ -423,7 +428,7 @@ async function seedDemoOrg(tx: SeedTx): Promise<number> {
 
   // Preview wiring aid (dev-only path): surfaced in deploy logs so an operator can
   // mint demo-session JWTs locally without direct database access.
-  console.log(`[seed:demo] ${JSON.stringify({ demoUserId: demoUser.id, demoOrgId: org.id })}`);
+  console.log(`[seed:preview] ${JSON.stringify({ previewUserId: demoUser.id, previewOrgId: org.id })}`);
 
   const proPlan = await tx.plan.findUniqueOrThrow({ where: { code: 'pro' } });
   const subscription = await tx.subscription.findUnique({ where: { orgId: org.id } });
@@ -457,13 +462,13 @@ async function seedDemoOrg(tx: SeedTx): Promise<number> {
         delta: proPlan.aiCreditsMonthly,
         balanceAfter: proPlan.aiCreditsMonthly,
         reason: 'MONTHLY_GRANT',
-        note: 'seed: initial pro-plan grant for demo org',
+        note: 'seed: initial pro-plan grant for preview workspace',
       },
     });
     created += 1;
   }
 
-  const project = await tx.project.findFirst({ where: { orgId: org.id, name: 'Demo Project' } });
+  const project = await tx.project.findFirst({ where: { orgId: org.id, name: 'Starter Project' } });
   if (!project) {
     const nova = await tx.voice.findFirst({
       where: { provider: 'openai-tts', providerVoiceId: 'nova' },
@@ -473,8 +478,8 @@ async function seedDemoOrg(tx: SeedTx): Promise<number> {
         id: generateId(),
         orgId: org.id,
         visibility: 'ORG_WIDE',
-        name: 'Demo Project',
-        description: 'Seeded playground project — attach a channel and run autopilot-v1.',
+        name: 'Starter Project',
+        description: 'Optional preview workspace project — attach a channel and run autopilot-v1.',
         niche: 'technology',
         language: 'en',
         targetPlatforms: ['youtube', 'tiktok', 'instagram'],

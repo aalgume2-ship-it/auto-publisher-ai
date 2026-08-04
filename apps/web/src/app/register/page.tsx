@@ -1,8 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { motion } from 'framer-motion';
 import Link from 'next/link';
+import { ArrowLeft, Layers3, Sparkles, Wand2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { api, arabicMessage, ApiProblem } from '../../lib/api';
 import { saveSession } from '../../lib/session';
 
@@ -50,33 +52,56 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="container auth-wrap">
-      <div className="panel">
-        <h1 style={{ fontSize: 24, marginBottom: 4 }}>أنشئ حسابك</h1>
-        <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 20 }}>30 ثانية وتكون داخل منصتك — بدون بطاقة ائتمانية</p>
-        {error && <div className="alert err">{error}</div>}
-        <form onSubmit={submit} dir="rtl">
-          <div className="field">
-            <label htmlFor="name">الاسم المعروض</label>
-            <input id="name" autoComplete="name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required />
+    <div className="auth-shell">
+      <div className="auth-grid">
+        <motion.section className="auth-showcase glass-card" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
+          <div>
+            <span className="eyebrow">Start Creating</span>
+            <h1 style={{ fontSize: 'clamp(42px, 5vw, 74px)', lineHeight: 0.98, marginTop: 18 }}>
+              Launch your <span className="gradient-text">AI studio</span> in under a minute.
+            </h1>
+            <p style={{ color: 'var(--text-soft)', maxWidth: 560, marginTop: 18 }}>
+              Create your account, enter the dashboard and start managing workspaces, channels, assets and publishing flows from a premium dark-mode interface.
+            </p>
           </div>
-          <div className="field">
-            <label htmlFor="email">البريد الإلكتروني</label>
-            <input id="email" type="email" dir="ltr" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <div className="auth-highlights">
+            <div className="auth-highlight"><strong>Production workflow</strong><p>واجهة حقيقية مبنية للعمليات اليومية وليس مجرد قالب.</p></div>
+            <div className="auth-highlight"><strong>Multi-workspace</strong><p>هيكلة مناسبة للشركات والفرق والعلامات المختلفة.</p></div>
+            <div className="auth-highlight"><strong>Creative velocity</strong><p>صول إلى الأصول والقنوات والاستوديو بسرعة وبشكل بصري راقٍ.</p></div>
           </div>
-          <div className="field">
-            <label htmlFor="password">كلمة المرور (12+ حرفاً)</label>
-            <input id="password" type="password" dir="ltr" autoComplete="new-password" minLength={12} value={password} onChange={(e) => setPassword(e.target.value)} required />
+        </motion.section>
+
+        <motion.div className="auth-panel" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5, delay: 0.08 }}>
+          <div className="auth-wrap glass-card" style={{ padding: 30 }}>
+            <p className="eyebrow subtle">Create account</p>
+            <h2 style={{ fontSize: 34, margin: '8px 0 10px' }}>Join the studio</h2>
+            <p style={{ color: 'var(--text-soft)', marginBottom: 22 }}>Build your workspace foundation with a premium onboarding flow.</p>
+            {error && <div className="alert err">{error}</div>}
+            <form onSubmit={submit} dir="rtl">
+              <div className="field">
+                <label htmlFor="name">الاسم المعروض</label>
+                <input id="name" autoComplete="name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required />
+              </div>
+              <div className="field">
+                <label htmlFor="email">البريد الإلكتروني</label>
+                <input id="email" type="email" dir="ltr" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              </div>
+              <div className="field">
+                <label htmlFor="password">كلمة المرور (12+ حرفًا)</label>
+                <input id="password" type="password" dir="ltr" autoComplete="new-password" minLength={12} value={password} onChange={(e) => setPassword(e.target.value)} required />
+              </div>
+              <button className="btn btn-primary btn-block" disabled={busy} type="submit">
+                {busy ? 'Creating…' : 'Create Studio Access'} <ArrowLeft size={18} />
+              </button>
+            </form>
+            <div className="row" style={{ marginTop: 18, color: 'var(--muted)', fontSize: 14 }}>
+              <span className="row"><Layers3 size={16} /> Workspace-ready</span>
+              <span className="row"><Sparkles size={16} /> Premium UI</span>
+              <span className="row"><Wand2 size={16} /> AI studio flow</span>
+            </div>
+            <p className="form-note">لديك حساب بالفعل؟ <Link href="/login/">تسجيل الدخول</Link></p>
           </div>
-          <button className="btn btn-primary btn-block" disabled={busy} type="submit">
-            {busy ? 'جارٍ الإنشاء…' : 'إنشاء الحساب ودخول'}
-          </button>
-        </form>
-        <p className="form-note">
-          لديك حساب؟ <Link href="/login/">دخول</Link>
-          {' • '}
-          <Link href="/dashboard/">تجربة فورية بحساب جاهز</Link>
-        </p>
+        </motion.div>
       </div>
     </div>
   );

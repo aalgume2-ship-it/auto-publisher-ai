@@ -26,11 +26,13 @@ import { RequiresCapabilities } from '../../common/guards/rbac.guard.js';
 import { Idempotent } from '../../common/idempotency/idempotency.interceptor.js';
 import { UseZod } from '../../common/validation/zod-validation.pipe.js';
 import { requestContext } from '../../common/context/request-context.js';
+import { apiErrors } from '../../common/errors/api-error.js';
 import {
   CreateOrganizationBody,
   CreateOrganizationBodyDoc,
   OrgParamsSchema,
   OrganizationDoc,
+  OrganizationMembershipListDoc,
   SecurityPolicyBody,
   SecurityPolicyBodyDoc,
   SettingsDoc,
@@ -50,6 +52,18 @@ export class OrganizationsController {
   constructor(private readonly organizations: OrganizationsService) {}
 
   /* ---------------------------------------------------------- entity */
+
+  @Get()
+  @UseZod({})
+  @ApiOperation({ operationId: 'listMyOrganizations', summary: 'List the authenticated user\'s active workspaces (organizations)' })
+  @ApiOkResponse({ description: 'Active organization memberships', schema: OrganizationMembershipListDoc })
+  listMyOrganizations() {
+    const ctx = requestContext();
+    if (!ctx.userId || ctx.principal?.kind !== 'user') {
+      throw apiErrors.forbidden('workspace listing is available to authenticated users only');
+    }
+    return this.organizations.listOrganizationsForUser(ctx.userId);
+  }
 
   @Post()
   @HttpCode(201)

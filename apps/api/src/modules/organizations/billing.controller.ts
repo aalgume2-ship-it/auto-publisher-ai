@@ -20,7 +20,7 @@ import { RequiresCapabilities } from '../../common/guards/rbac.guard.js';
 import { Idempotent } from '../../common/idempotency/idempotency.interceptor.js';
 import { UseZod } from '../../common/validation/zod-validation.pipe.js';
 import { OrgParamsSchema } from './organizations.dto.js';
-import { BillingProfileBody, BillingProfileDoc, PutBillingProfileBodyDoc, SubscriptionResponseDoc } from './billing.dto.js';
+import { BillingProfileBody, BillingProfileDoc, BillingPlansDoc, CheckoutSessionBody, CheckoutSessionBodyDoc, CheckoutSessionDoc, PutBillingProfileBodyDoc, SubscriptionResponseDoc } from './billing.dto.js';
 import { OrgBillingService } from './billing.service.js';
 
 const ORG_PARAM = { name: 'orgId' as const, format: 'uuid' };
@@ -70,5 +70,28 @@ export class OrgBillingController {
   @ApiForbiddenResponse({ description: 'Missing billing.view capability', content: { 'application/problem+json': { schema: PROBLEM } } })
   getSubscription(@Param('orgId') orgId: string) {
     return this.billing.getSubscription(orgId);
+  }
+
+  @Get('plans')
+  @RequiresCapabilities('billing.view')
+  @UseZod({ params: OrgParamsSchema })
+  @ApiOperation({ operationId: 'listBillingPlans', summary: 'List public plans available for checkout' })
+  @ApiParam(ORG_PARAM)
+  @ApiOkResponse({ description: 'Public plans', schema: BillingPlansDoc })
+  listPlans(@Param('orgId') _orgId: string) {
+    return this.billing.listPublicPlans();
+  }
+
+  @Put('checkout-session')
+  @HttpCode(200)
+  @RequiresCapabilities('billing.manage')
+  @Idempotent()
+  @UseZod({ params: OrgParamsSchema, body: CheckoutSessionBody })
+  @ApiOperation({ operationId: 'createCheckoutSession', summary: 'Create a Stripe Checkout session for the selected plan' })
+  @ApiParam(ORG_PARAM)
+  @ApiBody({ schema: CheckoutSessionBodyDoc })
+  @ApiOkResponse({ description: 'Checkout session', schema: CheckoutSessionDoc })
+  createCheckoutSession(@Param('orgId') orgId: string, @Body() body: CheckoutSessionBody) {
+    return this.billing.createCheckoutSession(orgId, body);
   }
 }

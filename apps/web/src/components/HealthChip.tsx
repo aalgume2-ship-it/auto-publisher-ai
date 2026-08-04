@@ -19,7 +19,7 @@ export default function HealthChip() {
     };
   }, []);
   const cls = state.kind === 'up' ? 'status-chip up' : state.kind === 'down' ? 'status-chip down' : 'status-chip';
-  const text = state.kind === 'up' ? 'الخادم: يعمل' : state.kind === 'down' ? 'الخادم: يستيقظ…' : 'يفحص الخادم…';
+  const text = state.kind === 'up' ? 'API Online' : state.kind === 'down' ? 'API Cold Start / Unreachable' : 'Checking API…';
   return (
     <span className={cls} title={state.kind === 'up' && state.version ? `v${state.version}` : undefined}>
       <span className="dot" />

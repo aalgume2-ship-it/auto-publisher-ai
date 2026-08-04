@@ -4,10 +4,13 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const TABS = [
-  { href: '/dashboard/', label: 'المعالج', exact: true },
+  { href: '/dashboard/', label: 'الرئيسية', exact: true },
   { href: '/dashboard/channels/', label: 'القنوات' },
   { href: '/dashboard/series/', label: 'السلاسل' },
+  { href: '/dashboard/assets/', label: 'الأصول' },
   { href: '/dashboard/posts/', label: 'النشر' },
+  { href: '/dashboard/billing/', label: 'Billing' },
+  { href: '/dashboard/admin/', label: 'الإدارة' },
   { href: '/dashboard/settings/', label: 'الإعدادات' },
 ] as const;
 

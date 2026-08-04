@@ -42,9 +42,8 @@ const CODE_MESSAGES: Record<string, string> = {
 export function arabicMessage(p: ApiProblem | ProblemBody): string {
   const body: ProblemBody = p instanceof ApiProblem ? p.body : p;
   const code = p.code;
-  // VALIDATION_FAILED & AI_CREDENTIALS_MISSING carry user-actionable details
-  // written for the UI (key rejected, key absent…) — always surface them.
-  if (body.detail && (code === 'VALIDATION_FAILED' || code === 'AI_CREDENTIALS_MISSING')) return body.detail;
+  // Some codes carry directly actionable operator details from the backend.
+  if (body.detail && (code === 'VALIDATION_FAILED' || code === 'AI_CREDENTIALS_MISSING' || code === 'PLATFORM_ERROR')) return body.detail;
   if (code && code in CODE_MESSAGES) return CODE_MESSAGES[code as keyof typeof CODE_MESSAGES] as string;
   if (ErrorCodes.includes(code as never)) return body.detail ?? 'حدث خطأ غير متوقع';
   return body.detail ?? (p as { message?: string }).message ?? 'تعذّر الاتصال بالخادم — تحقق من الشبكة';
@@ -76,6 +75,8 @@ export const api = {
     request<T>('POST', path, { body, ...(token !== undefined ? { token } : {}) }),
   put: <T>(path: string, body: unknown, token?: string | null) =>
     request<T>('PUT', path, { body, ...(token !== undefined ? { token } : {}) }),
+  patch: <T>(path: string, body: unknown, token?: string | null) =>
+    request<T>('PATCH', path, { body, ...(token !== undefined ? { token } : {}) }),
   del: <T>(path: string, token?: string | null) => request<T>('DELETE', path, { ...(token !== undefined ? { token } : {}) }),
   health: () => request<{ status: string; version?: string; env?: string }>('GET', '/health'),
 };

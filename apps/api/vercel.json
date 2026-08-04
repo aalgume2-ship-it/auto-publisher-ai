@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "echo 'using prebuilt static export'",
+  "buildCommand": "echo 'publishing apps/api/vercel-static'",
+  "outputDirectory": "vercel-static"
+}

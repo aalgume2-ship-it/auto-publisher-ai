@@ -2,13 +2,6 @@
 /**
  * mint-dev-token — LOCAL-ONLY session token minter for trying the API.
  *
- * Why it exists: login lives in @aca/auth (planned). Until then, a developer
- * trying Module 1 against localhost needs a *real* first-party session JWT —
- * the same HS256 shape AuthGuard verifies (apps/api/src/common/auth). This
- * script mints exactly that token for the seeded demo user
- * (`demo@autocreator.test`, OWNER of `demo-org`, seeded by `pnpm db:seed`,
- * NODE_ENV != production only) and prints the ids a walkthrough needs.
- *
  * It is NOT a login endpoint and never ships in production: it runs on the
  * developer's machine, against the developer's local database, signed with
  * their own AUTH_JWT_SECRET. The API's trust boundary is unchanged — the
@@ -16,9 +9,8 @@
  * request.
  *
  * Usage:
- *   node infra/scripts/mint-dev-token.mjs                # human output
- *   eval "$(node infra/scripts/mint-dev-token.mjs --export)"  # ACA_TOKEN/ACA_ORG_ID/ACA_USER_ID
- *   node infra/scripts/mint-dev-token.mjs --email demo@autocreator.test --ttl 28800
+ *   node infra/scripts/mint-dev-token.mjs --email owner@example.com
+ *   eval "$(node infra/scripts/mint-dev-token.mjs --email owner@example.com --export)"
  *
  * Requires: `pnpm build` (imports compiled package dist) and env —
  * DATABASE_URL + AUTH_JWT_SECRET (min 32) from .env.local (written by
@@ -45,8 +37,8 @@ const option = (name) => {
 };
 
 const EXPORT_MODE = flag('--export');
-const EMAIL = option('--email') ?? process.env.SEED_DEMO_EMAIL ?? 'demo@autocreator.test';
-const TTL_SEC_RAW = option('--ttl') ?? process.env.DEMO_TOKEN_TTL_SECONDS ?? '28800';
+const EMAIL = option('--email') ?? process.env.SEED_ADMIN_EMAIL ?? '';
+const TTL_SEC_RAW = option('--ttl') ?? process.env.DEV_TOKEN_TTL_SECONDS ?? '28800';
 const TTL_SEC = Number.parseInt(TTL_SEC_RAW, 10);
 
 function fail(message) {
@@ -56,6 +48,9 @@ function fail(message) {
 
 if (!Number.isInteger(TTL_SEC) || TTL_SEC <= 0 || TTL_SEC > 30 * 24 * 3600) {
   fail(`invalid --ttl "${TTL_SEC_RAW}" (seconds, 1..2592000)`);
+}
+if (EMAIL.trim() === '') {
+  fail('email is required. Pass --email=<user@example.com> or export SEED_ADMIN_EMAIL.');
 }
 
 const secret = process.env.AUTH_JWT_SECRET;
@@ -92,7 +87,7 @@ try {
     select: { id: true, email: true, displayName: true, status: true },
   });
   if (user === null) {
-    fail(`no user with email "${EMAIL}". Seed first: \`pnpm db:seed\` (demo user exists only outside production).`);
+    fail(`no user with email "${EMAIL}". Seed first: \`pnpm db:seed\` or create the user via /v1/auth/register.`);
   }
   if (user.status !== 'ACTIVE') {
     fail(`user "${EMAIL}" has status ${user.status} — the AuthGuard would reject the token anyway.`);

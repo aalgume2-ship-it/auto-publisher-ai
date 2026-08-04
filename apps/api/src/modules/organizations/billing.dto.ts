@@ -24,6 +24,14 @@ export type BillingProfileBody = z.infer<typeof BillingProfileBody>;
 
 export type BillingParams = z.infer<typeof OrgParamsSchema>;
 
+export const CheckoutSessionBody = z.object({
+  planCode: z.string().trim().min(1).max(32),
+  interval: z.enum(['month', 'year']).default('month'),
+  successUrl: z.string().url(),
+  cancelUrl: z.string().url(),
+});
+export type CheckoutSessionBody = z.infer<typeof CheckoutSessionBody>;
+
 /* ---------------- OpenAPI documentation (real examples) ---------------- */
 
 export const BillingProfileDoc = {
@@ -83,6 +91,48 @@ export const SubscriptionResponseDoc = {
       type: 'object',
       properties: {
         balance: { type: 'integer', example: 4820, description: 'AI credits; 0 when no ledger rows exist yet' },
+      },
+    },
+  },
+};
+
+export const CheckoutSessionBodyDoc = {
+  type: 'object' as const,
+  required: ['planCode', 'interval', 'successUrl', 'cancelUrl'],
+  properties: {
+    planCode: { type: 'string', example: 'pro' },
+    interval: { type: 'string', enum: ['month', 'year'], example: 'month' },
+    successUrl: { type: 'string', format: 'uri', example: 'https://app.example.com/dashboard/billing/?checkout=success' },
+    cancelUrl: { type: 'string', format: 'uri', example: 'https://app.example.com/dashboard/billing/?checkout=cancel' },
+  },
+};
+
+export const CheckoutSessionDoc = {
+  type: 'object' as const,
+  properties: {
+    provider: { type: 'string', example: 'stripe' },
+    url: { type: 'string', format: 'uri', example: 'https://checkout.stripe.com/c/pay/...' },
+    sessionId: { type: 'string', example: 'cs_test_a1b2c3' },
+    publishableKey: { type: 'string', nullable: true, example: 'pk_test_123' },
+  },
+};
+
+export const BillingPlansDoc = {
+  type: 'object' as const,
+  properties: {
+    items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          code: { type: 'string', example: 'pro' },
+          name: { type: 'string', example: 'Pro' },
+          monthlyPriceCents: { type: 'integer', example: 7900 },
+          yearlyPriceCents: { type: 'integer', example: 79000 },
+          currency: { type: 'string', example: 'USD' },
+          aiCreditsMonthly: { type: 'integer', example: 5000 },
+          isPublic: { type: 'boolean', example: true },
+        },
       },
     },
   },

@@ -5,9 +5,9 @@
 > — DO NOT EDIT BY HAND. Drift fails CI (structural-gates job). Relationship
 > labels are the Prisma relation/field names; `PK` = primary key, `FK` = part of
 > a `@relation(fields:[…])` constraint. `optional` marks nullable fields.
-> 74 models · 97 relationships.
+> 75 models · 97 relationships.
 
-## Overview — all 74 models (relations only)
+## Overview — all 75 models (relations only)
 
 ```mermaid
 erDiagram
@@ -111,6 +111,9 @@ erDiagram
     string id PK
   }
   Asset {
+    string id PK
+  }
+  AssetBlob {
     string id PK
   }
   AssetUsage {
@@ -704,7 +707,7 @@ erDiagram
 
 Inbound FK from another domain: `Organization ← Subscription.organization`, `Organization ← OrganizationBillingProfile.organization`, `Organization ← Invoice.organization`, `Organization ← AiCreditTransaction.organization`, `Organization ← UsageRecord.organization`.
 
-## Channels, Content & Publishing (18 models)
+## Channels, Content & Publishing (19 models)
 
 ```mermaid
 erDiagram
@@ -958,6 +961,11 @@ erDiagram
     organizationbrand_arr brandLogoUses
     organizationbrand_arr brandLogoDarkUses
     organizationbrand_arr brandFaviconUses
+  }
+  AssetBlob {
+    string storageKey PK
+    bytes data
+    timestamptz createdAt
   }
   AssetUsage {
     string id PK

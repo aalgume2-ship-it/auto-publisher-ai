@@ -59,6 +59,51 @@ export const ScheduleBodyDoc = {
   },
 };
 
+export const UploadAssetBody = z.object({
+  fileName: z.string().trim().min(1).max(180),
+  mimeType: z.string().trim().min(3).max(80),
+  kind: z.enum(['IMAGE', 'VIDEO_CLIP', 'AUDIO', 'BRAND']).default('IMAGE'),
+  folder: z.string().trim().min(1).max(120).optional(),
+  tags: z.array(z.string().trim().min(1).max(32)).max(20).default([]),
+  base64: z.string().min(16).max(90_000_000),
+});
+export type UploadAssetBody = z.infer<typeof UploadAssetBody>;
+
+export const UploadAssetBodyDoc = {
+  type: 'object' as const,
+  required: ['fileName', 'mimeType', 'base64'],
+  properties: {
+    fileName: { type: 'string', example: 'brand-logo.png' },
+    mimeType: { type: 'string', example: 'image/png' },
+    kind: { type: 'string', enum: ['IMAGE', 'VIDEO_CLIP', 'AUDIO', 'BRAND'], example: 'IMAGE' },
+    folder: { type: 'string', example: 'summer-campaign' },
+    tags: { type: 'array', items: { type: 'string' }, example: ['brand', 'featured', 'hero'] },
+    base64: { type: 'string', example: 'iVBORw0KGgoAAAANSUhEUgAA...' },
+  },
+};
+
+export const UpdateAssetMetaBody = z.object({
+  folder: z.string().trim().min(1).max(120).nullable().optional(),
+  tags: z.array(z.string().trim().min(1).max(32)).max(20).optional(),
+}).strict().refine((v) => Object.keys(v).length > 0, 'at least one field is required');
+export type UpdateAssetMetaBody = z.infer<typeof UpdateAssetMetaBody>;
+
+export const UpdateAssetMetaBodyDoc = {
+  type: 'object' as const,
+  properties: {
+    folder: { type: 'string', nullable: true, example: 'summer-campaign' },
+    tags: { type: 'array', items: { type: 'string' }, example: ['brand', 'featured'] },
+  },
+};
+
+export const AssetListQuerySchema = z.object({
+  kind: z.enum(['IMAGE', 'VIDEO_CLIP', 'AUDIO', 'BRAND']).optional(),
+  folder: z.string().trim().min(1).max(120).optional(),
+  tag: z.string().trim().min(1).max(32).optional(),
+  q: z.string().trim().min(1).max(120).optional(),
+});
+export type AssetListQuery = z.infer<typeof AssetListQuerySchema>;
+
 export const VideoListQuerySchema = z.object({
   seriesId: z.string().uuid().optional(),
   status: z.enum(['DRAFT', 'QUEUED', 'GENERATING', 'READY', 'SCHEDULED', 'PUBLISHED', 'FAILED']).optional(),
@@ -73,6 +118,21 @@ export const SeriesDoc = {
     language: { type: 'string' },
     targetPlatforms: { type: 'array', items: { type: 'string' } },
     counts: { type: 'object' as const, properties: { videos: { type: 'integer' } } },
+    createdAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const AssetDoc = {
+  type: 'object' as const,
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    kind: { type: 'string', enum: ['IMAGE', 'VIDEO_CLIP', 'AUDIO', 'BRAND'] },
+    mimeType: { type: 'string', example: 'image/png' },
+    fileName: { type: 'string', example: 'brand-logo.png' },
+    folder: { type: 'string', nullable: true, example: 'summer-campaign' },
+    tags: { type: 'array', items: { type: 'string' }, example: ['brand', 'featured'] },
+    bytes: { type: 'string', example: '24813' },
+    url: { type: 'string', example: '/v1/media/raw?...' },
     createdAt: { type: 'string', format: 'date-time' },
   },
 };
