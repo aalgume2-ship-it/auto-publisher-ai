@@ -43,14 +43,14 @@ export class VideosService {
     metadata: Prisma.JsonValue | null;
     createdAt: Date;
   }) {
-    const meta = isAssetMeta(a.metadata) ? a.metadata : {};
+    const meta = asAssetMeta(a.metadata);
     return {
       id: a.id,
       kind: a.type,
       mimeType: a.mimeType,
       fileName: a.sourceUrl ?? `${a.type.toLowerCase()}-${a.id}`,
-      folder: typeof meta.folder === 'string' ? meta.folder : null,
-      tags: Array.isArray(meta.tags) ? meta.tags.filter((t): t is string => typeof t === 'string') : [],
+      folder: typeof meta['folder'] === 'string' ? (meta['folder'] as string) : null,
+      tags: Array.isArray(meta['tags']) ? meta['tags'].filter((t): t is string => typeof t === 'string') : [],
       bytes: a.bytes.toString(),
       url: this.media(a.storageKey),
       createdAt: a.createdAt,
@@ -297,8 +297,8 @@ export class VideosService {
   async updateAssetMeta(orgId: string, assetId: string, body: UpdateAssetMetaBody) {
     const asset = await this.prisma.asset.findFirst({ where: { id: assetId, orgId } });
     if (!asset) throw notFound('asset not found');
-    const current = isAssetMeta(asset.metadata) ? asset.metadata : {};
-    const next = {
+    const current = asAssetMeta(asset.metadata);
+    const next: Record<string, unknown> = {
       ...current,
       ...(Object.prototype.hasOwnProperty.call(body, 'folder') ? { folder: body.folder } : {}),
       ...(body.tags !== undefined ? { tags: body.tags } : {}),
@@ -371,6 +371,8 @@ export class VideosService {
   }
 }
 
-function isAssetMeta(value: Prisma.JsonValue | null): value is { folder?: string | null; tags?: unknown[] } {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+function asAssetMeta(value: Prisma.JsonValue | null): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
