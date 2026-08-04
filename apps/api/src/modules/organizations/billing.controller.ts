@@ -78,7 +78,7 @@ export class OrgBillingController {
   @ApiOperation({ operationId: 'listBillingPlans', summary: 'List public plans available for checkout' })
   @ApiParam(ORG_PARAM)
   @ApiOkResponse({ description: 'Public plans', schema: BillingPlansDoc })
-  listPlans() {
+  listPlans(@Param('orgId') _orgId: string) {
     return this.billing.listPublicPlans();
   }
 

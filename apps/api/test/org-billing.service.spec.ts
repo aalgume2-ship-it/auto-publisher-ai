@@ -49,9 +49,10 @@ function makeFake(delegates: Record<string, Record<string, Fn>> = {}) {
 function makeService(tx: unknown) {
   const tenantFactory = () => tx;
   return new OrgBillingService(
-    { $transaction: (cb: (t: unknown) => Promise<unknown>) => cb(tx) } as never,
+    { $transaction: (cb: (t: unknown) => Promise<unknown>) => cb(tx), plan: { findMany: vi.fn(), findUnique: vi.fn() }, organization: { update: vi.fn() } } as never,
     tenantFactory as never,
     createOutboxWriter('apps/api'),
+    { billing: { provider: 'stripe', stripeSecretKey: 'sk_test_x', stripePublishableKey: 'pk_test_x' } } as never,
     new AuditService(),
     new DomainOperations(new HttpMetrics()),
   );

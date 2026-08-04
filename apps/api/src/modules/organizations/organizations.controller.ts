@@ -54,6 +54,7 @@ export class OrganizationsController {
   /* ---------------------------------------------------------- entity */
 
   @Get()
+  @UseZod({})
   @ApiOperation({ operationId: 'listMyOrganizations', summary: 'List the authenticated user\'s active workspaces (organizations)' })
   @ApiOkResponse({ description: 'Active organization memberships', schema: OrganizationMembershipListDoc })
   listMyOrganizations() {
