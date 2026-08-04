@@ -4,12 +4,8 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { API_BASE, api, arabicMessage, ApiProblem } from '../../../../lib/api';
-import { isExpired, loadSession, saveSession } from '../../../../lib/session';
 import DashboardNav from '../../../../components/DashboardNav';
-
-const DEMO_TOKEN =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMTlmYzcwZi0wNWQ2LTc2N2YtOGE4OC0zYjNhZjE0ZDZlZTUiLCJ0eXAiOiJhY2Nlc3MiLCJpc3MiOiJodHRwczovL2FwaS5hdXRvY3JlYXRvci5haSIsImF1ZCI6ImFjYS1maXJzdC1wYXJ0eSIsImlhdCI6MTc4NTc1MTI0NiwiZXhwIjoxNzg2MzU2MDQ2fQ.j6s-lLI0qBl9iKu1enVJCvoF32_VFxQOg2DmM9qrp5A';
-const DEMO_ORG_ID = '019fc70f-097c-7a39-9361-085d53c3ecd1';
+import { useAuthenticatedSession } from '../../../../lib/use-authenticated-session';
 
 interface SeriesInfo { id: string; name: string; niche: string; counts: { videos: number } }
 interface Channel { id: string; displayName: string; handle: string | null; status: string }
@@ -58,7 +54,7 @@ const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
 function SeriesDetailInner() {
   const params = useSearchParams();
   const seriesId = params?.get('id') ?? '';
-  const [session, setSession] = useState(loadSession());
+  const { session, ready } = useAuthenticatedSession();
   const [series, setSeries] = useState<SeriesInfo | null>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [videos, setVideos] = useState<VideoItem[]>([]);
@@ -78,16 +74,6 @@ function SeriesDetailInner() {
   const [apChannel, setApChannel] = useState('');
   const [apBusy, setApBusy] = useState(false);
   const pollRef = useRef<NodeJS.Timeout | null>(null);
-
-  const expired = session ? isExpired(session.accessToken) : true;
-
-  useEffect(() => {
-    if (!session?.orgId || expired) {
-      const s = { accessToken: DEMO_TOKEN, orgId: DEMO_ORG_ID, email: 'demo@autocreator.test', displayName: 'Demo Owner' };
-      saveSession(s);
-      setSession(s);
-    }
-  }, [session, expired]);
 
   const orgPath = useMemo(() => (session?.orgId ? `/v1/organizations/${session.orgId}` : null), [session]);
 
@@ -222,6 +208,14 @@ function SeriesDetailInner() {
   }
 
   const postsByVideo = (id: string) => posts.filter((p) => p.video.id === id);
+
+  if (!ready || !session) {
+    return <div className="container dash"><p style={{ color: 'var(--muted)' }}>يتم التحقق من الجلسة…</p></div>;
+  }
+
+  if (!session.orgId) {
+    return <div className="container dash"><DashboardNav /><div className="panel"><p style={{ color: 'var(--muted)' }}>اختر Workspace من الصفحة الرئيسية أولاً.</p></div></div>;
+  }
 
   return (
     <div className="container dash" style={{ maxWidth: 900 }}>

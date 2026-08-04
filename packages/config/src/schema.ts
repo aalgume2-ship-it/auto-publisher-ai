@@ -37,7 +37,7 @@ export const AppConfigSchema = z.object({
       .optional()
       .transform((s) => (s === undefined || s === '' ? [] : s.split(',').map((o) => o.trim()))),
     trustProxy: boolFromEnv(true),
-    requestBodyLimitMb: intFromEnv(2).pipe(z.number().int().min(1).max(100)),
+    requestBodyLimitMb: intFromEnv(32).pipe(z.number().int().min(1).max(100)),
   })
     .default({}),
 
@@ -107,6 +107,15 @@ export const AppConfigSchema = z.object({
     masterKey: z.string().regex(/^[0-9a-f]{64}$/i).optional(),
     masterKeyId: z.string().default('vault-v1'),
   })
+    .default({}),
+
+  billing: z
+    .object({
+      provider: z.enum(['stripe']).default('stripe'),
+      stripeSecretKey: z.string().min(1).optional(),
+      stripeWebhookSecret: z.string().min(1).optional(),
+      stripePublishableKey: z.string().min(1).optional(),
+    })
     .default({}),
 
   /**
@@ -194,6 +203,10 @@ export const ENV_MAP = {
   KMS_KEY_ID: 'secrets.kmsKeyId',
   SECRETS_MASTER_KEY: 'secrets.masterKey',
   SECRETS_MASTER_KEY_ID: 'secrets.masterKeyId',
+  BILLING_PROVIDER: 'billing.provider',
+  STRIPE_SECRET_KEY: 'billing.stripeSecretKey',
+  STRIPE_WEBHOOK_SECRET: 'billing.stripeWebhookSecret',
+  STRIPE_PUBLISHABLE_KEY: 'billing.stripePublishableKey',
   GOOGLE_CLIENT_ID: 'platforms.googleClientId',
   GOOGLE_CLIENT_SECRET: 'platforms.googleClientSecret',
   GOOGLE_OAUTH_REDIRECT_URI: 'platforms.googleOauthRedirectUri',
@@ -209,6 +222,8 @@ export const ENV_MAP = {
   FAL_KEY: 'ai.falKey',
   PUBLIC_API_URL: 'urls.publicApi',
   PUBLIC_WEB_URL: 'urls.publicWeb',
+  API_PUBLIC_URL: 'urls.publicApi',
+  WEB_APP_URL: 'urls.publicWeb',
 } as const satisfies Record<string, string>;
 
 export const REQUIRED_ENV_KEYS = ['DATABASE_URL', 'REDIS_URL'] as const;

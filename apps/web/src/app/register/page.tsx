@@ -74,8 +74,6 @@ export default function RegisterPage() {
         </form>
         <p className="form-note">
           لديك حساب؟ <Link href="/login/">دخول</Link>
-          {' • '}
-          <Link href="/dashboard/">تجربة فورية بحساب جاهز</Link>
         </p>
       </div>
     </div>

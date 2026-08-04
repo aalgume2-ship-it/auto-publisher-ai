@@ -93,8 +93,6 @@ export default function LoginPage() {
         </form>
         <p className="form-note">
           ليس لديك حساب؟ <Link href="/register/">أنشئ حساباً</Link>
-          {' • '}
-          <Link href="/dashboard/">تجربة فورية بحساب جاهز</Link>
         </p>
       </div>
     </div>

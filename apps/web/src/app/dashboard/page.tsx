@@ -1,15 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { api, arabicMessage, ApiProblem } from '../../lib/api';
-import { clearSession, isExpired, loadSession, patchSession, readClaims, saveSession } from '../../lib/session';
-import StepProgress, { type JourneyStep } from '../../components/StepProgress';
 import DashboardNav from '../../components/DashboardNav';
-
-const DEMO_TOKEN =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMTlmYzcwZi0wNWQ2LTc2N2YtOGE4OC0zYjNhZjE0ZDZlZTUiLCJ0eXAiOiJhY2Nlc3MiLCJpc3MiOiJodHRwczovL2FwaS5hdXRvY3JlYXRvci5haSIsImF1ZCI6ImFjYS1maXJzdC1wYXJ0eSIsImlhdCI6MTc4NTc1MTI0NiwiZXhwIjoxNzg2MzU2MDQ2fQ.j6s-lLI0qBl9iKu1enVJCvoF32_VFxQOg2DmM9qrp5A';
-const DEMO_ORG_ID = '019fc70f-097c-7a39-9361-085d53c3ecd1';
+import { ApiProblem, api, arabicMessage } from '../../lib/api';
+import { clearSession, patchSession, readClaims } from '../../lib/session';
+import { useAuthenticatedSession } from '../../lib/use-authenticated-session';
 
 const TIMEZONES = [
   { value: 'Asia/Riyadh', label: 'الرياض (GMT+3)' },
@@ -20,76 +16,128 @@ const TIMEZONES = [
 ];
 
 interface OrgDetail {
-  id: string; name: string; slug: string; status: string; timezone: string; defaultLocale: string;
-  createdAt: string; counts: { members: number; teams: number; departments: number };
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  timezone: string;
+  defaultLocale: string;
+  createdAt: string;
+  counts: { members: number; teams: number; departments: number };
 }
-interface Counts { channels: number; series: number; videos: number; posts: number; published: number; firstSeriesId: string | null }
 
-const JOURNEY_LABELS = [
-  'إنشاء الحساب',
-  'إنشاء مساحة العمل',
-  'ربط قناة يوتيوب',
-  'إنشاء أول سلسلة',
-  'توليد أول مقطع',
-  'الجدولة والنشر التلقائي',
-  'متابعة النتائج والتحسين',
-  'الطيار الآلي والتوسّع',
-] as const;
+interface WorkspaceMembership {
+  role: string;
+  status: string;
+  joinedAt: string;
+  organization: OrgDetail;
+}
+
+interface Counts {
+  channels: number;
+  series: number;
+  videos: number;
+  posts: number;
+  published: number;
+  firstSeriesId: string | null;
+}
 
 export default function DashboardPage() {
-  const [session, setSession] = useState(loadSession());
+  const { session, setSession, ready } = useAuthenticatedSession();
+  const [workspaces, setWorkspaces] = useState<WorkspaceMembership[]>([]);
   const [org, setOrg] = useState<OrgDetail | null>(null);
   const [counts, setCounts] = useState<Counts | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [newOrgName, setNewOrgName] = useState('');
   const [newOrgTz, setNewOrgTz] = useState('Asia/Riyadh');
-  const [wizStep, setWizStep] = useState<number | null>(null);
 
-  const expired = session ? isExpired(session.accessToken) : true;
+  const currentOrgId = session?.orgId ?? workspaces[0]?.organization.id ?? null;
+  const claims = session?.accessToken ? readClaims(session.accessToken) : {};
 
-  const loadOrg = useCallback(async (orgId: string, token: string) => {
-    const detail = await api.get<OrgDetail>(`/v1/organizations/${orgId}`, token);
-    setOrg(detail);
-  }, []);
-
-  const loadCounts = useCallback(async (orgId: string, token: string) => {
-    try {
-      const [c, s, v, p] = await Promise.all([
-        api.get<{ items: unknown[] }>(`/v1/organizations/${orgId}/channels`, token),
-        api.get<{ items: { id: string }[] }>(`/v1/organizations/${orgId}/series`, token),
-        api.get<{ items: unknown[] }>(`/v1/organizations/${orgId}/videos`, token),
-        api.get<{ items: { status: string }[] }>(`/v1/organizations/${orgId}/posts`, token),
-      ]);
-      setCounts({
-        channels: c.items.length,
-        series: s.items.length,
-        videos: v.items.length,
-        posts: p.items.length,
-        published: p.items.filter((t) => t.status === 'PUBLISHED').length,
-        firstSeriesId: s.items[0]?.id ?? null,
-      });
-    } catch {
-      /* counts tiles are best-effort; the wizard still runs */
-      setCounts({ channels: 0, series: 0, videos: 0, posts: 0, published: 0, firstSeriesId: null });
+  const loadWorkspaces = useCallback(async () => {
+    if (!session?.accessToken) return;
+    const res = await api.get<{ items: WorkspaceMembership[] }>('/v1/organizations', session.accessToken);
+    setWorkspaces(res.items);
+    if (!session.orgId && res.items[0]?.organization.id) {
+      patchSession({ orgId: res.items[0].organization.id });
+      setSession((cur) => (cur ? { ...cur, orgId: res.items[0]!.organization.id } : cur));
     }
-  }, []);
+  }, [session, setSession]);
+
+  const loadOrg = useCallback(async (orgId: string) => {
+    if (!session?.accessToken) return;
+    const detail = await api.get<OrgDetail>(`/v1/organizations/${orgId}`, session.accessToken);
+    setOrg(detail);
+  }, [session]);
+
+  const loadCounts = useCallback(async (orgId: string) => {
+    if (!session?.accessToken) return;
+    const [c, s, v, p] = await Promise.all([
+      api.get<{ items: unknown[] }>(`/v1/organizations/${orgId}/channels`, session.accessToken),
+      api.get<{ items: { id: string }[] }>(`/v1/organizations/${orgId}/series`, session.accessToken),
+      api.get<{ items: unknown[] }>(`/v1/organizations/${orgId}/videos`, session.accessToken),
+      api.get<{ items: { status: string }[] }>(`/v1/organizations/${orgId}/posts`, session.accessToken),
+    ]);
+    setCounts({
+      channels: c.items.length,
+      series: s.items.length,
+      videos: v.items.length,
+      posts: p.items.length,
+      published: p.items.filter((t) => t.status === 'PUBLISHED').length,
+      firstSeriesId: s.items[0]?.id ?? null,
+    });
+  }, [session]);
 
   useEffect(() => {
-    if (session?.orgId && !expired) {
-      if (!org) loadOrg(session.orgId, session.accessToken).catch((e) => setError(e instanceof ApiProblem ? arabicMessage(e) : 'تعذّر تحميل المنظمة'));
-      if (!counts) void loadCounts(session.orgId, session.accessToken);
-    }
-  }, [session, expired, org, counts, loadOrg, loadCounts]);
+    if (!ready || !session?.accessToken) return;
+    void loadWorkspaces().catch((e) => setError(e instanceof ApiProblem ? arabicMessage(e) : 'تعذّر تحميل مساحات العمل'));
+  }, [ready, session, loadWorkspaces]);
 
-  function useDemoSeat() {
-    const s = { accessToken: DEMO_TOKEN, orgId: DEMO_ORG_ID, email: 'demo@autocreator.test', displayName: 'Demo Owner' };
-    saveSession(s);
-    setSession(s);
+  useEffect(() => {
+    if (!session?.accessToken || !currentOrgId) return;
+    void loadOrg(currentOrgId).catch((e) => setError(e instanceof ApiProblem ? arabicMessage(e) : 'تعذّر تحميل المنظمة'));
+    void loadCounts(currentOrgId).catch((e) => setError(e instanceof ApiProblem ? arabicMessage(e) : 'تعذّر تحميل إحصاءات المنظمة'));
+  }, [session, currentOrgId, loadOrg, loadCounts]);
+
+  const currentMembership = useMemo(
+    () => workspaces.find((w) => w.organization.id === currentOrgId) ?? null,
+    [workspaces, currentOrgId],
+  );
+
+  async function createOrg(e: React.FormEvent) {
+    e.preventDefault();
+    if (!session?.accessToken) return;
+    if (newOrgName.trim().length < 2) {
+      setError('أدخل اسم مساحة العمل (حرفان على الأقل).');
+      return;
+    }
+    setBusy(true);
     setError(null);
-    setOrg(null);
+    try {
+      const created = await api.post<OrgDetail>(
+        '/v1/organizations',
+        { name: newOrgName.trim(), timezone: newOrgTz, defaultLocale: 'ar-SA' },
+        session.accessToken,
+      );
+      patchSession({ orgId: created.id });
+      setSession((cur) => (cur ? { ...cur, orgId: created.id } : cur));
+      setNewOrgName('');
+      await loadWorkspaces();
+      setOrg(created);
+    } catch (err) {
+      setError(err instanceof ApiProblem ? arabicMessage(err) : 'تعذّر إنشاء مساحة العمل');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function switchWorkspace(orgId: string) {
+    patchSession({ orgId });
+    setSession((cur) => (cur ? { ...cur, orgId } : cur));
     setCounts(null);
-    setWizStep(null);
+    setOrg(null);
+    setError(null);
   }
 
   function logout() {
@@ -97,217 +145,127 @@ export default function DashboardPage() {
     setSession(null);
     setOrg(null);
     setCounts(null);
-    setWizStep(null);
   }
 
-  function goBack() {
-    setError(null);
-    setWizStep(Math.max(0, (wizStep ?? effectiveIndex) - 1));
-  }
-
-  /** Per-step gate: the wizard validates ONLY the fields of the visible step. */
-  function attemptNext() {
-    setError(null);
-    const current = wizStep ?? effectiveIndex;
-    if (current === 0) { setWizStep(1); return; }
-    if (current === 1) {
-      if (org) { setWizStep(2); return; }
-      if (newOrgName.trim().length < 2) {
-        setError('بعض الحقول غير مكتملة — أدخل اسم مساحة العمل (حرفان على الأقل) للمتابعة.');
-        return;
-      }
-      void createOrg();
-      return;
-    }
-    if (current < 7) setWizStep(current + 1);
-  }
-
-  async function createOrg() {
-    if (!session) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const created = await api.post<OrgDetail>('/v1/organizations', { name: newOrgName.trim(), timezone: newOrgTz }, session.accessToken);
-      patchSession({ orgId: created.id });
-      setSession(loadSession());
-      setOrg(created);
-      setNewOrgName('');
-      setWizStep(2);
-    } catch (err) {
-      setError(err instanceof ApiProblem ? arabicMessage(err) : 'تعذّر إنشاء مساحة العمل — أعد المحاولة');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /* ---------------- anonymous ---------------- */
-  if (!session || expired) {
+  if (!ready || !session) {
     return (
       <div className="container auth-wrap">
         <div className="panel" style={{ textAlign: 'center' }}>
-          <h1 style={{ fontSize: 22, marginBottom: 8 }}>لوحة التحكم تتطلب جلسة</h1>
-          <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 20 }}>
-            {session && expired ? 'انتهت صلاحية رمز الجلسة — سجّل الدخول من جديد أو استخدم المقعد التجريبي.' : 'سجّل الدخول بحسابك، أو جرّب المقعد الجاهز فوراً.'}
-          </p>
-          <div className="actions" style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link className="btn btn-primary" href="/login/">تسجيل الدخول</Link>
-            <Link className="btn btn-ghost" href="/register/">حساب جديد</Link>
-            <button className="btn btn-ghost" onClick={useDemoSeat}>⚡ تجربة فورية (Demo Org جاهزة)</button>
-          </div>
+          <p style={{ color: 'var(--muted)' }}>يتم التحقق من الجلسة…</p>
         </div>
       </div>
     );
   }
 
-  /* ---------------- signed in ---------------- */
-  const dones = [
-    true,
-    Boolean(org),
-    (counts?.channels ?? 0) > 0,
-    (counts?.series ?? 0) > 0,
-    (counts?.videos ?? 0) > 0,
-    (counts?.posts ?? 0) > 0,
-    (counts?.published ?? 0) > 0,
-    false, // autopilot engagement — surfaced per-series (real module, not derivable cheaply here)
-  ];
-  const effectiveIndex = Math.min(7, dones.findIndex((d) => !d) === -1 ? 7 : dones.findIndex((d) => !d));
-  const current = wizStep ?? effectiveIndex;
-  const steps: JourneyStep[] = JOURNEY_LABELS.map((label, i) => ({
-    key: String(i),
-    label,
-    state: i === current ? 'current' : i < effectiveIndex ? 'done' : 'upcoming',
-  }));
-  const claims = readClaims(session.accessToken);
-
-  /** Real per-step destinations — التالي for steps ≥3 navigates to the live module screen. */
-  const STEP_LINKS: Record<number, { href: string; cta: string; body: string }> = {
-    2: { href: '/dashboard/channels/', cta: '🔴 افتح ربط القنوات ←', body: 'اربط قناة يوتيوب عبر OAuth الآمن — الرموز تُشفَّر في الخزنة وتُحدَّث تلقائياً.' },
-    3: { href: '/dashboard/series/', cta: '🎬 افتح السلاسل ←', body: 'كل سلسلة خط إنتاج مستقل بنيتش وكلمات مفتاحية خاصة.' },
-    4: { href: counts?.firstSeriesId ? `/dashboard/series/detail/?id=${counts.firstSeriesId}` : '/dashboard/series/', cta: '⚡ افتح التوليد ←', body: 'اكتب الكلمة المفتاحية — المنصة تولّد السيناريو والتعليق الصوتي والمشاهد وتركّب الفيديو تلقائياً.' },
-    5: { href: counts?.firstSeriesId ? `/dashboard/series/detail/?id=${counts.firstSeriesId}` : '/dashboard/posts/', cta: '🗓 افتح الجدولة ←', body: 'حدد القناة والموعد — طابور النشر يرفع المقطع إلى يوتيوب تلقائياً في وقته.' },
-    6: { href: '/dashboard/posts/', cta: '📊 افتح متابعة النتائج ←', body: 'تتبّع حالات النشر والروابط الحيّة لمقاطعك على يوتيوب من مكان واحد.' },
-    7: { href: counts?.firstSeriesId ? `/dashboard/series/detail/?id=${counts.firstSeriesId}` : '/dashboard/series/', cta: '🤖 افتح الطيار الآلي ←', body: 'فعّل الطيار الآلي على سلسلتك: توليد + نشر يومي بالكلمات المفتاحية — قناة تعمل وحدها.' },
-  };
-
   return (
-    <div className="container dash" style={{ maxWidth: 880 }}>
+    <div className="container dash" style={{ maxWidth: 980 }}>
       <DashboardNav />
       <div className="dash-head">
         <div>
-          <h1 style={{ fontSize: 26 }}>معالج الإطلاق</h1>
-          <p style={{ fontSize: 13.5 }} className="mono">{session.email ?? claims.sub ?? ''}</p>
+          <h1 style={{ fontSize: 26 }}>لوحة العمل</h1>
+          <p style={{ fontSize: 13.5 }} className="mono">{session.email ?? claims.email ?? claims.sub ?? ''}</p>
         </div>
-        <div className="row">
-          <button className="btn btn-ghost" onClick={logout}>خروج</button>
-        </div>
+        <button className="btn btn-ghost" onClick={logout}>خروج</button>
       </div>
 
-      <div className="wizard">
-        <StepProgress embedded steps={steps} currentIndex={current} />
-        <div className="wizard-body">
-          {error && <div className="alert err">{error}</div>}
+      {error && <div className="alert err">{error}</div>}
 
-          {current === 0 && (
-            <>
-              <h2 className="wizard-step-title">١. حسابك — مكتمل ✓</h2>
-              <p className="wizard-step-sub">أُنجزت هذه الخطوة لحظة تسجيلك.</p>
-              <div className="wizard-done">✓ تم إنشاء الحساب وتفعيل الجلسة بنجاح</div>
-              <dl className="kv">
-                <dt>البريد الإلكتروني</dt>
-                <dd>{session.email ?? '—'}</dd>
-              </dl>
-            </>
-          )}
-
-          {current === 1 &&
-            (org ? (
-              <>
-                <h2 className="wizard-step-title">٢. مساحة العمل — مكتملة ✓</h2>
-                <div className="wizard-done">✓ «{org.name}» جاهزة ({org.counts.members} عضو)</div>
-                <dl className="kv">
-                  <dt>الاسم</dt>
-                  <dd>{org.name}</dd>
-                  <dt>المعرّف (slug)</dt>
-                  <dd>{org.slug}</dd>
-                  <dt>المنطقة الزمنية</dt>
-                  <dd>{org.timezone}</dd>
-                </dl>
-              </>
-            ) : (
-              <>
-                <h2 className="wizard-step-title">٢. أنشئ مساحة عملك</h2>
-                <p className="wizard-step-sub">حقول هذه الخطوة تخص مساحة العمل فقط: اسمها ومنطقتها الزمنية.</p>
-                <form onSubmit={(e) => { e.preventDefault(); attemptNext(); }}>
-                  <div className="field">
-                    <label htmlFor="orgname">اسم مساحة العمل (Workspace Name)</label>
-                    <input id="orgname" value={newOrgName} onChange={(e) => setNewOrgName(e.target.value)} placeholder="مثال: قنوات نور الإعلامية" minLength={2} />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="orgtz">المنطقة الزمنية</label>
-                    <select id="orgtz" value={newOrgTz} onChange={(e) => setNewOrgTz(e.target.value)}>
-                      {TIMEZONES.map((tz) => (<option key={tz.value} value={tz.value}>{tz.label}</option>))}
-                    </select>
-                  </div>
-                </form>
-                <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 4 }}>
-                  مستعجل؟ <button className="btn btn-ghost" style={{ padding: '6px 12px', fontSize: 13 }} onClick={useDemoSeat}>⚡ افتح Demo Org الجاهزة وتخطَّ هذه الخطوة</button>
-                </p>
-              </>
-            ))}
-
-          {current >= 2 && STEP_LINKS[current] && (
-            <>
-              <h2 className="wizard-step-title">{['', '', '٣', '٤', '٥', '٦', '٧', '٨'][current]}. {JOURNEY_LABELS[current]}</h2>
-              <p className="wizard-step-sub">{STEP_LINKS[current]!.body}</p>
-              <Link className="btn btn-primary" href={STEP_LINKS[current]!.href}>{STEP_LINKS[current]!.cta}</Link>
-            </>
-          )}
-        </div>
-
-        <div className="wizard-nav">
-          <button className="btn btn-ghost" onClick={goBack} disabled={current === 0}>→ رجوع</button>
-          {current >= 2 ? (
-            <Link className="btn btn-primary" href={STEP_LINKS[current]?.href ?? '/dashboard/channels/'}>التالي ←</Link>
+      <div className="grid" style={{ gridTemplateColumns: '1.1fr 0.9fr', alignItems: 'start' }}>
+        <section className="panel">
+          <h2 style={{ fontSize: 20, marginBottom: 12 }}>مساحات العمل</h2>
+          {workspaces.length === 0 ? (
+            <p style={{ color: 'var(--muted)', marginBottom: 16 }}>
+              لا توجد أي مساحة عمل بعد. أنشئ أول Workspace لبدء إدارة القنوات والنشر.
+            </p>
           ) : (
-            <button className="btn btn-primary" onClick={attemptNext} disabled={busy}>
-              {busy ? 'جارٍ الإنشاء…' : current === 1 && !org ? 'إنشاء مساحة العمل ←' : 'التالي ←'}
-            </button>
+            <div className="grid" style={{ gridTemplateColumns: '1fr', marginBottom: 18 }}>
+              {workspaces.map((item) => {
+                const active = item.organization.id === currentOrgId;
+                return (
+                  <button
+                    key={item.organization.id}
+                    className="card"
+                    onClick={() => switchWorkspace(item.organization.id)}
+                    style={{ textAlign: 'right', cursor: 'pointer', borderColor: active ? 'var(--brand)' : 'var(--border)' }}
+                  >
+                    <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <h3 style={{ marginBottom: 4 }}>🏢 {item.organization.name}</h3>
+                        <p className="mono" style={{ fontSize: 12.5 }}>{item.organization.slug}</p>
+                      </div>
+                      <span className={`stat-chip ${active ? 'stat-ready' : 'stat-plain'}`}>{active ? 'الحالية' : item.role}</span>
+                    </div>
+                    <div className="row" style={{ marginTop: 12, gap: 8 }}>
+                      <span className="stat-chip stat-plain">👥 {item.organization.counts?.members ?? 0} أعضاء</span>
+                      <span className="stat-chip stat-plain">🎬 {item.organization.counts?.teams ?? 0} فرق</span>
+                      <span className="stat-chip stat-plain">🧩 {item.organization.counts?.departments ?? 0} أقسام</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           )}
-        </div>
-      </div>
 
-      {/* -------- live module grid (all navigation, zero gates) -------- */}
-      {org && (
-        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', marginTop: 22 }}>
-          <Link href="/dashboard/channels/" className="card" style={{ display: 'block' }}>
-            <div className="icon">📺</div>
-            <h3>القنوات</h3>
-            <p>ربط YouTube عبر OAuth بخزنة مشفّرة.</p>
-            <p style={{ marginTop: 10 }}><span className="stat-chip stat-plain">{counts?.channels ?? 0} متصلة</span></p>
-          </Link>
-          <Link href="/dashboard/series/" className="card" style={{ display: 'block' }}>
-            <div className="icon">🎬</div>
-            <h3>السلاسل والتوليد</h3>
-            <p>كلمات مفتاحية → فيديوهات قصيرة جاهزة (نص + صوت + مشاهد + تركيب).</p>
-            <p style={{ marginTop: 10 }}><span className="stat-chip stat-plain">{counts?.series ?? 0} سلسلة • {counts?.videos ?? 0} مقطعاً</span></p>
-          </Link>
-          <Link href="/dashboard/posts/" className="card" style={{ display: 'block' }}>
-            <div className="icon">🚀</div>
-            <h3>النشر التلقائي</h3>
-            <p>جدولة دقيقة ورفع تلقائي إلى يوتيوب مع متابعة حيّة للحالات.</p>
-            <p style={{ marginTop: 10 }}><span className="stat-chip stat-plain">{counts?.posts ?? 0} مهمة • {counts?.published ?? 0} منشورة</span></p>
-          </Link>
-          <div className="card">
-            <div className="icon">🏢</div>
-            <h3>مساحة العمل</h3>
-            <dl className="kv" style={{ marginTop: 10 }}>
-              <dt>الاسم</dt><dd>{org.name}</dd>
-              <dt>المعرّف</dt><dd>{org.slug}</dd>
-              <dt>الحالة</dt><dd>{org.status}</dd>
-            </dl>
-          </div>
-        </div>
-      )}
+          <form onSubmit={createOrg}>
+            <h3 style={{ marginBottom: 12 }}>إنشاء مساحة عمل جديدة</h3>
+            <div className="field">
+              <label htmlFor="orgname">اسم مساحة العمل</label>
+              <input id="orgname" value={newOrgName} onChange={(e) => setNewOrgName(e.target.value)} placeholder="مثال: قنوات نور الإعلامية" />
+            </div>
+            <div className="field">
+              <label htmlFor="orgtz">المنطقة الزمنية</label>
+              <select id="orgtz" value={newOrgTz} onChange={(e) => setNewOrgTz(e.target.value)}>
+                {TIMEZONES.map((tz) => (
+                  <option key={tz.value} value={tz.value}>{tz.label}</option>
+                ))}
+              </select>
+            </div>
+            <button className="btn btn-primary" disabled={busy} type="submit">
+              {busy ? 'جارٍ الإنشاء…' : 'إنشاء Workspace ←'}
+            </button>
+          </form>
+        </section>
+
+        <section className="panel">
+          <h2 style={{ fontSize: 20, marginBottom: 12 }}>الملخص التشغيلي</h2>
+          {!org ? (
+            <p style={{ color: 'var(--muted)' }}>اختر مساحة عمل أو أنشئ واحدة جديدة.</p>
+          ) : (
+            <>
+              <div className="wizard-done">✓ مساحة العمل الحالية: {org.name}</div>
+              <dl className="kv">
+                <dt>المعرّف</dt>
+                <dd>{org.slug}</dd>
+                <dt>الحالة</dt>
+                <dd>{org.status}</dd>
+                <dt>المنطقة</dt>
+                <dd>{org.timezone}</dd>
+                <dt>اللغة</dt>
+                <dd>{org.defaultLocale}</dd>
+              </dl>
+              <div className="grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)', marginTop: 18 }}>
+                <div className="card"><h3>القنوات</h3><p>{counts?.channels ?? 0}</p></div>
+                <div className="card"><h3>السلاسل</h3><p>{counts?.series ?? 0}</p></div>
+                <div className="card"><h3>الفيديوهات</h3><p>{counts?.videos ?? 0}</p></div>
+                <div className="card"><h3>المنشور</h3><p>{counts?.published ?? 0}</p></div>
+              </div>
+              <div className="actions" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 18 }}>
+                <Link className="btn btn-primary" href="/dashboard/channels/">ربط القنوات</Link>
+                <Link className="btn btn-ghost" href="/dashboard/series/">إدارة السلاسل</Link>
+                <Link className="btn btn-ghost" href="/dashboard/assets/">الأصول</Link>
+                <Link className="btn btn-ghost" href="/dashboard/admin/">لوحة الإدارة</Link>
+                <Link className="btn btn-ghost" href="/dashboard/billing/">Billing</Link>
+                {counts?.firstSeriesId && <Link className="btn btn-ghost" href={`/dashboard/series/detail/?id=${counts.firstSeriesId}`}>أكمل آخر سلسلة</Link>}
+              </div>
+            </>
+          )}
+          {currentMembership && (
+            <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 16 }}>
+              دورك في هذه المساحة: <strong>{currentMembership.role}</strong>
+            </p>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

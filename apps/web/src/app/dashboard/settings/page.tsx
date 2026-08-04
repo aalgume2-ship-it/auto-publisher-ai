@@ -2,12 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { API_BASE, api, arabicMessage } from '../../../lib/api';
-import { isExpired, loadSession, saveSession } from '../../../lib/session';
 import DashboardNav from '../../../components/DashboardNav';
-
-const DEMO_TOKEN =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMTlmYzcwZi0wNWQ2LTc2N2YtOGE4OC0zYjNhZjE0ZDZlZTUiLCJ0eXAiOiJhY2Nlc3MiLCJpc3MiOiJodHRwczovL2FwaS5hdXRvY3JlYXRvci5haSIsImF1ZCI6ImFjYS1maXJzdC1wYXJ0eSIsImlhdCI6MTc4NTc1MTI0NiwiZXhwIjoxNzg2MzU2MDQ2fQ.j6s-lLI0qBl9iKu1enVJCvoF32_VFxQOg2DmM9qrp5A';
-const DEMO_ORG_ID = '019fc70f-097c-7a39-9361-085d53c3ecd1';
+import { useAuthenticatedSession } from '../../../lib/use-authenticated-session';
 
 interface AiItem {
   id: string;
@@ -50,7 +46,7 @@ const PROVIDER_BLURB: Record<string, string> = {
 };
 
 export default function SettingsPage() {
-  const [session, setSession] = useState(loadSession());
+  const { session, ready } = useAuthenticatedSession();
   const [data, setData] = useState<Integrations | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -62,15 +58,6 @@ export default function SettingsPage() {
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [copied, setCopied] = useState(false);
-
-  const expired = session ? isExpired(session.accessToken) : true;
-  useEffect(() => {
-    if (!session?.orgId || expired) {
-      const s = { accessToken: DEMO_TOKEN, orgId: DEMO_ORG_ID, email: 'demo@autocreator.test', displayName: 'Demo Owner' };
-      saveSession(s);
-      setSession(s);
-    }
-  }, [session, expired]);
 
   const load = useCallback(async () => {
     if (!session?.orgId) return;
@@ -218,6 +205,14 @@ export default function SettingsPage() {
       /* clipboard denied — the field stays visible for manual copy */
     }
   };
+
+  if (!ready || !session) {
+    return <div className="container dash"><p style={{ color: 'var(--muted)' }}>يتم التحقق من الجلسة…</p></div>;
+  }
+
+  if (!session.orgId) {
+    return <div className="container dash"><DashboardNav /><div className="panel"><p style={{ color: 'var(--muted)' }}>اختر Workspace من الصفحة الرئيسية أولاً.</p></div></div>;
+  }
 
   return (
     <main className="dash container" dir="rtl">

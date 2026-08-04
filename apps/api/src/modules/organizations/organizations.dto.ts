@@ -161,6 +161,23 @@ export const SecurityPolicyBodyDoc = {
   },
 };
 
+export const OrganizationMembershipDoc = {
+  type: 'object' as const,
+  properties: {
+    role: { type: 'string', enum: ['OWNER', 'ADMIN', 'EDITOR', 'VIEWER'], example: 'OWNER' },
+    status: { type: 'string', enum: ['ACTIVE', 'INVITED', 'REMOVED'], example: 'ACTIVE' },
+    joinedAt: { type: 'string', format: 'date-time', example: '2026-08-02T09:30:00.000Z' },
+    organization: OrganizationDoc,
+  },
+};
+
+export const OrganizationMembershipListDoc = {
+  type: 'object' as const,
+  properties: {
+    items: { type: 'array', items: OrganizationMembershipDoc },
+  },
+};
+
 export const SettingsDoc = {
   type: 'object' as const,
   properties: {

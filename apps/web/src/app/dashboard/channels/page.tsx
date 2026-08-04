@@ -4,12 +4,8 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { API_BASE, api, arabicMessage, ApiProblem } from '../../../lib/api';
-import { clearSession, isExpired, loadSession, saveSession } from '../../../lib/session';
 import DashboardNav from '../../../components/DashboardNav';
-
-const DEMO_TOKEN =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMTlmYzcwZi0wNWQ2LTc2N2YtOGE4OC0zYjNhZjE0ZDZlZTUiLCJ0eXAiOiJhY2Nlc3MiLCJpc3MiOiJodHRwczovL2FwaS5hdXRvY3JlYXRvci5haSIsImF1ZCI6ImFjYS1maXJzdC1wYXJ0eSIsImlhdCI6MTc4NTc1MTI0NiwiZXhwIjoxNzg2MzU2MDQ2fQ.j6s-lLI0qBl9iKu1enVJCvoF32_VFxQOg2DmM9qrp5A';
-const DEMO_ORG_ID = '019fc70f-097c-7a39-9361-085d53c3ecd1';
+import { useAuthenticatedSession } from '../../../lib/use-authenticated-session';
 
 interface Channel {
   id: string;
@@ -40,23 +36,13 @@ function ConfigNotice({ detail }: { detail: string }) {
 
 function ChannelsInner() {
   const params = useSearchParams();
-  const [session, setSession] = useState(loadSession());
+  const { session, ready } = useAuthenticatedSession();
   const [items, setItems] = useState<Channel[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [configDetail, setConfigDetail] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const linked = params?.get('linked');
   const linkedName = params?.get('name');
-
-  const expired = session ? isExpired(session.accessToken) : true;
-
-  useEffect(() => {
-    if (!session?.orgId || expired) {
-      const s = { accessToken: DEMO_TOKEN, orgId: DEMO_ORG_ID, email: 'demo@autocreator.test', displayName: 'Demo Owner' };
-      saveSession(s);
-      setSession(s);
-    }
-  }, [session, expired]);
 
   const load = useCallback(async (s: NonNullable<typeof session>) => {
     try {
@@ -100,6 +86,14 @@ function ChannelsInner() {
     } finally {
       setBusy(null);
     }
+  }
+
+  if (!ready || !session) {
+    return <div className="container dash"><p style={{ color: 'var(--muted)' }}>يتم التحقق من الجلسة…</p></div>;
+  }
+
+  if (!session.orgId) {
+    return <div className="container dash"><DashboardNav /><div className="panel"><p style={{ color: 'var(--muted)' }}>اختر Workspace من الصفحة الرئيسية أولاً.</p></div></div>;
   }
 
   return (

@@ -7,8 +7,9 @@ import { PRISMA } from '../../common/prisma.provider.js';
 import { API_CONFIG } from '../../common/redis.provider.js';
 import { rawMediaUrl } from './media.controller.js';
 import { GenerationService } from './generation.service.js';
-import type { CreateSeriesBody, GenerateVideoBody, ScheduleBody } from './videos.dto.js';
+import type { AssetListQuery, CreateSeriesBody, GenerateVideoBody, ScheduleBody, UploadAssetBody } from './videos.dto.js';
 import { QueueService } from '../../common/queue/queue.service.js';
+import { AssetStore } from './asset-store.js';
 
 const notFound = (what: string) => new ApiError('NOT_FOUND', 'Not Found', { detail: what });
 
@@ -21,6 +22,7 @@ export class VideosService {
     @Inject(PRISMA) private readonly prisma: DbClient,
     private readonly generation: GenerationService,
     private readonly queue: QueueService,
+    private readonly store: AssetStore,
   ) {
     if (!config.auth.jwtSecret) throw new Error('AUTH_JWT_SECRET required for media signing');
     this.mediaSecret = config.auth.jwtSecret;
@@ -29,6 +31,26 @@ export class VideosService {
   /** Short-lived signed browser URL for a stored binary (presigned-URL pattern). */
   private media(storageKey: string | null | undefined): string | null {
     return storageKey ? rawMediaUrl(this.mediaSecret, storageKey) : null;
+  }
+
+  private publicAsset(_orgId: string, a: {
+    id: string;
+    type: string;
+    mimeType: string;
+    bytes: bigint;
+    storageKey: string;
+    sourceUrl: string | null;
+    createdAt: Date;
+  }) {
+    return {
+      id: a.id,
+      kind: a.type,
+      mimeType: a.mimeType,
+      fileName: a.sourceUrl ?? `${a.type.toLowerCase()}-${a.id}`,
+      bytes: a.bytes.toString(),
+      url: this.media(a.storageKey),
+      createdAt: a.createdAt,
+    };
   }
 
   /* --------------------------------------------------------------- series */
@@ -208,6 +230,54 @@ export class VideosService {
     const a = await this.prisma.asset.findFirst({ where: { id: assetId, orgId } });
     if (!a) throw notFound('asset not found');
     return { storageKey: a.storageKey, mimeType: a.mimeType };
+  }
+
+  async uploadAsset(orgId: string, body: UploadAssetBody) {
+    const data = Buffer.from(body.base64, 'base64');
+    if (data.byteLength === 0) {
+      throw new ApiError('VALIDATION_FAILED', 'Validation Failed', { detail: 'base64 payload decoded to an empty file' });
+    }
+    if (data.byteLength > 25 * 1024 * 1024) {
+      throw new ApiError('VALIDATION_FAILED', 'Validation Failed', { detail: 'uploaded asset exceeds the current 25 MB limit' });
+    }
+    const mime = body.mimeType.toLowerCase();
+    const expectedFamily = body.kind === 'VIDEO_CLIP' ? 'video/' : body.kind === 'AUDIO' ? 'audio/' : 'image/';
+    if (!mime.startsWith(expectedFamily) && !(body.kind === 'BRAND' && mime.startsWith('image/'))) {
+      throw new ApiError('VALIDATION_FAILED', 'Validation Failed', { detail: `mimeType ${body.mimeType} does not match asset kind ${body.kind}` });
+    }
+    const stored = await this.store.put(orgId, body.fileName, data);
+    const assetId = generateId();
+    const asset = await this.prisma.asset.create({
+      data: {
+        id: assetId,
+        orgId,
+        type: body.kind,
+        source: 'UPLOADED',
+        storageKey: stored.storageKey,
+        cdnPath: `/v1/organizations/${orgId}/assets/${assetId}/content`,
+        mimeType: body.mimeType,
+        bytes: BigInt(stored.bytes),
+        sourceUrl: body.fileName,
+        metadata: { uploadedVia: 'dashboard', originalFileName: body.fileName },
+      },
+    });
+    return this.publicAsset(orgId, asset);
+  }
+
+  async listAssets(orgId: string, query: AssetListQuery) {
+    const rows = await this.prisma.asset.findMany({
+      where: { orgId, ...(query.kind ? { type: query.kind as never } : {}) },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return { items: rows.map((row) => this.publicAsset(orgId, row)) };
+  }
+
+  async deleteAsset(orgId: string, assetId: string) {
+    const asset = await this.prisma.asset.findFirst({ where: { id: assetId, orgId } });
+    if (!asset) throw notFound('asset not found');
+    await this.prisma.asset.delete({ where: { id: asset.id } });
+    return { ok: true as const };
   }
 
   /* ------------------------------------------------------------ scheduling */

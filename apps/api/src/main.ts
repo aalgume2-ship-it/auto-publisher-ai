@@ -72,27 +72,26 @@ async function bootstrap(): Promise<void> {
     'api.listening',
   );
 
-  // Dev-only preview wiring aid: surface demo ids in RUNTIME logs (preDeploy
-  // seed logs are not reachable via the Render logs API), letting operators
-  // mint demo-session JWTs for hosted previews without direct DB access.
-  // Never runs in production; failure is non-fatal for boot.
-  if (config.nodeEnv !== 'production') {
+  // Optional preview wiring aid: surface demo ids in runtime logs only when
+  // explicit demo data was seeded. Never required for normal production boot.
+  if (process.env.SEED_DEMO_DATA === 'true') {
     try {
       const { createPrismaClient } = await import('@aca/database');
       const prisma = createPrismaClient();
-      const demo = await prisma.organization.findUnique({
-        where: { slug: 'demo-org' },
+      const previewSlug = process.env.SEED_WORKSPACE_SLUG ?? 'preview-workspace';
+      const preview = await prisma.organization.findUnique({
+        where: { slug: previewSlug },
         select: { id: true, members: { where: { role: 'OWNER' }, select: { userId: true }, take: 1 } },
       });
-      if (demo) {
+      if (preview) {
         logger.info(
-          { module: 'bootstrap', demoWiring: { demoOrgId: demo.id, demoUserId: demo.members[0]?.userId ?? null } },
-          'demo.wiring.ids',
+          { module: 'bootstrap', previewWiring: { previewOrgId: preview.id, previewUserId: preview.members[0]?.userId ?? null } },
+          'preview.wiring.ids',
         );
       }
       await prisma.$disconnect();
     } catch (err: unknown) {
-      logger.warn({ module: 'bootstrap', err }, 'demo.wiring.ids.unavailable');
+      logger.warn({ module: 'bootstrap', err }, 'preview.wiring.ids.unavailable');
     }
   }
 

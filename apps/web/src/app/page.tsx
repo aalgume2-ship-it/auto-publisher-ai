@@ -83,7 +83,7 @@ export default function LandingPage() {
         <div className="container" style={{ maxWidth: 880 }}>
           <h2 style={{ textAlign: 'center' }}>مسار الإطلاق — 8 خطوات حتى قناة تعمل وحدها</h2>
           <p className="sub" style={{ textAlign: 'center' }}>
-            أنت هنا الآن — سجّل حسابك وشاهد شريط تقدّمك يمتلئ خطوة بخطوة داخل لوحة التحكم.
+            ابدأ بحسابك الحقيقي ثم أنشئ أول Workspace وشاهد التقدّم خطوة بخطوة داخل لوحة التحكم.
           </p>
           <StepProgress steps={VISITOR_JOURNEY} currentIndex={0} />
         </div>
@@ -91,8 +91,8 @@ export default function LandingPage() {
 
       <section className="section" id="features" style={{ paddingTop: 24 }}>
         <div className="container">
-          <h2>منظومة متكاملة — كل الوحدات تعمل الآن</h2>
-          <p className="sub">من ربط القناة إلى النشر اليومي الآلي — بلا مقاطع مؤقتة أو وعود: كل ما تقرأه هنا يعمل على الخادم الحي.</p>
+          <h2>منظومة متكاملة — جاهزة للتشغيل والإدارة</h2>
+          <p className="sub">من إدارة Workspace والقنوات إلى التوليد والجدولة ورفع الأصول — الواجهة مبنية للعمل على الخادم الحي دون حسابات تجريبية مخفية.</p>
           <div className="grid grid-3">
             {FEATURES.map((f) => (
               <article key={f.title} className="card">
@@ -137,14 +137,14 @@ export default function LandingPage() {
           <div className="card" style={{ textAlign: 'center', padding: 44 }}>
             <h2 style={{ marginBottom: 10 }}>جاهز لترى منصتك تعمل؟</h2>
             <p style={{ color: 'var(--muted)', marginBottom: 22 }}>
-              أنشئ حساباً حقيقياً الآن — المصادقة والمنظمات تعملان على الخادم المنشور فعلاً.
+              أنشئ حساباً حقيقياً الآن ثم ادخل مباشرة لإدارة Workspaces والقنوات والأصول والفوترة.
             </p>
             <div className="actions" style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
               <Link className="btn btn-primary" href="/register/">
                 التسجيل خلال 30 ثانية
               </Link>
-              <Link className="btn btn-ghost" href="/dashboard/">
-                تجربة فورية بالحساب الجاهز
+              <Link className="btn btn-ghost" href="/login/">
+                تسجيل الدخول
               </Link>
             </div>
           </div>

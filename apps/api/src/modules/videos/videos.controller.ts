@@ -29,11 +29,15 @@ import {
   GenerateVideoBody,
   GenerateVideoBodyDoc,
   OrgParamsSchema,
+  AssetDoc,
+  AssetListQuerySchema,
   ScheduleBody,
   ScheduleBodyDoc,
   SeriesDoc,
   SeriesParamsSchema,
   TaskParamsSchema,
+  UploadAssetBody,
+  UploadAssetBodyDoc,
   VideoListQuerySchema,
   VideoParamsSchema,
 } from './videos.dto.js';
@@ -175,6 +179,37 @@ export class VideosController {
   async asset(@Param() params: { orgId: string; assetId: string }, @Req() req: FastifyRequest, @Res() reply: FastifyReply) {
     const file = await this.videos.assetFile(params.orgId, params.assetId);
     return this.sendFile(reply, file.storageKey, file.mimeType, req.headers.range);
+  }
+
+  @Get('assets')
+  @TenantRequired()
+  @RequiresCapabilities('asset.view')
+  @UseZod({ params: OrgParamsSchema, query: AssetListQuerySchema })
+  @ApiOperation({ operationId: 'listAssets', summary: 'List uploaded/generated assets of the workspace' })
+  @ApiOkResponse({ description: 'Asset list', schema: { type: 'object', properties: { items: { type: 'array', items: AssetDoc } } } })
+  listAssets(@Param() params: { orgId: string }, @Query() query: { kind?: 'IMAGE' | 'VIDEO_CLIP' | 'AUDIO' | 'BRAND' }) {
+    return this.videos.listAssets(params.orgId, query);
+  }
+
+  @Post('assets/upload')
+  @HttpCode(201)
+  @TenantRequired()
+  @RequiresCapabilities('asset.upload')
+  @UseZod({ params: OrgParamsSchema, body: UploadAssetBody })
+  @ApiOperation({ operationId: 'uploadAsset', summary: 'Upload an image / video / audio file into durable workspace storage' })
+  @ApiCreatedResponse({ description: 'Asset stored', schema: AssetDoc })
+  @ApiBody({ schema: UploadAssetBodyDoc })
+  uploadAsset(@Param() params: { orgId: string }, @Body() body: UploadAssetBody) {
+    return this.videos.uploadAsset(params.orgId, body);
+  }
+
+  @Delete('assets/:assetId')
+  @TenantRequired()
+  @RequiresCapabilities('asset.delete')
+  @UseZod({ params: AssetParamsSchema })
+  @ApiOperation({ operationId: 'deleteAsset', summary: 'Delete an uploaded asset from the workspace library' })
+  deleteAsset(@Param() params: { orgId: string; assetId: string }) {
+    return this.videos.deleteAsset(params.orgId, params.assetId);
   }
 
   private async sendFile(reply: FastifyReply, storageKey: string, mime: string, range?: string): Promise<FastifyReply> {
