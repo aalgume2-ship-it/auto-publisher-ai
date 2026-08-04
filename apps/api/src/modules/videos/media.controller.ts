@@ -16,7 +16,6 @@ import { ApiError } from '../../common/errors/api-error.js';
 import { API_CONFIG } from '../../common/redis.provider.js';
 import { PRISMA } from '../../common/prisma.provider.js';
 import { AssetStore } from './asset-store.js';
-import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
 
 const MIME_BY_EXT: Record<string, string> = {
@@ -71,7 +70,7 @@ export class MediaController {
     let mime = MIME_BY_EXT[extname(key).toLowerCase()] ?? 'application/octet-stream';
     const asset = await this.prisma.asset.findFirst({ where: { storageKey: key }, select: { mimeType: true } });
     if (asset) mime = asset.mimeType;
-    const buf = await readFile(this.store.fullPath(key));
+    const buf = await this.store.read(key); // disk cache → DB blob → rehydrate (survives ephemeral /tmp wipes)
     const range = req.headers.range;
     const m = range ? /^bytes=(\d+)-(\d*)$/.exec(range) : null;
     if (m) {

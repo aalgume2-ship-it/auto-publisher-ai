@@ -26,6 +26,18 @@ try {
   await prisma.$executeRawUnsafe('CREATE EXTENSION IF NOT EXISTS vector');
   const rows = await prisma.$queryRawUnsafe("SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'");
   console.log('✔ pgvector enabled:', JSON.stringify(rows));
+
+  // Durable media bytes: Render free-tier instance disks are ephemeral (/tmp
+  // wipes on spin-down), so generated MP4/JPG/MP3 bytes also persist as bytea
+  // rows here; AssetStore falls back to this table and rehydrates the disk
+  // cache. Created with raw SQL (not a Prisma model) to stay schema-push-free.
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS asset_blobs (
+      storage_key text PRIMARY KEY,
+      data        bytea NOT NULL,
+      created_at  timestamptz NOT NULL DEFAULT now()
+    )`);
+  console.log('✔ asset_blobs durable-media table ensured');
 } finally {
   await prisma.$disconnect();
 }

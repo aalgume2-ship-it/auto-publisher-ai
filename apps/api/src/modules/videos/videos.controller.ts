@@ -37,7 +37,6 @@ import {
   VideoListQuerySchema,
   VideoParamsSchema,
 } from './videos.dto.js';
-import { readFile } from 'node:fs/promises';
 
 @ApiTags('videos')
 @ApiUnauthorizedResponse({ description: 'Missing/invalid credentials', content: { 'application/problem+json': { schema: PROBLEM } } })
@@ -166,7 +165,7 @@ export class VideosController {
   @ApiOperation({ operationId: 'streamVideo', summary: 'Stream the rendered MP4 (Range-aware)' })
   async stream(@Param() params: { orgId: string; videoId: string }, @Req() req: FastifyRequest, @Res() reply: FastifyReply) {
     const { storageKey } = await this.videos.renditionFile(params.orgId, params.videoId);
-    return this.sendFile(reply, this.store.fullPath(storageKey), 'video/mp4', req.headers.range);
+    return this.sendFile(reply, storageKey, 'video/mp4', req.headers.range);
   }
 
   @Get('assets/:assetId/content')
@@ -175,11 +174,13 @@ export class VideosController {
   @ApiOperation({ operationId: 'assetContent', summary: 'Serve a generated asset (image/audio/subtitle) with its real mime type' })
   async asset(@Param() params: { orgId: string; assetId: string }, @Req() req: FastifyRequest, @Res() reply: FastifyReply) {
     const file = await this.videos.assetFile(params.orgId, params.assetId);
-    return this.sendFile(reply, this.store.fullPath(file.storageKey), file.mimeType, req.headers.range);
+    return this.sendFile(reply, file.storageKey, file.mimeType, req.headers.range);
   }
 
-  private async sendFile(reply: FastifyReply, path: string, mime: string, range?: string): Promise<FastifyReply> {
-    const buf = await readFile(path);
+  private async sendFile(reply: FastifyReply, storageKey: string, mime: string, range?: string): Promise<FastifyReply> {
+    // AssetStore.read is disk-cache-first with a durable Postgres blob fallback,
+    // so stream/content keep working after an ephemeral-disk wipe + cold boot.
+    const buf = await this.store.read(storageKey);
     const m = range ? /^bytes=(\d+)-(\d*)$/.exec(range) : null;
     if (m) {
       const start = Number(m[1]);
