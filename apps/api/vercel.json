@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "npm install --global --prefix=\"$HOME/.npm-global\" pnpm@9.15.9 && export PATH=\"$HOME/.npm-global/bin:$PATH\" && cd ../.. && pnpm install --no-frozen-lockfile --ignore-scripts",
-  "buildCommand": "export PATH=\"$HOME/.npm-global/bin:$PATH\" && cd ../.. && VERCEL=1 pnpm build && rm -rf apps/api/out && cp -R apps/web/out apps/api/out",
-  "outputDirectory": "out"
+  "installCommand": "echo 'using prebuilt static export'",
+  "buildCommand": "echo 'publishing apps/api/vercel-static'",
+  "outputDirectory": "vercel-static"
 }
