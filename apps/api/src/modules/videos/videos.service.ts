@@ -1,7 +1,7 @@
 /** VideosService — series (projects) + videos reads/writes + scheduling. */
 import { Inject, Injectable } from '@nestjs/common';
 import type { AppConfig } from '@aca/config';
-import { generateId, type DbClient } from '@aca/database';
+import { generateId, type DbClient, type Prisma } from '@aca/database';
 import { ApiError } from '../../common/errors/api-error.js';
 import { PRISMA } from '../../common/prisma.provider.js';
 import { API_CONFIG } from '../../common/redis.provider.js';
@@ -258,7 +258,7 @@ export class VideosService {
         mimeType: body.mimeType,
         bytes: BigInt(stored.bytes),
         sourceUrl: body.fileName,
-        metadata: { uploadedVia: 'dashboard', originalFileName: body.fileName },
+        metadata: { uploadedVia: 'dashboard', originalFileName: body.fileName } as Prisma.InputJsonValue,
       },
     });
     return this.publicAsset(orgId, asset);

@@ -246,7 +246,7 @@ export class OrgBillingService {
         customerId = created.id;
         await this.db.organization.update({
           where: { id: orgId },
-          data: { billingCustomerRefs: { ...refs, stripe: customerId } },
+          data: { billingCustomerRefs: { ...refs, stripe: customerId } as Prisma.InputJsonValue },
         });
       }
 
