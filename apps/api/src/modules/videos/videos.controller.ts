@@ -1,5 +1,5 @@
 /** VideosController — series, generation, streams, scheduling (thin rule). */
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { Req } from '@nestjs/common';
 import {
@@ -37,6 +37,8 @@ import {
   SeriesDoc,
   SeriesParamsSchema,
   TaskParamsSchema,
+  UpdateAssetMetaBody,
+  UpdateAssetMetaBodyDoc,
   UploadAssetBody,
   UploadAssetBodyDoc,
   VideoListQuerySchema,
@@ -202,6 +204,17 @@ export class VideosController {
   @ApiBody({ schema: UploadAssetBodyDoc })
   uploadAsset(@Param() params: { orgId: string }, @Body() body: UploadAssetBody) {
     return this.videos.uploadAsset(params.orgId, body);
+  }
+
+  @Patch('assets/:assetId')
+  @TenantRequired()
+  @RequiresCapabilities('asset.upload')
+  @UseZod({ params: AssetParamsSchema, body: UpdateAssetMetaBody })
+  @ApiOperation({ operationId: 'updateAssetMeta', summary: 'Update asset organization metadata such as folder and tags' })
+  @ApiOkResponse({ description: 'Updated asset', schema: AssetDoc })
+  @ApiBody({ schema: UpdateAssetMetaBodyDoc })
+  updateAssetMeta(@Param() params: { orgId: string; assetId: string }, @Body() body: UpdateAssetMetaBody) {
+    return this.videos.updateAssetMeta(params.orgId, params.assetId, body);
   }
 
   @Delete('assets/:assetId')

@@ -63,6 +63,8 @@ export const UploadAssetBody = z.object({
   fileName: z.string().trim().min(1).max(180),
   mimeType: z.string().trim().min(3).max(80),
   kind: z.enum(['IMAGE', 'VIDEO_CLIP', 'AUDIO', 'BRAND']).default('IMAGE'),
+  folder: z.string().trim().min(1).max(120).optional(),
+  tags: z.array(z.string().trim().min(1).max(32)).max(20).default([]),
   base64: z.string().min(16).max(90_000_000),
 });
 export type UploadAssetBody = z.infer<typeof UploadAssetBody>;
@@ -74,12 +76,31 @@ export const UploadAssetBodyDoc = {
     fileName: { type: 'string', example: 'brand-logo.png' },
     mimeType: { type: 'string', example: 'image/png' },
     kind: { type: 'string', enum: ['IMAGE', 'VIDEO_CLIP', 'AUDIO', 'BRAND'], example: 'IMAGE' },
+    folder: { type: 'string', example: 'summer-campaign' },
+    tags: { type: 'array', items: { type: 'string' }, example: ['brand', 'featured', 'hero'] },
     base64: { type: 'string', example: 'iVBORw0KGgoAAAANSUhEUgAA...' },
+  },
+};
+
+export const UpdateAssetMetaBody = z.object({
+  folder: z.string().trim().min(1).max(120).nullable().optional(),
+  tags: z.array(z.string().trim().min(1).max(32)).max(20).optional(),
+}).strict().refine((v) => Object.keys(v).length > 0, 'at least one field is required');
+export type UpdateAssetMetaBody = z.infer<typeof UpdateAssetMetaBody>;
+
+export const UpdateAssetMetaBodyDoc = {
+  type: 'object' as const,
+  properties: {
+    folder: { type: 'string', nullable: true, example: 'summer-campaign' },
+    tags: { type: 'array', items: { type: 'string' }, example: ['brand', 'featured'] },
   },
 };
 
 export const AssetListQuerySchema = z.object({
   kind: z.enum(['IMAGE', 'VIDEO_CLIP', 'AUDIO', 'BRAND']).optional(),
+  folder: z.string().trim().min(1).max(120).optional(),
+  tag: z.string().trim().min(1).max(32).optional(),
+  q: z.string().trim().min(1).max(120).optional(),
 });
 export type AssetListQuery = z.infer<typeof AssetListQuerySchema>;
 
@@ -108,8 +129,10 @@ export const AssetDoc = {
     kind: { type: 'string', enum: ['IMAGE', 'VIDEO_CLIP', 'AUDIO', 'BRAND'] },
     mimeType: { type: 'string', example: 'image/png' },
     fileName: { type: 'string', example: 'brand-logo.png' },
+    folder: { type: 'string', nullable: true, example: 'summer-campaign' },
+    tags: { type: 'array', items: { type: 'string' }, example: ['brand', 'featured'] },
     bytes: { type: 'string', example: '24813' },
-    url: { type: 'string', example: '/v1/organizations/<org>/assets/<id>/content' },
+    url: { type: 'string', example: '/v1/media/raw?...' },
     createdAt: { type: 'string', format: 'date-time' },
   },
 };

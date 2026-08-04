@@ -7,7 +7,7 @@ import { PRISMA } from '../../common/prisma.provider.js';
 import { API_CONFIG } from '../../common/redis.provider.js';
 import { rawMediaUrl } from './media.controller.js';
 import { GenerationService } from './generation.service.js';
-import type { AssetListQuery, CreateSeriesBody, GenerateVideoBody, ScheduleBody, UploadAssetBody } from './videos.dto.js';
+import type { AssetListQuery, CreateSeriesBody, GenerateVideoBody, ScheduleBody, UpdateAssetMetaBody, UploadAssetBody } from './videos.dto.js';
 import { QueueService } from '../../common/queue/queue.service.js';
 import { AssetStore } from './asset-store.js';
 
@@ -40,13 +40,17 @@ export class VideosService {
     bytes: bigint;
     storageKey: string;
     sourceUrl: string | null;
+    metadata: Prisma.JsonValue | null;
     createdAt: Date;
   }) {
+    const meta = isAssetMeta(a.metadata) ? a.metadata : {};
     return {
       id: a.id,
       kind: a.type,
       mimeType: a.mimeType,
       fileName: a.sourceUrl ?? `${a.type.toLowerCase()}-${a.id}`,
+      folder: typeof meta.folder === 'string' ? meta.folder : null,
+      tags: Array.isArray(meta.tags) ? meta.tags.filter((t): t is string => typeof t === 'string') : [],
       bytes: a.bytes.toString(),
       url: this.media(a.storageKey),
       createdAt: a.createdAt,
@@ -258,7 +262,12 @@ export class VideosService {
         mimeType: body.mimeType,
         bytes: BigInt(stored.bytes),
         sourceUrl: body.fileName,
-        metadata: { uploadedVia: 'dashboard', originalFileName: body.fileName } as Prisma.InputJsonValue,
+        metadata: {
+          uploadedVia: 'dashboard',
+          originalFileName: body.fileName,
+          ...(body.folder ? { folder: body.folder } : {}),
+          tags: body.tags,
+        } as Prisma.InputJsonValue,
       },
     });
     return this.publicAsset(orgId, asset);
@@ -268,9 +277,34 @@ export class VideosService {
     const rows = await this.prisma.asset.findMany({
       where: { orgId, ...(query.kind ? { type: query.kind as never } : {}) },
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      take: 500,
     });
-    return { items: rows.map((row) => this.publicAsset(orgId, row)) };
+    const items = rows
+      .map((row) => this.publicAsset(orgId, row))
+      .filter((row) => {
+        if (query.folder && row.folder !== query.folder) return false;
+        if (query.tag && !row.tags.includes(query.tag)) return false;
+        if (query.q) {
+          const q = query.q.toLowerCase();
+          const hay = `${row.fileName} ${row.folder ?? ''} ${row.tags.join(' ')}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+    return { items };
+  }
+
+  async updateAssetMeta(orgId: string, assetId: string, body: UpdateAssetMetaBody) {
+    const asset = await this.prisma.asset.findFirst({ where: { id: assetId, orgId } });
+    if (!asset) throw notFound('asset not found');
+    const current = isAssetMeta(asset.metadata) ? asset.metadata : {};
+    const next = {
+      ...current,
+      ...(Object.prototype.hasOwnProperty.call(body, 'folder') ? { folder: body.folder } : {}),
+      ...(body.tags !== undefined ? { tags: body.tags } : {}),
+    };
+    const updated = await this.prisma.asset.update({ where: { id: asset.id }, data: { metadata: next as Prisma.InputJsonValue } });
+    return this.publicAsset(orgId, updated);
   }
 
   async deleteAsset(orgId: string, assetId: string) {
@@ -335,4 +369,8 @@ export class VideosService {
   private publicTask(t: { id: string; status: string; scheduledAt: Date | null; publishedAt: Date | null; platformUrl: string | null; lastError: string | null }) {
     return { id: t.id, status: t.status, scheduledAt: t.scheduledAt, publishedAt: t.publishedAt, platformUrl: t.platformUrl, lastError: t.lastError };
   }
+}
+
+function isAssetMeta(value: Prisma.JsonValue | null): value is { folder?: string | null; tags?: unknown[] } {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
