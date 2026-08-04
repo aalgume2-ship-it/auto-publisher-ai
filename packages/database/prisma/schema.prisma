@@ -1130,6 +1130,25 @@ model Asset {
   @@map("assets")
 }
 
+/// Durable binary payload backing every Asset row.
+///
+/// Render free-tier instance disks are EPHEMERAL (/tmp is wiped on
+/// spin-down/restart), so media bytes cannot live on disk alone: AssetStore
+/// uses the disk strictly as a hot cache and this table as the durable tier
+/// (put writes both; read rehydrates the cache from here on a miss).
+///
+/// It MUST be a first-class Prisma model — an earlier raw-SQL
+/// `CREATE TABLE IF NOT EXISTS` (ensure-vector.mjs) ran BEFORE
+/// `prisma db push` at boot, and db push DROPS any table absent from this
+/// schema (verified live: boot → table silently gone → generation 42P01).
+model AssetBlob {
+  storageKey String   @id @map("storage_key") @db.Text
+  data       Bytes
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("asset_blobs")
+}
+
 model AssetUsage {
   id      String @id @db.Uuid
   videoId String @map("video_id") @db.Uuid

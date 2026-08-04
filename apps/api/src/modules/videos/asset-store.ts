@@ -6,11 +6,12 @@
  * spin-down/restart, which previously stranded READY videos whose MP4 bytes
  * had vanished (media routes 500d). Durability is therefore two-tier:
  *
- *   put()  → disk cache  +  asset_blobs row (bytea in Postgres — durable)
+ *   put()  → disk cache  +  AssetBlob row (bytea in Postgres — durable)
  *   read() → disk cache, else DB row → rehydrate cache → serve
  *
  * Zero new services/env vars: the blob table lives in the same DATABASE_URL
- * Postgres we already run; ensure-vector.mjs creates it idempotently at boot.
+ * Postgres we already run and is a first-class Prisma model (db push owns its
+ * lifecycle — a raw-SQL table gets DROPPED by db push at boot, verified live).
  * The Asset DB row (storageKey/mimeType) remains the durable metadata record,
  * and the pipeline is idempotent so even a fully lost blob can be rebuilt via
  * POST /videos/:id/regenerate. Swapping to S3/Supabase Storage later =
@@ -37,7 +38,7 @@ export class AssetStore {
     await mkdir(dirname(full), { recursive: true });
     await writeFile(full, data);
     // Durable copy — the ONLY guarantee bytes survive an ephemeral-disk wipe.
-    await this.prisma.$executeRaw`INSERT INTO asset_blobs (storage_key, data) VALUES (${storageKey}, ${data}) ON CONFLICT (storage_key) DO NOTHING`;
+    await this.prisma.assetBlob.upsert({ where: { storageKey }, update: {}, create: { storageKey, data } });
     return { storageKey, bytes: data.byteLength };
   }
 
@@ -46,10 +47,9 @@ export class AssetStore {
     try {
       return await readFile(full);
     } catch {
-      const rows = await this.prisma.$queryRaw<{ data: Buffer }[]>`
-        SELECT data FROM asset_blobs WHERE storage_key = ${storageKey} LIMIT 1`;
-      if (!rows.length) throw new Error(`asset bytes missing from disk and database: ${storageKey}`);
-      const data = Buffer.from(rows[0]!.data);
+      const blob = await this.prisma.assetBlob.findUnique({ where: { storageKey }, select: { data: true } });
+      if (!blob) throw new Error(`asset bytes missing from disk and database: ${storageKey}`);
+      const data = Buffer.from(blob.data);
       await mkdir(dirname(full), { recursive: true });
       await writeFile(full, data); // rehydrate the hot cache for subsequent reads
       return data;
