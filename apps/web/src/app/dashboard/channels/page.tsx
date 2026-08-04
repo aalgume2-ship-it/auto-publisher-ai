@@ -2,9 +2,12 @@
 
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { RadioTower, Sparkles, Unplug } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
-import { API_BASE, api, arabicMessage, ApiProblem } from '../../../lib/api';
-import DashboardNav from '../../../components/DashboardNav';
+import AppShell from '../../../components/dashboard/app-shell';
+import { EmptyState, GlassCard, SectionHeader } from '../../../components/ui/chrome';
+import { HoverLift, Reveal } from '../../../components/ui/reveal';
+import { api, arabicMessage, ApiProblem } from '../../../lib/api';
 import { useAuthenticatedSession } from '../../../lib/use-authenticated-session';
 
 interface Channel {
@@ -18,20 +21,8 @@ interface Channel {
   connectedAt: string;
 }
 
-/** The 503 from startYoutubeLink carries the exact activation steps in body.detail. */
 function ConfigNotice({ detail }: { detail: string }) {
-  return (
-    <div className="alert" style={{ background: 'var(--warn-soft)', borderColor: '#fde68a', color: '#92400e', lineHeight: 1.9 }}>
-      <strong>ربط يوتيوب غير مفعّل بعد لهذه المنظمة.</strong>
-      <br />
-      فعّله ذاتياً خلال ~٤ دقائق من{' '}
-      <Link href="/dashboard/settings/" style={{ color: '#78350f', fontWeight: 800, textDecoration: 'underline' }}>
-        صفحة الإعدادات ← عميل Google OAuth
-      </Link>{' '}
-      (مجاني — نتحقق منه لدى Google قبل الحفظ).
-      <div className="mono" dir="ltr" style={{ fontSize: 12, marginTop: 8, color: '#78350f' }}>{detail}</div>
-    </div>
-  );
+  return <div className="alert err">{detail}</div>;
 }
 
 function ChannelsInner() {
@@ -64,13 +55,10 @@ function ChannelsInner() {
     setConfigDetail(null);
     try {
       const res = await api.post<{ authorizeUrl: string }>(`/v1/organizations/${session.orgId}/channels/youtube/link`, {}, session.accessToken);
-      window.location.href = res.authorizeUrl; // → Google consent (real)
+      window.location.href = res.authorizeUrl;
     } catch (e) {
-      if (e instanceof ApiProblem && e.status === 503) {
-        setConfigDetail(e.body.detail ?? 'YouTube OAuth client is not configured on this server yet.');
-      } else {
-        setError(e instanceof ApiProblem ? arabicMessage(e) : 'تعذّر بدء الربط');
-      }
+      if (e instanceof ApiProblem && e.status === 503) setConfigDetail(e.body.detail ?? 'YouTube OAuth client is not configured on this server yet.');
+      else setError(e instanceof ApiProblem ? arabicMessage(e) : 'تعذّر بدء الربط');
       setBusy(null);
     }
   }
@@ -88,86 +76,65 @@ function ChannelsInner() {
     }
   }
 
-  if (!ready || !session) {
-    return <div className="container dash"><p style={{ color: 'var(--muted)' }}>يتم التحقق من الجلسة…</p></div>;
-  }
-
-  if (!session.orgId) {
-    return <div className="container dash"><DashboardNav /><div className="panel"><p style={{ color: 'var(--muted)' }}>اختر Workspace من الصفحة الرئيسية أولاً.</p></div></div>;
-  }
+  if (!ready || !session) return <div className="auth-shell"><div className="glass-card" style={{ padding: 28 }}>Checking session…</div></div>;
 
   return (
-    <div className="container dash" style={{ maxWidth: 880 }}>
-      <DashboardNav />
-      <div className="dash-head">
-        <div>
-          <h1 style={{ fontSize: 26 }}>القنوات المرتبطة</h1>
-          <p style={{ color: 'var(--muted)', fontSize: 14 }}>اربط قنوات YouTube بنقرة واحدة عبر OAuth — تُخزَّن الرموز مشفّرة (AES-256-GCM) في الخزنة.</p>
-        </div>
-        <button className="btn btn-primary" onClick={link} disabled={busy === 'link'}>
-          {busy === 'link' ? 'يفتح Google…' : '🔴 ربط قناة YouTube'}
-        </button>
-      </div>
-
-      {linked && (
-        <div className="alert ok" style={{ marginBottom: 18 }}>
-          ✓ تم ربط القناة{linkedName ? ` «${linkedName}»` : ''} بنجاح — جاهزة للنشر التلقائي.
-        </div>
-      )}
+    <AppShell
+      session={session}
+      title="Channels"
+      subtitle="Wire your distribution endpoints with a polished, production-grade channel manager."
+      actions={<button className="btn btn-primary" onClick={link} disabled={busy === 'link'}><RadioTower size={18} /> {busy === 'link' ? 'Opening…' : 'Connect YouTube'}</button>}
+    >
+      {linked && <div className="alert ok">Connected successfully{linkedName ? `: ${linkedName}` : ''}.</div>}
       {configDetail && <ConfigNotice detail={configDetail} />}
       {error && <div className="alert err">{error}</div>}
 
-      {items === null ? (
-        <p style={{ color: 'var(--muted)' }}>يحمّل القنوات…</p>
-      ) : items.length === 0 && !configDetail ? (
-        <div className="panel" style={{ textAlign: 'center', padding: 44 }}>
-          <p style={{ fontSize: 40, marginBottom: 8 }}>📺</p>
-          <h2 style={{ fontSize: 20, marginBottom: 8 }}>لا قنوات بعد</h2>
-          <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 18 }}>اربط قناتك الأولى لتفعيل النشر التلقائي عليها.</p>
-          <button className="btn btn-primary" onClick={link} disabled={busy === 'link'}>
-            {busy === 'link' ? 'يفتح Google…' : '🔴 ربط قناة YouTube'}
-          </button>
-        </div>
-      ) : (
-        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
-          {(items ?? []).map((c) => (
-            <div key={c.id} className="card">
-              <div className="row" style={{ gap: 12 }}>
-                {c.avatarUrl && <img src={c.avatarUrl} alt="" width={44} height={44} style={{ borderRadius: '50%' }} />}
-                <div>
-                  <div style={{ fontWeight: 800 }}>{c.displayName}</div>
-                  <div style={{ color: 'var(--muted)', fontSize: 13 }}>{c.handle ?? c.platform}</div>
-                </div>
-              </div>
-              <div className="row" style={{ marginTop: 14, gap: 8 }}>
-                <span className="stat-chip stat-ready">{c.status === 'CONNECTED' ? '● متصلة' : c.status}</span>
-                {c.followers && <span className="stat-chip stat-plain">👥 {Number(c.followers).toLocaleString('ar-SA')}</span>}
-              </div>
-              <div className="row" style={{ marginTop: 14, justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--muted)', fontSize: 12 }}>رُبطت {new Date(c.connectedAt).toLocaleDateString('ar-SA-u-nu-latn')}</span>
-                <button className="btn btn-ghost" style={{ padding: '7px 14px', fontSize: 13 }} onClick={() => void disconnect(c.id)} disabled={busy === c.id}>
-                  {busy === c.id ? 'يفصل…' : 'فصل'}
-                </button>
-              </div>
+      <Reveal>
+        <GlassCard>
+          <SectionHeader eyebrow="Distribution" title="Connected channel destinations." body="A clean control surface for OAuth-backed channels, health state and publishing readiness." />
+          {items === null ? (
+            <div className="section-grid three">
+              {Array.from({ length: 3 }).map((_, i) => <div key={i} className="glass-card skeleton" style={{ minHeight: 220 }} />)}
             </div>
-          ))}
-        </div>
-      )}
-
-      <p style={{ marginTop: 22, color: 'var(--muted)', fontSize: 13 }}>
-        الخطوة التالية بعد الربط:{' '}
-        <Link href="/dashboard/series/" style={{ color: 'var(--brand-strong)', fontWeight: 700 }}>
-          أنشئ سلسلة وفعّل النشر التلقائي ←
-        </Link>
-      </p>
-    </div>
+          ) : items.length === 0 && !configDetail ? (
+            <EmptyState title="No channels yet" body="Connect your first YouTube channel to unlock studio publishing and scheduling." action={<button className="btn btn-primary" onClick={link}>Connect Channel</button>} />
+          ) : (
+            <div className="media-grid">
+              {(items ?? []).map((channel, index) => (
+                <Reveal key={channel.id} delay={index * 0.04}>
+                  <HoverLift>
+                    <div className="glass-card">
+                      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div className="row" style={{ gap: 14 }}>
+                          {channel.avatarUrl ? <img src={channel.avatarUrl} alt="" width={56} height={56} style={{ borderRadius: 18 }} /> : <div className="avatar-badge">Y</div>}
+                          <div>
+                            <p className="eyebrow subtle">{channel.platform}</p>
+                            <h3>{channel.displayName}</h3>
+                            <p>{channel.handle ?? 'Connected account'}</p>
+                          </div>
+                        </div>
+                        <span className={`stat-chip ${channel.status === 'CONNECTED' ? 'stat-ready' : 'stat-busy'}`}>{channel.status}</span>
+                      </div>
+                      <div className="row" style={{ marginTop: 16 }}>
+                        <span className="stat-chip stat-plain"><Sparkles size={14} /> {channel.followers ? `${Number(channel.followers).toLocaleString('en-US')} followers` : 'Ready for publish'}</span>
+                        <span className="stat-chip stat-plain">Since {new Date(channel.connectedAt).toLocaleDateString('en-GB')}</span>
+                      </div>
+                      <div className="row" style={{ justifyContent: 'space-between', marginTop: 18 }}>
+                        <Link className="btn btn-ghost" href="/dashboard/series/">Open Studio</Link>
+                        <button className="btn btn-ghost" onClick={() => void disconnect(channel.id)} disabled={busy === channel.id}><Unplug size={16} /> {busy === channel.id ? 'Disconnecting…' : 'Disconnect'}</button>
+                      </div>
+                    </div>
+                  </HoverLift>
+                </Reveal>
+              ))}
+            </div>
+          )}
+        </GlassCard>
+      </Reveal>
+    </AppShell>
   );
 }
 
 export default function Page() {
-  return (
-    <Suspense fallback={<div className="container dash" style={{ maxWidth: 880 }}><p style={{ color: 'var(--muted)', paddingTop: 40 }}>يحمّل…</p></div>}>
-      <ChannelsInner />
-    </Suspense>
-  );
+  return <Suspense fallback={<div className="auth-shell"><div className="glass-card" style={{ padding: 28 }}>Loading channels…</div></div>}><ChannelsInner /></Suspense>;
 }

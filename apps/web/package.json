@@ -2,7 +2,7 @@
   "name": "@aca/web",
   "version": "0.1.0",
   "private": true,
-  "description": "AutoCreator AI \u2014 public web app (landing + auth + dashboard shell). Arabic-first RTL; talks to the /v1 API over Bearer JWT only (no server-side secrets; static export).",
+  "description": "AutoCreator AI — public web app (landing + auth + dashboard shell). Arabic-first RTL; talks to the /v1 API over Bearer JWT only (no server-side secrets; static export).",
   "scripts": {
     "build": "next build",
     "dev": "next dev -p 3100",
@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@aca/shared": "workspace:*",
+    "framer-motion": "^12.43.0",
+    "lucide-react": "^1.28.0",
     "next": "15.5.22",
     "react": "19.2.8",
     "react-dom": "19.2.8"

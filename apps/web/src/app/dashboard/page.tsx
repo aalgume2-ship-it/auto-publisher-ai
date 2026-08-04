@@ -1,8 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Building2, Film, FolderKanban, RadioTower, Sparkles } from 'lucide-react';
 import Link from 'next/link';
-import DashboardNav from '../../components/DashboardNav';
+import AppShell from '../../components/dashboard/app-shell';
+import { EmptyState, GlassCard, SectionHeader, StatTile } from '../../components/ui/chrome';
+import { HoverLift, Reveal } from '../../components/ui/reveal';
 import { ApiProblem, api, arabicMessage } from '../../lib/api';
 import { clearSession, patchSession, readClaims } from '../../lib/session';
 import { useAuthenticatedSession } from '../../lib/use-authenticated-session';
@@ -25,14 +28,12 @@ interface OrgDetail {
   createdAt: string;
   counts: { members: number; teams: number; departments: number };
 }
-
 interface WorkspaceMembership {
   role: string;
   status: string;
   joinedAt: string;
   organization: OrgDetail;
 }
-
 interface Counts {
   channels: number;
   series: number;
@@ -67,8 +68,7 @@ export default function DashboardPage() {
 
   const loadOrg = useCallback(async (orgId: string) => {
     if (!session?.accessToken) return;
-    const detail = await api.get<OrgDetail>(`/v1/organizations/${orgId}`, session.accessToken);
-    setOrg(detail);
+    setOrg(await api.get<OrgDetail>(`/v1/organizations/${orgId}`, session.accessToken));
   }, [session]);
 
   const loadCounts = useCallback(async (orgId: string) => {
@@ -97,13 +97,10 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!session?.accessToken || !currentOrgId) return;
     void loadOrg(currentOrgId).catch((e) => setError(e instanceof ApiProblem ? arabicMessage(e) : 'تعذّر تحميل المنظمة'));
-    void loadCounts(currentOrgId).catch((e) => setError(e instanceof ApiProblem ? arabicMessage(e) : 'تعذّر تحميل إحصاءات المنظمة'));
+    void loadCounts(currentOrgId).catch((e) => setError(e instanceof ApiProblem ? arabicMessage(e) : 'تعذّر تحميل الإحصاءات'));
   }, [session, currentOrgId, loadOrg, loadCounts]);
 
-  const currentMembership = useMemo(
-    () => workspaces.find((w) => w.organization.id === currentOrgId) ?? null,
-    [workspaces, currentOrgId],
-  );
+  const currentMembership = useMemo(() => workspaces.find((w) => w.organization.id === currentOrgId) ?? null, [workspaces, currentOrgId]);
 
   async function createOrg(e: React.FormEvent) {
     e.preventDefault();
@@ -115,11 +112,7 @@ export default function DashboardPage() {
     setBusy(true);
     setError(null);
     try {
-      const created = await api.post<OrgDetail>(
-        '/v1/organizations',
-        { name: newOrgName.trim(), timezone: newOrgTz, defaultLocale: 'ar-SA' },
-        session.accessToken,
-      );
+      const created = await api.post<OrgDetail>('/v1/organizations', { name: newOrgName.trim(), timezone: newOrgTz, defaultLocale: 'ar-SA' }, session.accessToken);
       patchSession({ orgId: created.id });
       setSession((cur) => (cur ? { ...cur, orgId: created.id } : cur));
       setNewOrgName('');
@@ -143,129 +136,111 @@ export default function DashboardPage() {
   function logout() {
     clearSession();
     setSession(null);
-    setOrg(null);
-    setCounts(null);
   }
 
   if (!ready || !session) {
-    return (
-      <div className="container auth-wrap">
-        <div className="panel" style={{ textAlign: 'center' }}>
-          <p style={{ color: 'var(--muted)' }}>يتم التحقق من الجلسة…</p>
-        </div>
-      </div>
-    );
+    return <div className="auth-shell"><div className="glass-card" style={{ padding: 28 }}>Checking session…</div></div>;
   }
 
   return (
-    <div className="container dash" style={{ maxWidth: 980 }}>
-      <DashboardNav />
-      <div className="dash-head">
-        <div>
-          <h1 style={{ fontSize: 26 }}>لوحة العمل</h1>
-          <p style={{ fontSize: 13.5 }} className="mono">{session.email ?? claims.email ?? claims.sub ?? ''}</p>
-        </div>
-        <button className="btn btn-ghost" onClick={logout}>خروج</button>
-      </div>
-
+    <AppShell
+      session={session}
+      title={`Welcome back${session.displayName ? `, ${session.displayName}` : ''}`}
+      subtitle="A premium control center for workspaces, assets, series and publishing operations."
+      actions={<button className="btn btn-ghost" onClick={logout}>Logout</button>}
+    >
       {error && <div className="alert err">{error}</div>}
+      <Reveal>
+        <div className="section-grid three">
+          <StatTile label="Active Workspaces" value={workspaces.length} hint="Companies, brands and operator spaces." />
+          <StatTile label="Published Videos" value={counts?.published ?? 0} hint="Live outputs shipped from the current workspace." />
+          <StatTile label="Connected Channels" value={counts?.channels ?? 0} hint="Destinations ready for scheduling and publishing." />
+        </div>
+      </Reveal>
 
-      <div className="grid" style={{ gridTemplateColumns: '1.1fr 0.9fr', alignItems: 'start' }}>
-        <section className="panel">
-          <h2 style={{ fontSize: 20, marginBottom: 12 }}>مساحات العمل</h2>
-          {workspaces.length === 0 ? (
-            <p style={{ color: 'var(--muted)', marginBottom: 16 }}>
-              لا توجد أي مساحة عمل بعد. أنشئ أول Workspace لبدء إدارة القنوات والنشر.
-            </p>
-          ) : (
-            <div className="grid" style={{ gridTemplateColumns: '1fr', marginBottom: 18 }}>
-              {workspaces.map((item) => {
-                const active = item.organization.id === currentOrgId;
-                return (
-                  <button
-                    key={item.organization.id}
-                    className="card"
-                    onClick={() => switchWorkspace(item.organization.id)}
-                    style={{ textAlign: 'right', cursor: 'pointer', borderColor: active ? 'var(--brand)' : 'var(--border)' }}
-                  >
-                    <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <div>
-                        <h3 style={{ marginBottom: 4 }}>🏢 {item.organization.name}</h3>
-                        <p className="mono" style={{ fontSize: 12.5 }}>{item.organization.slug}</p>
+      <div className="section-grid two">
+        <Reveal>
+          <GlassCard>
+            <SectionHeader eyebrow="Workspace Switcher" title="Choose your active workspace." body="Jump between organizations, monitor their state, and move instantly into the correct studio context." />
+            {workspaces.length === 0 ? (
+              <EmptyState title="No workspaces yet" body="Create the first workspace to unlock channels, assets, series and publishing workflows." />
+            ) : (
+              <div className="section-grid" style={{ gridTemplateColumns: '1fr' }}>
+                {workspaces.map((item) => (
+                  <HoverLift key={item.organization.id}>
+                    <button className="glass-card" style={{ textAlign: 'right', width: '100%' }} onClick={() => switchWorkspace(item.organization.id)}>
+                      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <p className="eyebrow subtle">{item.role}</p>
+                          <h3>{item.organization.name}</h3>
+                          <p className="mono">{item.organization.slug}</p>
+                        </div>
+                        <span className={`stat-chip ${item.organization.id === currentOrgId ? 'stat-ready' : 'stat-plain'}`}>{item.organization.id === currentOrgId ? 'Current' : item.status}</span>
                       </div>
-                      <span className={`stat-chip ${active ? 'stat-ready' : 'stat-plain'}`}>{active ? 'الحالية' : item.role}</span>
-                    </div>
-                    <div className="row" style={{ marginTop: 12, gap: 8 }}>
-                      <span className="stat-chip stat-plain">👥 {item.organization.counts?.members ?? 0} أعضاء</span>
-                      <span className="stat-chip stat-plain">🎬 {item.organization.counts?.teams ?? 0} فرق</span>
-                      <span className="stat-chip stat-plain">🧩 {item.organization.counts?.departments ?? 0} أقسام</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          <form onSubmit={createOrg}>
-            <h3 style={{ marginBottom: 12 }}>إنشاء مساحة عمل جديدة</h3>
-            <div className="field">
-              <label htmlFor="orgname">اسم مساحة العمل</label>
-              <input id="orgname" value={newOrgName} onChange={(e) => setNewOrgName(e.target.value)} placeholder="مثال: قنوات نور الإعلامية" />
-            </div>
-            <div className="field">
-              <label htmlFor="orgtz">المنطقة الزمنية</label>
-              <select id="orgtz" value={newOrgTz} onChange={(e) => setNewOrgTz(e.target.value)}>
-                {TIMEZONES.map((tz) => (
-                  <option key={tz.value} value={tz.value}>{tz.label}</option>
+                      <div className="row" style={{ marginTop: 14 }}>
+                        <span className="stat-chip stat-plain"><Building2 size={14} /> {item.organization.counts?.members ?? 0} members</span>
+                        <span className="stat-chip stat-plain"><FolderKanban size={14} /> {item.organization.counts?.departments ?? 0} departments</span>
+                        <span className="stat-chip stat-plain"><Film size={14} /> {item.organization.counts?.teams ?? 0} teams</span>
+                      </div>
+                    </button>
+                  </HoverLift>
                 ))}
-              </select>
-            </div>
-            <button className="btn btn-primary" disabled={busy} type="submit">
-              {busy ? 'جارٍ الإنشاء…' : 'إنشاء Workspace ←'}
-            </button>
-          </form>
-        </section>
+              </div>
+            )}
+          </GlassCard>
+        </Reveal>
 
-        <section className="panel">
-          <h2 style={{ fontSize: 20, marginBottom: 12 }}>الملخص التشغيلي</h2>
-          {!org ? (
-            <p style={{ color: 'var(--muted)' }}>اختر مساحة عمل أو أنشئ واحدة جديدة.</p>
-          ) : (
-            <>
-              <div className="wizard-done">✓ مساحة العمل الحالية: {org.name}</div>
-              <dl className="kv">
-                <dt>المعرّف</dt>
-                <dd>{org.slug}</dd>
-                <dt>الحالة</dt>
-                <dd>{org.status}</dd>
-                <dt>المنطقة</dt>
-                <dd>{org.timezone}</dd>
-                <dt>اللغة</dt>
-                <dd>{org.defaultLocale}</dd>
-              </dl>
-              <div className="grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)', marginTop: 18 }}>
-                <div className="card"><h3>القنوات</h3><p>{counts?.channels ?? 0}</p></div>
-                <div className="card"><h3>السلاسل</h3><p>{counts?.series ?? 0}</p></div>
-                <div className="card"><h3>الفيديوهات</h3><p>{counts?.videos ?? 0}</p></div>
-                <div className="card"><h3>المنشور</h3><p>{counts?.published ?? 0}</p></div>
+        <Reveal delay={0.08}>
+          <GlassCard>
+            <SectionHeader eyebrow="Create Workspace" title="Spin up a new operator space." body="Each workspace isolates its channels, assets, series and publishing state while keeping the same premium studio experience." />
+            <form onSubmit={createOrg}>
+              <div className="field">
+                <label htmlFor="orgname">Workspace name</label>
+                <input id="orgname" value={newOrgName} onChange={(e) => setNewOrgName(e.target.value)} placeholder="Noor Media Studio" />
               </div>
-              <div className="actions" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 18 }}>
-                <Link className="btn btn-primary" href="/dashboard/channels/">ربط القنوات</Link>
-                <Link className="btn btn-ghost" href="/dashboard/series/">إدارة السلاسل</Link>
-                <Link className="btn btn-ghost" href="/dashboard/assets/">الأصول</Link>
-                <Link className="btn btn-ghost" href="/dashboard/admin/">لوحة الإدارة</Link>
-                <Link className="btn btn-ghost" href="/dashboard/billing/">Billing</Link>
-                {counts?.firstSeriesId && <Link className="btn btn-ghost" href={`/dashboard/series/detail/?id=${counts.firstSeriesId}`}>أكمل آخر سلسلة</Link>}
+              <div className="field">
+                <label htmlFor="orgtz">Timezone</label>
+                <select id="orgtz" value={newOrgTz} onChange={(e) => setNewOrgTz(e.target.value)}>
+                  {TIMEZONES.map((tz) => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+                </select>
               </div>
-            </>
-          )}
-          {currentMembership && (
-            <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 16 }}>
-              دورك في هذه المساحة: <strong>{currentMembership.role}</strong>
-            </p>
-          )}
-        </section>
+              <button className="btn btn-primary" disabled={busy} type="submit">{busy ? 'Creating…' : 'Create Workspace'}</button>
+            </form>
+          </GlassCard>
+        </Reveal>
       </div>
-    </div>
+
+      <div className="section-grid two">
+        <Reveal>
+          <GlassCard>
+            <SectionHeader eyebrow="Studio Summary" title={org ? org.name : 'Select a workspace'} body={org ? `Role: ${currentMembership?.role ?? '—'} • ${org.timezone}` : 'Choose a workspace to load its studio metrics and recent activity.'} />
+            {org ? (
+              <div className="section-grid two">
+                <StatTile label="Series" value={counts?.series ?? 0} hint="Creative pipelines inside this workspace." />
+                <StatTile label="Videos" value={counts?.videos ?? 0} hint="Generated or queued outputs." />
+                <StatTile label="Posts" value={counts?.posts ?? 0} hint="Scheduled or published tasks." />
+                <StatTile label="Language" value={org.defaultLocale} hint="Default locale for this operator space." />
+              </div>
+            ) : (
+              <EmptyState title="Workspace not selected" body="Choose a workspace from the list to load the studio summary and actionable shortcuts." />
+            )}
+          </GlassCard>
+        </Reveal>
+
+        <Reveal delay={0.08}>
+          <GlassCard>
+            <SectionHeader eyebrow="Quick Actions" title="Jump into the parts operators use most." body="A redesigned command surface for studio work, asset intake, channel wiring and admin review." />
+            <div className="section-grid two">
+              <Link className="glass-card" href="/dashboard/series/"><h3>Studio</h3><p>Manage series, prompts and output flows.</p></Link>
+              <Link className="glass-card" href="/dashboard/assets/"><h3>Assets</h3><p>Upload, tag and organize source material.</p></Link>
+              <Link className="glass-card" href="/dashboard/channels/"><h3>Channels</h3><p>Wire distribution destinations and status.</p></Link>
+              <Link className="glass-card" href="/dashboard/admin/"><h3>Admin</h3><p>Inspect workspace settings and operator state.</p></Link>
+              <Link className="glass-card" href="/dashboard/billing/"><h3>Billing</h3><p>Review commercial layer and checkout flow.</p></Link>
+              <Link className="glass-card" href={counts?.firstSeriesId ? `/dashboard/series/detail/?id=${counts.firstSeriesId}` : '/dashboard/series/'}><h3>Recent Project</h3><p>Continue the most recent content pipeline.</p></Link>
+            </div>
+          </GlassCard>
+        </Reveal>
+      </div>
+    </AppShell>
   );
 }

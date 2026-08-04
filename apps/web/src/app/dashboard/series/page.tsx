@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { Clapperboard, PlusCircle, Sparkles } from 'lucide-react';
+import AppShell from '../../../components/dashboard/app-shell';
+import { EmptyState, GlassCard, SectionHeader } from '../../../components/ui/chrome';
+import { HoverLift, Reveal } from '../../../components/ui/reveal';
 import { api, arabicMessage, ApiProblem } from '../../../lib/api';
-import DashboardNav from '../../../components/DashboardNav';
 import { useAuthenticatedSession } from '../../../lib/use-authenticated-session';
 
 interface Series {
@@ -41,7 +44,7 @@ export default function SeriesPage() {
     e.preventDefault();
     if (!session?.orgId) return;
     if (name.trim().length < 2) {
-      setError('بعض الحقول غير مكتملة — أدخل اسم السلسلة للمتابعة.');
+      setError('أدخل اسم السلسلة للمتابعة.');
       return;
     }
     setBusy(true);
@@ -58,69 +61,62 @@ export default function SeriesPage() {
     }
   }
 
-  if (!ready || !session) {
-    return <div className="container dash"><p style={{ color: 'var(--muted)' }}>يتم التحقق من الجلسة…</p></div>;
-  }
-
-  if (!session.orgId) {
-    return <div className="container dash"><DashboardNav /><div className="panel"><p style={{ color: 'var(--muted)' }}>اختر Workspace من الصفحة الرئيسية أولاً.</p></div></div>;
-  }
+  if (!ready || !session) return <div className="auth-shell"><div className="glass-card" style={{ padding: 28 }}>Checking session…</div></div>;
 
   return (
-    <div className="container dash" style={{ maxWidth: 880 }}>
-      <DashboardNav />
-      <div className="dash-head">
-        <div>
-          <h1 style={{ fontSize: 26 }}>سلاسل المحتوى</h1>
-          <p style={{ color: 'var(--muted)', fontSize: 14 }}>كل سلسلة خط إنتاج مستقل: كلمات مفتاحية → توليد تلقائي → نشر على قنواتك.</p>
-        </div>
+    <AppShell session={session} title="Studio" subtitle="Build cinematic content pipelines with a premium project browser and prompt-ready entry points.">
+      {error && <div className="alert err">{error}</div>}
+      <div className="section-grid two">
+        <Reveal>
+          <GlassCard>
+            <SectionHeader eyebrow="Create New" title="Start a new series." body="Every series becomes an always-on creative pipeline with prompts, assets, rendering and publishing stages." />
+            <form onSubmit={create}>
+              <div className="field"><label htmlFor="sname">Series name</label><input id="sname" value={name} onChange={(e) => setName(e.target.value)} placeholder="Space myths / Brand explainers / Daily insights" /></div>
+              <div className="field"><label htmlFor="sniche">Niche</label><select id="sniche" value={niche} onChange={(e) => setNiche(e.target.value)}><option>معرفة وحقائق</option><option>تقنية وذكاء اصطناعي</option><option>تحفيز وتطوير ذات</option><option>مال وأعمال</option><option>صحة ولياقة</option><option>تاريخ وحضارات</option></select></div>
+              <button className="btn btn-primary" disabled={busy} type="submit"><PlusCircle size={18} /> {busy ? 'Creating…' : 'Create Series'}</button>
+            </form>
+          </GlassCard>
+        </Reveal>
+        <Reveal delay={0.08}>
+          <GlassCard>
+            <SectionHeader eyebrow="Studio Intent" title="Prompt-led production, refined by design." body="Use this space like an AI-native video studio: create a series, open its workspace, then drive generation, assets and publishing from one elegant flow." />
+            <div className="section-grid two">
+              <div className="glass-card"><h3>Prompt Builder</h3><p>Series detail doubles as your prompt and output studio.</p></div>
+              <div className="glass-card"><h3>Recent Outputs</h3><p>Generated videos remain attached to the series for iterative improvement.</p></div>
+            </div>
+          </GlassCard>
+        </Reveal>
       </div>
 
-      <div className="panel" style={{ marginBottom: 24 }}>
-        <h2 style={{ fontSize: 18, marginBottom: 12 }}>➕ سلسلة جديدة</h2>
-        {error && <div className="alert err">{error}</div>}
-        <form onSubmit={create} className="row" style={{ alignItems: 'flex-end' }}>
-          <div className="field" style={{ flex: 2, marginBottom: 0 }}>
-            <label htmlFor="sname">اسم السلسلة</label>
-            <input id="sname" value={name} onChange={(e) => setName(e.target.value)} placeholder="مثال: حقائق لا تعرفها" minLength={2} />
-          </div>
-          <div className="field" style={{ flex: 1.4, marginBottom: 0 }}>
-            <label htmlFor="sniche">النيتش</label>
-            <select id="sniche" value={niche} onChange={(e) => setNiche(e.target.value)}>
-              <option>معرفة وحقائق</option>
-              <option>تقنية وذكاء اصطناعي</option>
-              <option>تحفيز وتطوير ذات</option>
-              <option>مال وأعمال</option>
-              <option>صحة ولياقة</option>
-              <option>تاريخ وحضارات</option>
-            </select>
-          </div>
-          <button className="btn btn-primary" disabled={busy} type="submit">
-            {busy ? 'ينشئ…' : 'إنشاء السلسلة ←'}
-          </button>
-        </form>
-      </div>
-
-      {items === null ? (
-        <p style={{ color: 'var(--muted)' }}>يحمّل السلاسل…</p>
-      ) : items.length === 0 ? (
-        <p style={{ color: 'var(--muted)', textAlign: 'center', padding: 24 }}>لا سلاسل بعد — أنشئ أول واحدة بالأعلى، ثم ولّد أول مقطع داخلها.</p>
-      ) : (
-        <div className="media-grid">
-          {items.map((s) => (
-            <Link key={s.id} href={`/dashboard/series/detail/?id=${s.id}`} className="card" style={{ display: 'block' }}>
-              <h3 style={{ marginBottom: 6 }}>🎬 {s.name}</h3>
-              <p style={{ fontSize: 13 }}>
-                {s.niche} • {s.language}
-              </p>
-              <div className="row" style={{ marginTop: 12, gap: 8 }}>
-                <span className="stat-chip stat-plain">🎞 {s.counts.videos} مقطعاً</span>
-                {s.targetPlatforms.includes('youtube') && <span className="stat-chip stat-plain">🔴 YouTube</span>}
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
+      <Reveal>
+        <GlassCard>
+          <SectionHeader eyebrow="Recent Projects" title="Your series library." body="Browse live creative pipelines and jump directly into the studio detail view." />
+          {items === null ? (
+            <div className="section-grid three">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="glass-card skeleton" style={{ minHeight: 200 }} />)}</div>
+          ) : items.length === 0 ? (
+            <EmptyState title="No series yet" body="Create the first series above, then open it to build prompts, generate videos and manage publishing." />
+          ) : (
+            <div className="media-grid">
+              {items.map((series, index) => (
+                <Reveal key={series.id} delay={index * 0.04}>
+                  <HoverLift>
+                    <Link href={`/dashboard/series/detail/?id=${series.id}`} className="glass-card" style={{ display: 'block' }}>
+                      <div className="feature-icon"><Clapperboard size={22} /></div>
+                      <p className="eyebrow subtle">{series.language}</p>
+                      <h3>{series.name}</h3>
+                      <p>{series.niche}</p>
+                      <div className="row" style={{ marginTop: 16 }}>
+                        <span className="stat-chip stat-plain"><Sparkles size={14} /> {series.counts.videos} videos</span>
+                        <span className="stat-chip stat-plain">{series.targetPlatforms.join(', ')}</span>
+                      </div>
+                    </Link>
+                  </HoverLift>
+                </Reveal>
+              ))}
+            </div>
+          )}
+        </GlassCard>
+      </Reveal>
+    </AppShell>
   );
 }
