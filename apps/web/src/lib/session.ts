@@ -3,7 +3,6 @@
  * Access tokens are short-lived; the browser renews them through the API's
  * refresh-rotation endpoint when a refresh token is present.
  */
-import { API_BASE } from './api';
 
 export interface StoredSession {
   accessToken: string;
@@ -45,7 +44,7 @@ export async function refreshStoredSession(): Promise<StoredSession | null> {
   const current = loadSession();
   if (!current?.refreshToken) return current;
   try {
-    const res = await fetch(`${API_BASE}/v1/auth/refresh`, {
+    const res = await fetch(`/api/v1/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken: current.refreshToken }),

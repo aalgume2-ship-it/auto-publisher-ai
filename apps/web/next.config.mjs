@@ -1,12 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Fully static export — deployed to a CDN (Render static site). All API
-  // calls happen in the browser with the visitor's own Bearer token; there is
-  // no server runtime and therefore no server secrets in this app.
-  output: 'export',
+  // Phase 1: server runtime enabled for Route Handlers (auth + health proxies).
+  // output: 'export' removed — Vercel runs Next.js server-side so /api/v1/*
+  // routes proxy to the Render API, hiding the upstream from the browser.
   trailingSlash: true,
   images: { unoptimized: true },
-  // NEXT_PUBLIC_API_BASE is inlined at build time (public by definition).
   eslint: { ignoreDuringBuilds: true },
 };
 export default nextConfig;

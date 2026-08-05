@@ -6,9 +6,17 @@
  */
 import { ErrorCodes } from '@aca/shared/errors.js'; // browser-safe leaf (no node builtins); root pulls server utils
 
-/** Inlined at build time for the static export; fall back to the live preview. */
+/**
+ * Phase 1: the web app talks to its own /api/v1/* Route Handlers which proxy
+ * to the Render API.  The browser never contacts Render directly for auth or
+ * health.  API_BASE is kept for asset URLs (media, thumbnails) that are still
+ * served directly from the upstream.
+ */
 export const API_BASE: string =
   process.env.NEXT_PUBLIC_API_BASE?.replace(/\/+$/, '') ?? 'https://autocreator-api-preview.onrender.com';
+
+/** All API calls go through the local Next.js proxy (/api/v1/…). */
+const API_PROXY = '/api/v1';
 
 export interface ProblemBody {
   type?: string;
@@ -52,7 +60,7 @@ export function arabicMessage(p: ApiProblem | ProblemBody): string {
 async function request<T>(method: string, path: string, opts: { token?: string | null; body?: unknown } = {}): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, {
+    res = await fetch(`${API_PROXY}${path}`, {
       method,
       headers: {
         ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
