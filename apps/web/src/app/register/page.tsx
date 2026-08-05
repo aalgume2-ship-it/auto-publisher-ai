@@ -21,6 +21,11 @@ export default function RegisterPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Best-effort suggestion for the display name. This is rendered INSIDE
+  // the input as a placeholder so the user sees it before they type, and
+  // the submit handler uses it as a fallback if the field is left blank.
+  const displayNamePlaceholder = 'مثال: محمد العتيبي';
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (password.length < 12) {
@@ -92,7 +97,13 @@ export default function RegisterPage() {
             <form onSubmit={submit} dir="rtl">
               <div className="field">
                 <label htmlFor="name">الاسم المعروض</label>
-                <input id="name" autoComplete="name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required />
+                <input
+                  id="name"
+                  autoComplete="name"
+                  placeholder={displayNamePlaceholder}
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                />
               </div>
               <div className="field">
                 <label htmlFor="email">البريد الإلكتروني</label>
