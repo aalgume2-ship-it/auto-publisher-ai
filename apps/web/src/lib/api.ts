@@ -21,6 +21,24 @@ export const API_BASE: string =
 /** All API calls go through the local Next.js proxy (/api/v1/…). */
 const API_PROXY = '/api/v1';
 
+/**
+ * Strip a redundant leading `/v1` from a caller-supplied path.
+ *
+ * The web app has been calling `api.post('/v1/auth/login', …)` everywhere
+ * (auth, dashboard, channels, etc.) while the shared base URL is
+ * `/api/v1`. Without normalization this concatenated to
+ * `/api/v1/v1/auth/login` — which the upstream Render API does not have,
+ * producing 404s on every call.
+ *
+ * Normalize once at the boundary so every existing caller continues to
+ * work without having to touch dozens of call-sites.
+ */
+function normalizePath(path: string): string {
+  if (path.startsWith('/v1/')) return path.slice(3); // '/v1/auth/login' → '/auth/login'
+  if (path === '/v1') return '';
+  return path;
+}
+
 export interface ProblemBody {
   type?: string;
   title?: string;
@@ -124,7 +142,7 @@ async function request<T>(
 ): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${API_PROXY}${path}`, {
+    res = await fetch(`${API_PROXY}${normalizePath(path)}`, {
       method,
       headers: {
         ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
