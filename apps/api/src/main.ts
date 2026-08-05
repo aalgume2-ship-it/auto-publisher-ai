@@ -100,15 +100,18 @@ async function bootstrap(): Promise<void> {
           timezone: 'Asia/Riyadh',
         },
       });
+      // NOTE: Organization schema has no `ownerId` column. Ownership is
+      // expressed via the OrganizationMember row that links user → org with
+      // role=OWNER (see below).
       const org = await prisma.organization.upsert({
         where: { slug: orgSlug },
-        update: { name: orgName, ownerId: user.id },
-        create: { slug: orgSlug, name: orgName, ownerId: user.id },
+        update: { name: orgName },
+        create: { slug: orgSlug, name: orgName },
       });
-      const membership = await prisma.membership.upsert({
-        where: { userId_orgId: { userId: user.id, orgId: org.id } },
+      const membership = await prisma.organizationMember.upsert({
+        where: { orgId_userId: { orgId: org.id, userId: user.id } },
         update: { role: 'OWNER', status: 'ACTIVE' },
-        create: { userId: user.id, orgId: org.id, role: 'OWNER', status: 'ACTIVE' },
+        create: { orgId: org.id, userId: user.id, role: 'OWNER', status: 'ACTIVE' },
       });
       logger.info(
         {
