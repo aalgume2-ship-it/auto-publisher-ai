@@ -4,8 +4,8 @@ const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
 
 const commands = isVercel
   ? [
-      ['corepack', ['pnpm', '--filter', '@aca/shared', 'build']],
-      ['corepack', ['pnpm', '--filter', '@aca/web', 'build']],
+      ['pnpm', ['--filter', '@aca/shared', 'build']],
+      ['pnpm', ['--filter', '@aca/web', 'build']],
     ]
   : [['corepack', ['pnpm', 'exec', 'turbo', 'run', 'build']]];
 
