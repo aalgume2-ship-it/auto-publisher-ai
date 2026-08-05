@@ -72,6 +72,64 @@ async function bootstrap(): Promise<void> {
     'api.listening',
   );
 
+  // SEED_ADMIN_ON_BOOT — when set, ensure an OWNER user + org + membership
+  // exists so a human can log in from the web app. This is the only way
+  // to bootstrap an admin on Render's free tier (no shell access, no
+  // one-off jobs). It is fully idempotent and is gated by the env var so
+  // production never runs it unless explicitly opted in.
+  if (process.env.SEED_ADMIN_ON_BOOT === 'true') {
+    try {
+      const { createPrismaClient } = await import('@aca/database');
+      const { hashPassword } = await import('@aca/auth');
+      const prisma = createPrismaClient();
+      const email = (process.env.SEED_ADMIN_EMAIL ?? 'admin@autocreator.sa').trim().toLowerCase();
+      const password = process.env.SEED_ADMIN_PASSWORD ?? 'AdminRiyadh2026!';
+      const displayName = process.env.SEED_ADMIN_DISPLAY_NAME ?? 'Studio Admin';
+      const orgSlug = process.env.SEED_ADMIN_ORG_SLUG ?? 'admin-studio';
+      const orgName = process.env.SEED_ADMIN_ORG_NAME ?? 'Admin Studio';
+
+      const passwordHash = await hashPassword(password);
+      const user = await prisma.user.upsert({
+        where: { email },
+        update: { passwordHash, displayName },
+        create: {
+          email,
+          passwordHash,
+          displayName,
+          locale: 'ar-SA',
+          timezone: 'Asia/Riyadh',
+        },
+      });
+      const org = await prisma.organization.upsert({
+        where: { slug: orgSlug },
+        update: { name: orgName, ownerId: user.id },
+        create: { slug: orgSlug, name: orgName, ownerId: user.id },
+      });
+      const membership = await prisma.membership.upsert({
+        where: { userId_orgId: { userId: user.id, orgId: org.id } },
+        update: { role: 'OWNER', status: 'ACTIVE' },
+        create: { userId: user.id, orgId: org.id, role: 'OWNER', status: 'ACTIVE' },
+      });
+      logger.info(
+        {
+          module: 'bootstrap',
+          seedAdmin: {
+            userId: user.id,
+            email: user.email,
+            orgId: org.id,
+            orgSlug: org.slug,
+            membershipId: membership.id,
+            role: membership.role,
+          },
+        },
+        'seed.admin.boot',
+      );
+      await prisma.$disconnect();
+    } catch (err: unknown) {
+      logger.warn({ module: 'bootstrap', err }, 'seed.admin.boot.failed');
+    }
+  }
+
   // Optional preview wiring aid: surface demo ids in runtime logs only when
   // explicit demo data was seeded. Never required for normal production boot.
   if (process.env.SEED_DEMO_DATA === 'true') {
