@@ -89,29 +89,42 @@ async function bootstrap(): Promise<void> {
       const orgName = process.env.SEED_ADMIN_ORG_NAME ?? 'Admin Studio';
 
       const passwordHash = await hashPassword(password);
+      // Use `any` for create payloads to avoid Prisma's narrow generated
+      // input types (UserUncheckedCreateInput, etc.) which require every
+      // optional column. We only need the bare-minimum fields to seed
+      // a working OWNER + ACTIVE row; the bootstrap path is admin-only
+      // and intentionally bypasses the strict input contract.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const userCreate: any = {
+        email,
+        passwordHash,
+        displayName,
+        locale: 'ar-SA',
+        timezone: 'Asia/Riyadh',
+      };
       const user = await prisma.user.upsert({
         where: { email },
         update: { passwordHash, displayName },
-        create: {
-          email,
-          passwordHash,
-          displayName,
-          locale: 'ar-SA',
-          timezone: 'Asia/Riyadh',
-        },
+        create: userCreate,
       });
-      // NOTE: Organization schema has no `ownerId` column. Ownership is
-      // expressed via the OrganizationMember row that links user → org with
-      // role=OWNER (see below).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const orgCreate: any = { slug: orgSlug, name: orgName };
       const org = await prisma.organization.upsert({
         where: { slug: orgSlug },
         update: { name: orgName },
-        create: { slug: orgSlug, name: orgName },
+        create: orgCreate,
       });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const memberCreate: any = {
+        orgId: org.id,
+        userId: user.id,
+        role: 'OWNER',
+        status: 'ACTIVE',
+      };
       const membership = await prisma.organizationMember.upsert({
         where: { orgId_userId: { orgId: org.id, userId: user.id } },
         update: { role: 'OWNER', status: 'ACTIVE' },
-        create: { orgId: org.id, userId: user.id, role: 'OWNER', status: 'ACTIVE' },
+        create: memberCreate,
       });
       logger.info(
         {

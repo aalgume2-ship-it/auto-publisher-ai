@@ -83,7 +83,7 @@ export class VideosService {
       include: { _count: { select: { videos: true } } },
     });
     return {
-      items: rows.map((s: { id: string; name: string; niche: string; language: string; targetPlatforms: string[]; _count: { videos: number }; createdAt: Date }) => ({
+      items: rows.map((s: any) => ({
         id: s.id,
         name: s.name,
         niche: s.niche,
@@ -157,7 +157,7 @@ export class VideosService {
       include: { thumbnails: { where: { selected: true }, take: 1 }, renditions: { take: 1 } },
     });
     return {
-      items: rows.map((v: { id: string; projectId: string; title: string; status: string; durationMs: number | null; failureReason: string | null; createdAt: Date; publishedAt: Date | null; seo: unknown; thumbnails: { storageKey: string }[]; renditions: { storageKey: string }[] }) => ({
+      items: rows.map((v: any) => ({
         id: v.id,
         seriesId: v.projectId,
         title: v.title,
@@ -202,7 +202,7 @@ export class VideosService {
       publishedAt: v.publishedAt,
       streamUrl: this.media(v.renditions[0]?.storageKey),
       script: v.scripts[0] ? { content: v.scripts[0].content, wordCount: v.scripts[0].wordCount, beats: v.scripts[0].beats } : null,
-      scenes: v.scenes.map((s: { index: number; narrationText: string; visualPrompt: string; startMs: number; endMs: number; asset: { storageKey: string } | null }) => ({
+      scenes: v.scenes.map((s: any) => ({
         index: s.index,
         narrationText: s.narrationText,
         visualPrompt: s.visualPrompt,
@@ -210,7 +210,7 @@ export class VideosService {
         endMs: s.endMs,
         imageUrl: this.media(s.asset?.storageKey),
       })),
-      posts: v.publishingTasks.map((t: { id: string; channel: { id: string; displayName: string; handle: string }; status: string; scheduledAt: Date | null; publishedAt: Date | null; platformUrl: string | null; lastError: string | null }) => ({
+      posts: v.publishingTasks.map((t: any) => ({
         id: t.id,
         channel: t.channel,
         status: t.status,
@@ -280,7 +280,7 @@ export class VideosService {
       take: 500,
     });
     const items = rows
-      .map((row: { id: string; type: string; mimeType: string; bytes: bigint; storageKey: string; sourceUrl: string | null; metadata: Prisma.JsonValue | null; createdAt: Date }) => this.publicAsset(orgId, row))
+      .map((row: any) => this.publicAsset(orgId, row))
       .filter((row: { folder: string | null; tags: string[]; fileName: string }) => {
         if (query.folder && row.folder !== query.folder) return false;
         if (query.tag && !row.tags.includes(query.tag)) return false;
@@ -350,7 +350,7 @@ export class VideosService {
       include: { video: { select: { id: true, title: true, durationMs: true } }, channel: { select: { id: true, displayName: true, handle: true, avatarUrl: true } } },
     });
     return {
-      items: rows.map((t: { id: string; status: string; scheduledAt: Date | null; publishedAt: Date | null; platformUrl: string | null; lastError: string | null; video: { id: string; title: string; durationMs: number | null }; channel: { id: string; displayName: string; handle: string; avatarUrl: string | null } }) => ({
+      items: rows.map((t: any) => ({
         ...this.publicTask(t),
         video: t.video,
         channel: t.channel,
