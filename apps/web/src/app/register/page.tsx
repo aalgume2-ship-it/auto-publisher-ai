@@ -27,13 +27,25 @@ export default function RegisterPage() {
       setError('كلمة المرور يجب ألا تقل عن 12 حرفاً');
       return;
     }
+    // Fallback: if displayName is empty (e.g. browser autofill didn't fill it),
+    // derive a sensible default from the local part of the email.
+    const trimmedName = displayName.trim();
+    const finalDisplayName =
+      trimmedName.length > 0
+        ? trimmedName
+        : email
+            .trim()
+            .split('@')[0]
+            .replace(/[._+-]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim() || 'Studio Member';
     setBusy(true);
     setError(null);
     try {
       const res = await api.post<RegisterResponse>('/v1/auth/register', {
         email: email.trim(),
         password,
-        displayName: displayName.trim(),
+        displayName: finalDisplayName,
         locale: 'ar-SA',
         timezone: 'Asia/Riyadh',
       });
