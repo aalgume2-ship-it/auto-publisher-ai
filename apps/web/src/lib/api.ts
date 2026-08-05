@@ -166,8 +166,20 @@ async function request<T>(
   }
 
   const text = await res.text();
-  const json: unknown = text.length > 0 ? JSON.parse(text) : {};
-  if (!res.ok) throw new ApiProblem(res.status, (json as ProblemBody).code, json as ProblemBody);
+  // Parse defensively — if the proxy or CDN hands us a non-JSON body
+  // (e.g. a Vercel auth redirect page, or a 502 HTML), we still want
+  // to surface an `ApiProblem` with the raw text instead of throwing
+  // a SyntaxError that callers (login/register) misclassify as
+  // "تعذّر الاتصال".
+  let json: ProblemBody = {};
+  if (text.length > 0) {
+    try {
+      json = JSON.parse(text) as ProblemBody;
+    } catch {
+      json = { title: res.statusText || 'Unexpected response', detail: text.slice(0, 240) };
+    }
+  }
+  if (!res.ok) throw new ApiProblem(res.status, json.code, json);
   return json as T;
 }
 
