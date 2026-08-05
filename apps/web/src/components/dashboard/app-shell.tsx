@@ -6,6 +6,8 @@ import type { ReactNode } from 'react';
 import { Bell, CreditCard, FolderKanban, LayoutDashboard, LogOut, MenuSquare, RadioTower, Settings2, Sparkles, UserCircle2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { clearSession, readClaims, type StoredSession } from '../../lib/session';
+import CommandPalette, { useCommandPalette } from '../CommandPalette';
+import { useNotifications } from '../../lib/use-notifications';
 
 const NAV_ITEMS = [
   { href: '/dashboard/', label: 'Dashboard', icon: LayoutDashboard },
@@ -31,10 +33,27 @@ export default function AppShell({ session, title, subtitle, actions, children }
   const router = useRouter();
   const claims = readClaims(session.accessToken);
   const displayName = session.displayName ?? session.email?.split('@')[0] ?? claims.email ?? claims.sub ?? 'Creator';
+  const { open, setOpen } = useCommandPalette();
+  const { unreadCount } = useNotifications(session);
 
   function logout() {
-    clearSession();
-    router.replace('/login/');
+    void (async () => {
+      // Best-effort server-side session revocation (refresh token)
+      try {
+        const { refreshToken } = session;
+        if (refreshToken) {
+          await fetch('/api/v1/auth/logout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken }),
+          });
+        }
+      } catch {
+        // Ignore network errors — clear local session regardless
+      }
+      clearSession();
+      router.replace('/login/');
+    })();
   }
 
   return (
@@ -85,19 +104,31 @@ export default function AppShell({ session, title, subtitle, actions, children }
             <p className="topbar-subtitle">{subtitle}</p>
           </div>
           <div className="topbar-tools">
-            <label className="search-shell">
+            <button
+              className="search-shell"
+              onClick={() => setOpen(true)}
+              aria-label="Open command palette (⌘K)"
+              type="button"
+            >
               <span>⌘K</span>
-              <input placeholder="Search projects, assets, channels…" aria-label="Search" />
-            </label>
-            <button className="icon-button" aria-label="Notifications">
+              <input
+                placeholder="Search projects, assets, channels…"
+                aria-label="Search"
+                readOnly
+                onFocus={() => setOpen(true)}
+              />
+            </button>
+            <button className="icon-button" aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`} type="button">
               <Bell size={18} />
-              <em>0</em>
+              {unreadCount > 0 && <em>{unreadCount > 99 ? '99+' : unreadCount}</em>}
             </button>
             {actions}
           </div>
         </header>
         <main className="dashboard-content">{children}</main>
       </div>
+
+      <CommandPalette open={open} onClose={() => setOpen(false)} />
     </div>
   );
 }

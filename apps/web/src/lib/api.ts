@@ -3,6 +3,9 @@
  * the visitor's JWT lives in localStorage; no cookies, no server secrets.
  * Error mapping renders the platform's RFC 9457 ProblemDetails codes into
  * Arabic messages (codes come from @aca/shared — the same catalog the API emits).
+ *
+ * Auto-refresh: when a GET request returns 401 and a refresh token is present,
+ * the client silently refreshes the session and retries the request once.
  */
 import { ErrorCodes } from '@aca/shared/errors.js'; // browser-safe leaf (no node builtins); root pulls server utils
 
@@ -57,7 +60,68 @@ export function arabicMessage(p: ApiProblem | ProblemBody): string {
   return body.detail ?? (p as { message?: string }).message ?? 'تعذّر الاتصال بالخادم — تحقق من الشبكة';
 }
 
-async function request<T>(method: string, path: string, opts: { token?: string | null; body?: unknown } = {}): Promise<T> {
+/**
+ * Attempt to refresh the session token. Returns true if refresh succeeded
+ * and the caller should retry their request.
+ */
+async function tryRefreshSession(): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  try {
+    const raw = window.localStorage.getItem('aca.session.v1');
+    if (!raw) return false;
+    const session = JSON.parse(raw) as { refreshToken?: string; accessToken?: string };
+    if (!session.refreshToken) return false;
+
+    const res = await fetch(`${API_PROXY}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: session.refreshToken }),
+    });
+
+    if (!res.ok) {
+      // Refresh failed — clear session so user is redirected to login
+      window.localStorage.removeItem('aca.session.v1');
+      return false;
+    }
+
+    const json = (await res.json()) as {
+      user: { email: string; displayName: string };
+      tokens: { accessToken: string; refreshToken: string };
+    };
+
+    // Update stored session with new tokens
+    const updated = {
+      ...session,
+      accessToken: json.tokens.accessToken,
+      refreshToken: json.tokens.refreshToken,
+      email: json.user.email,
+      displayName: json.user.displayName,
+    };
+    window.localStorage.setItem('aca.session.v1', JSON.stringify(updated));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Get the current access token from storage (for retry after refresh) */
+function getCurrentToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem('aca.session.v1');
+    if (!raw) return null;
+    const session = JSON.parse(raw) as { accessToken?: string };
+    return session.accessToken ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function request<T>(
+  method: string,
+  path: string,
+  opts: { token?: string | null; body?: unknown; isRetry?: boolean } = {},
+): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${API_PROXY}${path}`, {
@@ -71,6 +135,18 @@ async function request<T>(method: string, path: string, opts: { token?: string |
   } catch {
     throw new ApiProblem(0, undefined, { detail: 'تعذّر الوصول إلى الخادم (قد تكون النسخة المجانية في طور الإيقاظ — أعد المحاولة بعد لحظات)' });
   }
+
+  // Auto-refresh on 401 for GET requests (idempotent, safe to retry)
+  if (res.status === 401 && method === 'GET' && !opts.isRetry && opts.token) {
+    const refreshed = await tryRefreshSession();
+    if (refreshed) {
+      const newToken = getCurrentToken();
+      if (newToken) {
+        return request<T>(method, path, { ...opts, token: newToken, isRetry: true });
+      }
+    }
+  }
+
   const text = await res.text();
   const json: unknown = text.length > 0 ? JSON.parse(text) : {};
   if (!res.ok) throw new ApiProblem(res.status, (json as ProblemBody).code, json as ProblemBody);
