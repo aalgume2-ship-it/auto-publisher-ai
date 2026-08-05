@@ -1,5 +1,8 @@
 /**
  * Phase-1 catch-all API proxy: /api/v1/* → Render upstream.
+ * Last rebuilt: 2026-08-05T20:25Z — force Vercel to pick up the new
+ * vercel.json config (no outputDirectory, framework: nextjs) so the
+ * .next/ build is published instead of the stale static export.
  *
  * Route mapping:
  *   /api/v1/auth/*    → UPSTREAM/v1/auth/*

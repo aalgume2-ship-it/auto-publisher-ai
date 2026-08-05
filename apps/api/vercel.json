@@ -1,6 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "echo 'using prebuilt static export'",
-  "buildCommand": "echo 'publishing apps/api/vercel-static'",
-  "outputDirectory": "vercel-static"
+  "framework": "nextjs",
+  "buildCommand": "cd ../.. && export PATH=\"$HOME/.npm-global/bin:$PATH\" && pnpm install --no-frozen-lockfile --prod=false && pnpm --filter @aca/shared build && pnpm --filter @aca/web build"
 }

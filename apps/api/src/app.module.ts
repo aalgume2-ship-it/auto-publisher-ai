@@ -29,9 +29,10 @@ import { AuthModule } from './modules/auth/auth.module.js';
 import { ChannelsModule } from './modules/channels/channels.module.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
 import { VideosModule } from './modules/videos/videos.module.js';
+import { NotificationsModule } from './modules/notifications/notifications.module.js';
 
 @Module({
-  imports: [CommonModule, AuthModule, OrganizationsModule, ChannelsModule, VideosModule, SettingsModule],
+  imports: [CommonModule, AuthModule, OrganizationsModule, ChannelsModule, VideosModule, SettingsModule, NotificationsModule],
   controllers: [HealthController, MetricsController],
   providers: [
     Reflector,
