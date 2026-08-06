@@ -75,6 +75,33 @@ export const RegisterInputSchema = z.object({
 });
 export type RegisterInput = z.infer<typeof RegisterInputSchema>;
 
+/**
+ * UUID v7 — 48-bit ms timestamp + version 7 + random. Platform-wide contract:
+ * entity ids (users, orgs, memberships) must be uuidv7 (events catalog
+ * validates ownerId as uuidv7; Prisma @db.Uuid columns carry them). Node's
+ * randomUUID() emits v4, which breaks the org-creation outbox event for
+ * newly registered users — so we mint v7 here instead.
+ */
+export function uuidv7(): string {
+  const b = new Uint8Array(16);
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(b);
+  } else {
+    for (let i = 0; i < 16; i += 1) b[i] = Math.floor(Math.random() * 256);
+  }
+  const t = BigInt(Date.now());
+  b[0] = Number((t >> 40n) & 0xffn);
+  b[1] = Number((t >> 32n) & 0xffn);
+  b[2] = Number((t >> 24n) & 0xffn);
+  b[3] = Number((t >> 16n) & 0xffn);
+  b[4] = Number((t >> 8n) & 0xffn);
+  b[5] = Number(t & 0xffn);
+  b[6] = 0x70 | (b[6]! & 0x0f); // version 7
+  b[8] = 0x80 | (b[8]! & 0x3f); // variant RFC 4122
+  const hex = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export class AuthService {
   constructor(
     private readonly store: AuthStore,
@@ -166,7 +193,7 @@ export class AuthService {
     }
     const passwordHash = await hashPassword(input.password);
     const user = await this.store.createUser({
-      id: randomUUID(),
+      id: uuidv7(),
       email: input.email,
       passwordHash,
       displayName: input.displayName,
