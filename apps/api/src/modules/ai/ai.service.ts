@@ -19,6 +19,7 @@ import { ApiError } from '../../common/errors/api-error.js';
 import { OrgCredentialsService } from '../../common/credentials/org-credentials.service.js';
 import { LLM_PROVIDERS, chatCompletion, type LlmCredential } from './providers.js';
 import { generateClip, type VideoCredential } from './providers-video.js';
+import { renderSilentWav, renderSolidJpeg } from '../videos/compose.service.js';
 
 export const SceneSchema = z.object({
   narration: z.string().min(10),
@@ -59,6 +60,15 @@ export function extractJson(raw: string): string {
 
 @Injectable()
 export class AiService {
+  /**
+   * Offline demo pipeline (AI_PROVIDER_MODE=demo): deterministic Arabic
+   * scripts, silent voiceover track and generated placeholder scene stills —
+   * ZERO network, ZERO API keys. Lets a fresh deployment render a real
+   * test video end-to-end before any AI provider is configured. Every other
+   * mode keeps the fail-closed real-provider behavior.
+   */
+  private readonly demoMode: boolean = process.env.AI_PROVIDER_MODE === 'demo';
+
   constructor(
     @Inject(API_CONFIG) private readonly config: AppConfig,
     private readonly creds: OrgCredentialsService,
@@ -74,6 +84,23 @@ export class AiService {
    * the named env vars on the API service.
    */
   private async requireLlm(orgId: string): Promise<LlmCredential> {
+    if (this.demoMode) {
+      return {
+        def: {
+          id: 'openai', // reused shape only; never actually called in demo mode
+          label: 'Demo (local)',
+          model: 'demo',
+          kind: 'openai-compatible',
+          chatUrl: undefined,
+          consoleUrl: '',
+          free: true,
+          envKey: '',
+          strictJson: false,
+        },
+        apiKey: 'demo',
+        source: 'env',
+      };
+    }
     const cred = await this.creds.resolveLlm(orgId);
     if (!cred) {
       const envList = LLM_PROVIDERS.map((p) => p.envKey).join(' أو ');
@@ -93,6 +120,7 @@ export class AiService {
   }
 
   async generateScript(req: ScriptRequest, orgId: string): Promise<{ script: VideoScript; provider: string }> {
+    if (this.demoMode) return { script: this.demoScript(req), provider: 'demo' };
     const cred = await this.requireLlm(orgId);
     const system = req.language.startsWith('ar') ? AR_SYSTEM : EN_SYSTEM;
     const user = req.language.startsWith('ar')
@@ -114,8 +142,58 @@ export class AiService {
 
   /* ----------------------------------------------------------------- VOICE */
 
+  /**
+   * Deterministic offline script (AI_PROVIDER_MODE=demo). Satisfies the same
+   * VideoScriptSchema contract the real LLMs must pass, so the pipeline below
+   * is exercised end-to-end (scenes, captions, durations, assets).
+   */
+  private demoScript(req: ScriptRequest): VideoScript {
+    const keyword = req.keyword.trim() || 'التعلم المستمر';
+    const k = keyword;
+    const scenes: Array<{ narration: string; visualPrompt: string }> = [
+      {
+        narration: `هل تساءلت يوماً عن أسرار ${k}؟ في هذا الفيديو سنكشف لك كل ما تحتاج معرفته عن ${k} بطريقة مبسطة وسريعة.`,
+        visualPrompt: `cinematic close-up of ${k}, glowing details, deep colors, vertical 9:16`,
+      },
+      {
+        narration: `أولاً، يبدأ كل شيء بفهم الأساسيات. ${k} ليس معقداً كما تظن، بل يحتاج فقط إلى خطوات واضحة ومنظمة.`,
+        visualPrompt: `clean infographic illustration about ${k}, bright palette, vertical 9:16`,
+      },
+      {
+        narration: `ثانياً، التطبيق العملي هو سر الإتقان. جرّب بنفسك وستكتشف أن ${k} يصبح أسهل مع كل محاولة جديدة.`,
+        visualPrompt: `hands working on a ${k} project, cinematic lighting, vertical 9:16`,
+      },
+      {
+        narration: `وأخيراً، المداومة تصنع الفرق الحقيقي. خصص وقتاً يومياً صغيراً وسوف تتفاجأ بالنتائج الكبيرة على المدى الطويل.`,
+        visualPrompt: `abstract golden success path about ${k}, soft glow, vertical 9:16`,
+      },
+    ];
+    return {
+      title: `أسرار ${k} التي لا يعرفها معظم الناس`,
+      description: `اكتشف ${k} من الصفر إلى الاحتراف في دقائق. شرح مبسط بالعربية مع خطوات عملية وتطبيق مباشر. #تعلم #${k.replace(/\s+/g, '')}`,
+      tags: [k, 'تعلم', 'نصائح', 'معلومة', 'تطوير', 'مختصر'],
+      hook: `لن تصدق كم هو سهل إتقان ${k} بهذه الطريقة!`,
+      cta: 'تابعنا لمزيد من المحتوى المفيد، وفعّل الجرس ليصلك كل جديد.',
+      scenes,
+    };
+  }
+
   /** Real Arabic voiceover: OpenAI tts when that credential resolved, else gTTS chunked MP3(s). */
   async synthesizeVoice(text: string, language: string, orgId: string): Promise<{ chunks: Buffer[]; provider: string; mime: string }> {
+    if (this.demoMode) {
+      // Silent track sized from the narration (≈2.2 words/sec reading pace) so
+      // scene windows and the final duration stay realistic without any TTS API.
+      const wordCount = text.split(/\s+/).filter(Boolean).length;
+      const secs = Math.max(10, Math.round(wordCount / 2.2));
+      const { mkdtemp, readFile } = await import('node:fs/promises');
+      const { join } = await import('node:path');
+      const { tmpdir } = await import('node:os');
+      const wd = await mkdtemp(join(tmpdir(), 'aca-tts-'));
+      const out = join(wd, 'voice.wav');
+      await renderSilentWav(secs, out);
+      const buf = await readFile(out);
+      return { chunks: [buf], provider: 'demo', mime: 'audio/wav' };
+    }
     const cred = await this.creds.resolveLlm(orgId);
     if (cred?.def.id === 'openai') {
       const res = await fetch('https://api.openai.com/v1/audio/speech', {
@@ -177,6 +255,7 @@ export class AiService {
    * exists at all, before any clip is attempted).
    */
   async resolveVideoCred(orgId: string): Promise<VideoCredential | null> {
+    if (this.demoMode) return null; // stills path — no external clip providers offline
     return this.creds.resolveVideo(orgId);
   }
 
@@ -201,6 +280,7 @@ export class AiService {
    * prompt-relevant photography/artwork downloaded over the wire.
    */
   async generateSceneImage(visualPrompt: string, seed: number): Promise<{ data: Buffer; provider: string }> {
+    if (this.demoMode) return this.imageViaDemo(seed);
     const errors: string[] = [];
     try {
       return await this.imageViaPollinations(visualPrompt, seed);
@@ -218,6 +298,19 @@ export class AiService {
       errors.push(`openverse: ${err instanceof Error ? err.message : err}`);
     }
     throw new Error(`all image providers failed → ${errors.join(' | ')}`);
+  }
+
+  /** Solid-color 720x1280 placeholder still (demo mode only — offline, instant). */
+  private async imageViaDemo(seed: number): Promise<{ data: Buffer; provider: 'demo' }> {
+    const palette = ['0x0f172a', '0x1e1b4b', '0x0c4a6e', '0x134e4a', '0x4c1d95', '0x9a3412', '0x334155', '0x581c87'];
+    const color = palette[Math.abs(seed) % palette.length]!;
+    const { mkdtemp, readFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    const wd = await mkdtemp(join(tmpdir(), 'aca-img-'));
+    const out = join(wd, 'scene.jpg');
+    await renderSolidJpeg(color, out);
+    return { data: await readFile(out), provider: 'demo' };
   }
 
   private async imageViaPollinations(visualPrompt: string, seed: number): Promise<{ data: Buffer; provider: 'pollinations' }> {

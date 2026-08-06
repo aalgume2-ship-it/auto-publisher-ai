@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@aca/shared": "workspace:*",
+    "@prisma/adapter-pg": "catalog:",
     "@prisma/client": "catalog:",
     "zod": "catalog:"
   },

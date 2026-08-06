@@ -43,7 +43,7 @@ services:
     # then the catalog + demo seed. All three steps are idempotent.
     preDeployCommand: >-
       node infra/scripts/ensure-vector.mjs &&
-      pnpm --filter @aca/database exec prisma db push --skip-generate &&
+      pnpm --filter @aca/database exec prisma db push &&
       pnpm db:seed
     startCommand: node apps/api/dist/main.js
     healthCheckPath: /health

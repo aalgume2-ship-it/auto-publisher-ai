@@ -30,7 +30,10 @@
   "devDependencies": {
     "@aca/eslint-config": "workspace:*",
     "@aca/typescript-config": "workspace:*",
+    "@prisma/adapter-pg": "catalog:",
+    "@prisma/client": "catalog:",
     "prettier": "^3.4.2",
+    "prisma": "catalog:",
     "turbo": "^2.5.0",
     "typescript": "^5.6.3"
   },
