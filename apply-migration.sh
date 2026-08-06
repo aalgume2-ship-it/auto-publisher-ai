@@ -25,7 +25,7 @@ echo "▸ [apply-migration.sh] Applying database schema / migration..."
 if [ -d "packages/database/prisma/migrations" ] && [ "$(ls -A packages/database/prisma/migrations 2>/dev/null)" ]; then
   pnpm --filter @aca/database exec prisma migrate deploy
 else
-  pnpm --filter @aca/database exec prisma db push --skip-generate
+  pnpm --filter @aca/database exec prisma db push
 fi
 
 echo "▸ [apply-migration.sh] Seeding database..."

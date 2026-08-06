@@ -1,0 +1,46 @@
+# ─────────────────────────────────────────────────────────────
+# TEMPLATE — copy this file to .github/workflows/ to activate.
+# (Kept outside .github/workflows so CI bots without the
+# `workflows` permission can still merge this repo; anyone with
+# write access can move it in place.)
+# ─────────────────────────────────────────────────────────────
+# Deploy the NestJS API to Railway on every push to the main branch.
+#
+# Setup (one time):
+#   1. Create the service in Railway from this repo (or `railway init`).
+#   2. Add repository secret RAILWAY_TOKEN (Railway → Account → Tokens).
+#   3. On the Railway service set env vars (Neon DATABASE_URL, Upstash
+#      REDIS_URL, AUTH_JWT_SECRET, AI_PROVIDER_MODE=demo, SEED_ADMIN_ON_BOOT,
+#      SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD).
+#
+# The schema is pushed from this workflow against the Neon DB (it reads
+# DATABASE_URL from the secret DATABASE_URL and runs prisma db push + seed).
+
+name: Deploy API → Railway
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Push Prisma schema to Neon
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          corepack enable
+          pnpm install --no-frozen-lockfile --ignore-scripts
+          pnpm db:generate
+          pnpm --filter @aca/database exec prisma db push --skip-generate || true
+          pnpm db:seed || true
+
+      - name: Deploy to Railway
+        uses: berviantoleo/railway-deploy@v1
+        with:
+          railway_token: ${{ secrets.RAILWAY_TOKEN }}
+          service: ${{ secrets.RAILWAY_SERVICE_ID }}

@@ -46,6 +46,8 @@ async function call<T>(
       headers: {
         Accept: 'application/json',
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        // @Idempotent() routes require the header — mint one per mutation.
+        ...(method !== 'GET' && method !== 'HEAD' ? { 'Idempotency-Key': crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}` } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,

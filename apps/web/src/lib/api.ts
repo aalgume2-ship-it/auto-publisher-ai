@@ -10,13 +10,13 @@
 import { ErrorCodes } from '@aca/shared/errors.js'; // browser-safe leaf (no node builtins); root pulls server utils
 
 /**
- * Phase 1: the web app talks to its own /api/v1/* Route Handlers which proxy
- * to the Render API.  The browser never contacts Render directly for auth or
- * health.  API_BASE is kept for asset URLs (media, thumbnails) that are still
- * served directly from the upstream.
+ * Same-origin by default: all API traffic goes through the Next.js proxy
+ * (/api/v1/*) on the SAME host as the web app, so a Vercel deployment needs
+ * zero public API host configured on the browser side. NEXT_PUBLIC_API_BASE
+ * is kept for deployments that prefer a direct public API origin.
  */
 export const API_BASE: string =
-  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/+$/, '') ?? 'https://autocreator-api-preview.onrender.com';
+  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/+$/, '') ?? '/api';
 
 /** All API calls go through the local Next.js proxy (/api/v1/…). */
 const API_PROXY = '/api/v1';
@@ -135,6 +135,17 @@ function getCurrentToken(): string | null {
   }
 }
 
+/**
+ * Mutations are @Idempotent() on the API and REQUIRE an Idempotency-Key
+ * header (400 otherwise). The browser has no natural key, so mint one per
+ * mutating request — unique per call, satisfies the contract, and keeps
+ * accidental double-clicks from replaying (the API dedupes by key+payload).
+ */
+function newIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -146,6 +157,7 @@ async function request<T>(
       method,
       headers: {
         ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(method !== 'GET' && method !== 'HEAD' ? { 'Idempotency-Key': newIdempotencyKey() } : {}),
         ...(opts.token ? { Authorization: `Bearer ${opts.token}` } : {}),
       },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : null,

@@ -21,6 +21,7 @@
  * executeTenantScoped — the single source of truth for both paths).
  */
 import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { generateId, idTimestamp } from './id.js';
 import { tenantFieldFor } from '@aca/shared/constants/tenancy.js';
 
@@ -62,8 +63,17 @@ export class TenantViolationError extends Error {
   }
 }
 
-export function createPrismaClient(options?: { log?: Array<'query' | 'info' | 'warn' | 'error'> }): PrismaClient {
+/**
+ * Prisma 7 uses driver adapters for the connection (the datasource `url` no
+ * longer lives in the schema). The adapter is created here from the standard
+ * DATABASE_URL env (or an explicit override) so every caller keeps working.
+ */
+export function createPrismaClient(options?: { log?: Array<'query' | 'info' | 'warn' | 'error'>; url?: string }): PrismaClient {
+  const url = options?.url ?? process.env.DATABASE_URL;
+  if (!url) throw new Error('DATABASE_URL is required to create the Prisma client');
+  const adapter = new PrismaPg({ connectionString: url });
   return new PrismaClient({
+    adapter,
     log: options?.log ?? (process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error']),
   });
 }

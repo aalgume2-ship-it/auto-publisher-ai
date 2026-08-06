@@ -7,7 +7,10 @@
     "CI",
     "DATABASE_URL",
     "REDIS_URL",
-    "AI_PROVIDER_MODE"
+    "AI_PROVIDER_MODE",
+    "PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING",
+    "PRISMA_SCHEMA_ENGINE_BINARY",
+    "PRISMA_CLI_BINARY_TARGETS"
   ],
   "tasks": {
     "build": {

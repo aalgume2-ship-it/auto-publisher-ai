@@ -74,12 +74,12 @@ async function bootstrap(): Promise<void> {
 
   // SEED_ADMIN_ON_BOOT — when set, ensure an OWNER user + org + membership
   // exists so a human can log in from the web app. This is the only way
-  // to bootstrap an admin on Render's free tier (no shell access, no
-  // one-off jobs). It is fully idempotent and is gated by the env var so
+  // to bootstrap an admin on a managed host (no shell access, no one-off
+  // jobs). It is fully idempotent and is gated by the env var so
   // production never runs it unless explicitly opted in.
   if (process.env.SEED_ADMIN_ON_BOOT === 'true') {
     try {
-      const { createPrismaClient } = await import('@aca/database');
+      const { createPrismaClient, generateId } = await import('@aca/database');
       const { hashPassword } = await import('@aca/auth');
       const prisma = createPrismaClient();
       const email = (process.env.SEED_ADMIN_EMAIL ?? 'admin@autocreator.sa').trim().toLowerCase();
@@ -94,8 +94,12 @@ async function bootstrap(): Promise<void> {
       // optional column. We only need the bare-minimum fields to seed
       // a working OWNER + ACTIVE row; the bootstrap path is admin-only
       // and intentionally bypasses the strict input contract.
+      // `id` is mandatory (User/Organization ids are @db.Uuid with no
+      // default) — generateId() emits app-owned UUIDv7 ids like the rest of
+      // the platform (seed.ts, services).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const userCreate: any = {
+        id: generateId(),
         email,
         passwordHash,
         displayName,
@@ -108,7 +112,7 @@ async function bootstrap(): Promise<void> {
         create: userCreate,
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const orgCreate: any = { slug: orgSlug, name: orgName };
+      const orgCreate: any = { id: generateId(), slug: orgSlug, name: orgName };
       const org = await prisma.organization.upsert({
         where: { slug: orgSlug },
         update: { name: orgName },
@@ -116,6 +120,7 @@ async function bootstrap(): Promise<void> {
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const memberCreate: any = {
+        id: generateId(),
         orgId: org.id,
         userId: user.id,
         role: 'OWNER',

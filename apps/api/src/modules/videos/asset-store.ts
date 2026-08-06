@@ -1,8 +1,8 @@
 /**
  * AssetStore — binary persistence for generated media.
  *
- * Free-tier reality (no bundled object storage on Render free): the Render
- * instance disk (default /tmp/aca-storage) is EPHEMERAL — it is wiped on
+ * Serverless reality (no bundled object storage): the instance disk
+ * (default /tmp/aca-storage) is EPHEMERAL — it is wiped on
  * spin-down/restart, which previously stranded READY videos whose MP4 bytes
  * had vanished (media routes 500d). Durability is therefore two-tier:
  *
@@ -38,7 +38,7 @@ export class AssetStore {
     await mkdir(dirname(full), { recursive: true });
     await writeFile(full, data);
     // Durable copy — the ONLY guarantee bytes survive an ephemeral-disk wipe.
-    await this.prisma.assetBlob.upsert({ where: { storageKey }, update: {}, create: { storageKey, data } });
+    await this.prisma.assetBlob.upsert({ where: { storageKey }, update: {}, create: { storageKey, data: new Uint8Array(data) } });
     return { storageKey, bytes: data.byteLength };
   }
 

@@ -1,23 +1,80 @@
 /**
  * VideoComposer — REAL render: scene images (Ken Burns) + voiceover + burned
  * Arabic subtitles → 720x1280 H.264 MP4, via the ffmpeg/ffprobe static
- * binaries (works on the Render free runtime — no system packages needed).
+ * binaries (bundled via npm — no system packages needed on any runtime).
  * Arabic captions: libass `subtitles` filter with the bundled Noto Naskh
  * Arabic font (OFL, infra/fonts).
  */
 import { Injectable } from '@nestjs/common';
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { writeFile, mkdir } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import ffmpegPathImport from 'ffmpeg-static';
-import ffprobeStaticImport from 'ffprobe-static';
 
-const ffmpegPath: string = (ffmpegPathImport as unknown as string | null) ?? 'ffmpeg';
-const ffprobePath: string = (ffprobeStaticImport as unknown as { path: string }).path;
+const require = createRequire(import.meta.url);
+
+/**
+ * ffmpeg/ffprobe binary resolution — deterministic and offline-safe:
+ *   1. FFMPEG_PATH / FFPROBE_PATH env overrides (deployments with a system ffmpeg)
+ *   2. @ffmpeg-installer / @ffprobe-installer — the binary ships INSIDE the npm
+ *      package, so installs work with `--ignore-scripts` and air-gapped caches
+ *   3. ffmpeg-static / ffprobe-static (download at install time; historical default)
+ *   4. bare `ffmpeg` / `ffprobe` from PATH
+ */
+function resolveFfmpeg(): string {
+  const env = process.env.FFMPEG_PATH;
+  if (env && existsSync(env)) return env;
+  for (const pkg of ['@ffmpeg-installer/linux-x64', 'ffmpeg-static']) {
+    try {
+      const pkgJson = require.resolve(`${pkg}/package.json`);
+      const p = join(dirname(pkgJson), 'ffmpeg');
+      if (existsSync(p)) return p;
+    } catch {
+      /* try next source */
+    }
+    try {
+      const candidate = require(pkg) as unknown;
+      const p =
+        typeof candidate === 'string'
+          ? candidate
+          : (candidate as { path?: string } | null)?.path ?? (candidate as { default?: string } | null)?.default;
+      if (typeof p === 'string' && existsSync(p)) return p;
+    } catch {
+      /* try next source */
+    }
+  }
+  return 'ffmpeg';
+}
+
+function resolveFfprobe(): string {
+  const env = process.env.FFPROBE_PATH;
+  if (env && existsSync(env)) return env;
+  for (const pkg of ['@ffprobe-installer/linux-x64', 'ffprobe-static']) {
+    try {
+      const pkgJson = require.resolve(`${pkg}/package.json`);
+      const p = join(dirname(pkgJson), 'ffprobe');
+      if (existsSync(p)) return p;
+    } catch {
+      /* try next source */
+    }
+    try {
+      const candidate = require(pkg) as unknown;
+      const p = typeof candidate === 'string' ? candidate : (candidate as { path?: string } | null)?.path;
+      if (typeof p === 'string' && existsSync(p)) return p;
+    } catch {
+      /* try next source */
+    }
+  }
+  return 'ffprobe';
+}
+
+const ffmpegPath: string = resolveFfmpeg();
+const ffprobePath: string = resolveFfprobe();
 
 function findFontsDir(): string {
-  // repo root on Render = project src root; walk up looking for infra/fonts.
+  // repo root = project src root; walk up looking for infra/fonts.
   let dir = process.cwd();
   for (let i = 0; i < 5; i += 1) {
     const candidate = join(dir, 'infra', 'fonts');
@@ -34,7 +91,7 @@ function findFontsDir(): string {
 
 export const FONTS_DIR = findFontsDir();
 
-async function run(bin: string, args: string[], timeoutMs = 600_000): Promise<{ stdout: string; stderr: string }> {
+export async function run(bin: string, args: string[], timeoutMs = 600_000): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
@@ -56,6 +113,44 @@ export async function probeDurationMs(file: string): Promise<number> {
   const seconds = Number.parseFloat(stdout.trim());
   if (!Number.isFinite(seconds) || seconds <= 0) throw new Error(`ffprobe: no duration for ${file}`);
   return Math.round(seconds * 1000);
+}
+
+/**
+ * Renders a silent WAV track of the requested length (codec built into every
+ * ffmpeg — pcm_s16le, no external codec/lib needed). Used by the offline demo
+ * pipeline (AI_PROVIDER_MODE=demo) so a test video can render end-to-end with
+ * zero external AI/network dependencies; real deployments keep gTTS/OpenAI TTS.
+ */
+export async function renderSilentWav(durationSec: number, outPath: string): Promise<void> {
+  await run(
+    ffmpegPath,
+    [
+      '-y', '-nostdin', '-hide_banner', '-v', 'warning',
+      '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono',
+      '-t', durationSec.toFixed(3),
+      '-c:a', 'pcm_s16le',
+      outPath,
+    ],
+    60_000,
+  );
+}
+
+/**
+ * Renders a solid-color 720x1280 JPEG (placeholder scene still). Codec built-in
+ * (mjpeg); used only by the offline demo pipeline.
+ */
+export async function renderSolidJpeg(color: string, outPath: string): Promise<void> {
+  await run(
+    ffmpegPath,
+    [
+      '-y', '-nostdin', '-hide_banner', '-v', 'warning',
+      '-f', 'lavfi', '-i', `color=c=${color}:s=720x1280`,
+      '-frames:v', '1',
+      '-q:v', '3',
+      outPath,
+    ],
+    60_000,
+  );
 }
 
 export interface ComposeScene {
@@ -127,9 +222,8 @@ export class VideoComposer {
 
     const videoPath = join(workDir, 'final.mp4');
     /**
-     * MEMORY CONTRACT (Render free = 512Mi container; verified: default
-     * veryfast x264 config OOM-kills the whole API process — Render event
-     * stream `server_failed … oomKilled … 512Mi` 2026-08-03). ultrafast +
+     * MEMORY CONTRACT (512Mi containers: default veryfast x264 config
+     * OOM-kills the whole API process — verified 2026-08-03). ultrafast +
      * no lookahead/mbtree keeps x264's buffered-frame count near zero; one
      * encoder thread caps thread-stack + row buffers; 24 fps cuts frame
      * volume 25%. Still a real cinema-grade render — just container-safe.
@@ -158,7 +252,7 @@ export class VideoComposer {
    * Every clip is normalized to its exact narration window (trim when long,
    * gentle setpts stretch ≤1.6 when short — stays cinematic), scaled/cropped
    * uniformly, concatenated, captions burned, voiceover muxed. Same OOM-safe
-   * encoder contract as the stills path (Render free = 512Mi).
+   * encoder contract as the stills path (512Mi containers).
    */
   async composeMoving(scenes: MovingComposeScene[], audioPath: string, workDir: string): Promise<{ videoPath: string; durationMs: number }> {
     if (scenes.length === 0) throw new Error('composeMoving: no scenes');

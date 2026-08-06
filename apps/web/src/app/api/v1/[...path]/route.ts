@@ -1,29 +1,25 @@
 /**
- * Phase-1 catch-all API proxy: /api/v1/* → Render upstream.
- * Last rebuilt: 2026-08-05T20:25Z — force Vercel to pick up the new
- * vercel.json config (no outputDirectory, framework: nextjs) so the
- * .next/ build is published instead of the stale static export.
+ * Catch-all API proxy: /api/v1/* → the API upstream.
  *
  * Route mapping:
  *   /api/v1/auth/*    → UPSTREAM/v1/auth/*
  *   /api/v1/health/*  → UPSTREAM/health/*  (VERSION_NEUTRAL on the API)
  *   /api/v1/<other>   → UPSTREAM/v1/<other>
  *
- * The upstream origin is read from API_UPSTREAM (server-only env var) with a
- * fallback to the public NEXT_PUBLIC_API_BASE so that local dev works without
- * extra config.  The browser never sees the upstream URL — all traffic goes
- * through /api/v1/… on the same origin.
+ * The upstream origin is read from API_UPSTREAM (server-only env var on
+ * Vercel). The browser never sees the upstream URL — all traffic goes
+ * through /api/v1/… on the same origin. When no upstream is configured we
+ * fail loudly (503) instead of silently hitting a stale host.
  *
  * Always-on: this same /health route is used by the keep-alive cron declared
- * in vercel.json so the upstream is pinged every 10 minutes and never idles
- * into a sleep (see report: cold-start elimination).
+ * in vercel.json so the upstream is pinged every 10 minutes.
  */
 import { NextRequest, NextResponse } from 'next/server';
 
 const UPSTREAM =
   process.env.API_UPSTREAM?.replace(/\/+$/, '') ||
   process.env.NEXT_PUBLIC_API_BASE?.replace(/\/+$/, '') ||
-  'https://autocreator-api-preview.onrender.com';
+  '';
 
 /**
  * Remap the public path to the upstream path.
@@ -60,6 +56,12 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 }
 
 async function proxy(request: NextRequest, segments: string[]): Promise<NextResponse> {
+  if (!UPSTREAM) {
+    return NextResponse.json(
+      { type: 'about:blank', title: 'Upstream not configured', status: 503, detail: 'API_UPSTREAM is not set on the web deployment' },
+      { status: 503 },
+    );
+  }
   const target = new URL(upstreamPath(segments), UPSTREAM);
 
   // Forward query string.

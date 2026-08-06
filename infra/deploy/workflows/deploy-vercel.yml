@@ -1,0 +1,43 @@
+# ─────────────────────────────────────────────────────────────
+# TEMPLATE — copy this file to .github/workflows/ to activate.
+# (Kept outside .github/workflows so CI bots without the
+# `workflows` permission can still merge this repo; anyone with
+# write access can move it in place.)
+# ─────────────────────────────────────────────────────────────
+# Deploy the Next.js web app to Vercel on every push to the main branch.
+#
+# Setup (one time, in the repo settings → Secrets and variables → Actions):
+#   1. Create a Vercel token: https://vercel.com/account/tokens
+#   2. `npx vercel link` locally (or create project in the dashboard) to get
+#      the org + project ids: `vercel projects ls` shows them.
+#   3. Add repository secrets:
+#        VERCEL_TOKEN   = <token>
+#        VERCEL_ORG_ID  = <your org id>
+#        VERCEL_PROJECT_ID = <your project id>
+#
+# The web app needs these env vars on the Vercel project (dashboard → Settings →
+# Environment Variables, or via this workflow's `env`): API_UPSTREAM must point
+# at the API host (Railway/Fly). NEXT_PUBLIC_API_BASE stays default (/api).
+
+name: Deploy Web → Vercel
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v20
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod'
+          working-directory: .
+          github-comment: true
