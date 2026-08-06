@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "export PATH=\"$HOME/.npm-global/bin:$PATH\" && pnpm install --no-frozen-lockfile --prod=false && pnpm --filter @aca/shared build && pnpm --filter @aca/web build"
+  "buildCommand": "export PATH=\"$HOME/.npm-global/bin:$PATH\" && pnpm install --no-frozen-lockfile --prod=false && pnpm --filter @aca/shared build && pnpm --filter @aca/web build",
+  "crons": [
+    {
+      "path": "/api/v1/health",
+      "schedule": "*/10 * * * *"
+    }
+  ]
 }

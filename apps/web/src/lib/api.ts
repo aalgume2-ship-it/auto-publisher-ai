@@ -151,7 +151,7 @@ async function request<T>(
       body: opts.body !== undefined ? JSON.stringify(opts.body) : null,
     });
   } catch {
-    throw new ApiProblem(0, undefined, { detail: 'تعذّر الوصول إلى الخادم (قد تكون النسخة المجانية في طور الإيقاظ — أعد المحاولة بعد لحظات)' });
+    throw new ApiProblem(0, undefined, { detail: 'تعذّر الوصول إلى الخادم — تحقق من اتصالك وأعد المحاولة' });
   }
 
   // Auto-refresh on 401 for GET requests (idempotent, safe to retry)

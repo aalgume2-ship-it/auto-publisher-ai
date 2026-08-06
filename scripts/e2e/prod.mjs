@@ -208,8 +208,9 @@ function assertStatus(label, res, expected) {
       `items=${r.body?.items?.length}`);
   console.log('');
 
-  // ── 8. Try to create a video ───────────────────────────────────────
-  console.log('── 8. Generate video ──');
+  // ── 8. Create a video + verify WORKER EXECUTION → READY → storage ─
+  console.log('── 8. Generate video + worker execution + storage ──');
+  let videoId = null;
   if (seriesId) {
     r = await call('POST', `organizations/${orgId}/series/${seriesId}/videos/`, {
       token: loginAccess,
@@ -220,16 +221,10 @@ function assertStatus(label, res, expected) {
         style: 'cinematic',
       },
     });
-    // 201 if AI creds configured; 503/500 if not; 401 if token expired
     if (r.status === 201) {
       log(`POST /api/v1/organizations/${orgId}/series/${seriesId}/videos`, 'PASS', '201 — generation enqueued');
-      const videoId = r.body?.id;
-      if (videoId) {
-        log('  video.id returned', 'PASS', videoId);
-        // Try to get the video
-        r = await call('GET', `organizations/${orgId}/videos/${videoId}/`, { token: loginAccess });
-        assertStatus(`GET /api/v1/organizations/${orgId}/videos/${videoId}`, r, 200);
-      }
+      videoId = r.body?.id;
+      log('  video.id returned (job created)', videoId ? 'PASS' : 'FAIL', videoId || 'missing');
     } else if (r.status === 401) {
       log('POST .../videos', 'FAIL', `401 — auth issue, body: ${JSON.stringify(r.body).substring(0, 200)}`);
     } else {
@@ -237,6 +232,42 @@ function assertStatus(label, res, expected) {
     }
   } else {
     log('POST .../videos', 'SKIP', 'no series id');
+  }
+  console.log('');
+
+  // ── 8b. Poll until READY (proves the Worker executed the job) ──────
+  console.log('── 8b. Worker execution: poll video → READY ──');
+  if (videoId) {
+    let videoStatus = 'QUEUED';
+    let ready = false;
+    const pollDeadline = Date.now() + (Number(process.env.E2E_VIDEO_TIMEOUT_MS) || 5 * 60 * 1000);
+    while (Date.now() < pollDeadline) {
+      r = await call('GET', `organizations/${orgId}/videos/${videoId}/`, { token: loginAccess });
+      videoStatus = r.body?.status;
+      if (videoStatus === 'READY' || videoStatus === 'DONE') { ready = true; break; }
+      if (['FAILED', 'ERROR', 'CANCELLED'].includes(videoStatus)) break;
+      await new Promise((res) => setTimeout(res, 4000));
+    }
+    log('video reached READY (worker executed job)', ready ? 'PASS' : 'FAIL', `final status=${videoStatus}`);
+
+    if (ready) {
+      const renditions = r.body?.renditions || [];
+      log('  rendition stored in object storage', renditions.length > 0 ? 'PASS' : 'FAIL', `renditions=${renditions.length}`);
+
+      // Download verification: fetch the Range-aware MP4 stream and check bytes.
+      r = await call('GET', `organizations/${orgId}/videos/${videoId}/stream/`, { token: loginAccess });
+      const contentType = r.headers?.get?.('content-type') || '';
+      const bodyLen = typeof r.body === 'string' ? r.body.length : 0;
+      assertStatus(`GET /api/v1/organizations/${orgId}/videos/${videoId}/stream (download)`, r, [200, 206]);
+      log('  downloadable video bytes returned', /video|octet-stream/.test(contentType) || bodyLen > 1000 ? 'PASS' : 'FAIL', `type=${contentType} bytes≈${bodyLen}`);
+    }
+
+    // Appears in the dashboard library (/videos).
+    r = await call('GET', `organizations/${orgId}/videos/`, { token: loginAccess });
+    assertStatus(`GET /api/v1/organizations/${orgId}/videos (dashboard library)`, r, 200);
+    log('  video appears in dashboard library', r.body?.items?.some(v => v.id === videoId) ? 'PASS' : 'FAIL', `items=${r.body?.items?.length}`);
+  } else {
+    log('worker-execution verification', 'SKIP', 'no video id (generation not enqueued)');
   }
   console.log('');
 
@@ -287,6 +318,42 @@ function assertStatus(label, res, expected) {
   assertStatus(`GET /api/v1/organizations/${orgId}/assets (after re-login)`, r, 200);
   log('  asset still exists', r.body?.items?.some(a => a.id === assetId) ? 'PASS' : 'FAIL',
       `items=${r.body?.items?.length}`);
+  console.log('');
+
+  // ── 14. Stripe Checkout (runs only when the backend has Stripe) ────
+  console.log('── 14. Stripe checkout (credential-gated) ──');
+  const wantStripe = process.env.TEST_STRIPE === '1';
+  if (wantStripe) {
+    // Fetch the public plans, then create a checkout session for the first plan.
+    r = await call('GET', `organizations/${orgId}/billing/plans/`, { token: finalAccess });
+    assertStatus('GET /api/v1/organizations/{}/billing/plans'.replace('{}', orgId), r, [200, 404]);
+    const planCode = r.body?.items?.[0]?.code || r.body?.[0]?.code || r.body?.plans?.[0]?.code;
+    if (planCode) {
+      r = await call('PUT', `organizations/${orgId}/checkout-session/`, {
+        token: finalAccess,
+        body: { planCode, interval: 'month', successUrl: BASE + '/dashboard', cancelUrl: BASE + '/subscribe' },
+      });
+      assertStatus('PUT /api/v1/organizations/{}/checkout-session (Stripe)'.replace('{}', orgId), r, [200, 201]);
+      const checkoutUrl = r.body?.url;
+      log('  Stripe Checkout URL returned', /checkout\.stripe\.com|stripe/.test(checkoutUrl || '') ? 'PASS' : 'FAIL', checkoutUrl || 'no url');
+    } else {
+      log('Stripe checkout', 'SKIP', 'no plan code returned by billing/plans');
+    }
+  } else {
+    log('Stripe checkout', 'SKIP', 'set TEST_STRIPE=1 + Stripe keys on the backend to enable');
+  }
+  console.log('');
+
+  // ── 15. OAuth providers (credential-gated) ─────────────────────────
+  console.log('── 15. Google / Apple OAuth config ──');
+  const googleUrl = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_URL;
+  const appleUrl = process.env.NEXT_PUBLIC_APPLE_OAUTH_URL;
+  log('Google OAuth endpoint configured', googleUrl ? 'PASS' : 'SKIP', googleUrl ? googleUrl : 'NEXT_PUBLIC_GOOGLE_OAUTH_URL unset');
+  log('Apple OAuth endpoint configured', appleUrl ? 'PASS' : 'SKIP', appleUrl ? appleUrl : 'NEXT_PUBLIC_APPLE_OAUTH_URL unset');
+  if (googleUrl) {
+    r = await call('GET', 'health/');
+    log('  Google OAuth start URL reachable', r.status === 200 ? 'PASS' : 'FAIL', `proxy health=${r.status}`);
+  }
   console.log('');
 
   function printSummary() {

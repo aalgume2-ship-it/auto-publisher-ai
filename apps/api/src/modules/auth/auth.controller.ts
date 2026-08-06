@@ -4,7 +4,7 @@
  * lives in the package (unit-tested without Nest). Public routes are
  * rate-limited by the global guard chain like every other public route.
  */
-import { Body, Controller, HttpCode, Inject, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, Inject, Logger, Post } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -24,6 +24,7 @@ import { Public } from '../../common/auth/auth.guard.js';
 import { requestContext } from '../../common/context/request-context.js';
 import { UseZod } from '../../common/validation/zod-validation.pipe.js';
 import { PROBLEM } from '../../common/http/problem-details.openapi.js';
+import { OrganizationsService, type OrganizationDto } from '../organizations/organizations.service.js';
 import { AUTH_SERVICE } from './auth.providers.js';
 import { withAuthErrorMapping } from './auth-error-map.js';
 import {
@@ -47,7 +48,18 @@ import {
 @ApiUnauthorizedResponse({ description: 'Invalid credentials / expired or reused token', content: { 'application/problem+json': { schema: PROBLEM } } })
 @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded', content: { 'application/problem+json': { schema: PROBLEM } } })
 export class AuthController {
-  constructor(@Inject(AUTH_SERVICE) private readonly auth: AuthService) {}
+  private readonly logger = new Logger(AuthController.name);
+
+  constructor(
+    @Inject(AUTH_SERVICE) private readonly auth: AuthService,
+    private readonly organizations: OrganizationsService,
+  ) {}
+
+  /** Human-friendly default workspace name derived from the operator's display name. */
+  private defaultWorkspaceName(displayName: string): string {
+    const base = displayName.trim();
+    return base.length > 0 ? `${base} Studio` : 'My Studio';
+  }
 
   private requestMeta(): { ip: string; userAgent: string | null } {
     const ctx = requestContext();
@@ -58,16 +70,51 @@ export class AuthController {
   @Post('register')
   @HttpCode(201)
   @UseZod({ body: RegisterBody })
-  @ApiOperation({ operationId: 'register', summary: 'Create an account (email/password) — session issued immediately' })
+  @ApiOperation({ operationId: 'register', summary: 'Create an account (email/password) — session issued immediately, a default workspace + settings are provisioned in the background' })
   @ApiBody({ schema: RegisterBodyDoc })
   @ApiCreatedResponse({
     description: 'Account created',
-    schema: { type: 'object', properties: { user: { $ref: '#/components/schemas/AuthUser' }, tokens: TokensDoc } },
+    schema: {
+      type: 'object',
+      properties: {
+        user: { $ref: '#/components/schemas/AuthUser' },
+        tokens: TokensDoc,
+        workspace: {
+          type: 'object',
+          nullable: true,
+          properties: { id: { type: 'string' }, name: { type: 'string' }, slug: { type: 'string' } },
+        },
+      },
+    },
   })
   @ApiBadRequestResponse({ description: 'Weak password / validation failed', content: { 'application/problem+json': { schema: PROBLEM } } })
   @ApiConflictResponse({ description: 'Email already registered', content: { 'application/problem+json': { schema: PROBLEM } } })
-  register(@Body() body: RegisterBody) {
-    return withAuthErrorMapping(() => this.auth.register(body, this.requestMeta()));
+  async register(@Body() body: RegisterBody) {
+    return withAuthErrorMapping(async (): Promise<{
+      user: { id: string; email: string; displayName: string };
+      tokens: import('@aca/auth').IssuedTokens;
+      workspace?: OrganizationDto;
+    }> => {
+      const result = await this.auth.register(body, this.requestMeta());
+      let workspace: OrganizationDto | undefined;
+      try {
+        // Auto-provision the operator's first workspace (Organization) with
+        // sensible defaults so they land straight into a ready dashboard.
+        // Best-effort by design: a provisioning hiccup must never fail the
+        // whole registration — the dashboard offers manual creation if needed.
+        workspace = await this.organizations.createOrganization(
+          { kind: 'user', userId: result.user.id },
+          {
+            name: this.defaultWorkspaceName(result.user.displayName),
+            timezone: body.timezone,
+            defaultLocale: body.locale,
+          },
+        );
+      } catch (err) {
+        this.logger.warn(`workspace auto-provision failed for user ${result.user.id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return { user: result.user, tokens: result.tokens, workspace };
+    });
   }
 
   @Public()
