@@ -17,7 +17,7 @@ import type { AppConfig } from '@aca/config';
 import { API_CONFIG } from '../../common/redis.provider.js';
 import { ApiError } from '../../common/errors/api-error.js';
 import { OrgCredentialsService } from '../../common/credentials/org-credentials.service.js';
-import { LLM_PROVIDERS, chatCompletion, type LlmCredential } from './providers.js';
+import { LLM_PROVIDERS, chatCompletion, type LlmCredential, type LlmProviderDef } from './providers.js';
 import { generateClip, type VideoCredential } from './providers-video.js';
 import { renderSilentWav, renderSolidJpeg } from '../videos/compose.service.js';
 
@@ -85,21 +85,17 @@ export class AiService {
    */
   private async requireLlm(orgId: string): Promise<LlmCredential> {
     if (this.demoMode) {
-      return {
-        def: {
-          id: 'openai', // reused shape only; never actually called in demo mode
-          label: 'Demo (local)',
-          model: 'demo',
-          kind: 'openai-compatible',
-          chatUrl: undefined,
-          consoleUrl: '',
-          free: true,
-          envKey: '',
-          strictJson: false,
-        },
-        apiKey: 'demo',
-        source: 'env',
+      const def: LlmProviderDef = {
+        id: 'openai', // reused shape only; never actually called in demo mode
+        label: 'Demo (local)',
+        model: 'demo',
+        kind: 'openai-compatible',
+        consoleUrl: '',
+        free: true,
+        envKey: '',
+        strictJson: false,
       };
+      return { def, apiKey: 'demo', source: 'env' };
     }
     const cred = await this.creds.resolveLlm(orgId);
     if (!cred) {

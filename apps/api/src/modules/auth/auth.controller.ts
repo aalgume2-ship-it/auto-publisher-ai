@@ -113,7 +113,7 @@ export class AuthController {
       } catch (err) {
         this.logger.warn(`workspace auto-provision failed for user ${result.user.id}: ${err instanceof Error ? err.message : String(err)}`);
       }
-      return { user: result.user, tokens: result.tokens, workspace };
+      return { user: result.user, tokens: result.tokens, ...(workspace !== undefined ? { workspace } : {}) };
     });
   }
 

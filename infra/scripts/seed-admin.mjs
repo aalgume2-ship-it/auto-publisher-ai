@@ -64,15 +64,16 @@ async function hashPassword(password) {
 
 async function main() {
   // Import compiled @aca/database (Render has run `pnpm build` during image build).
-  const { createPrismaClient } = await import('@aca/database');
+  const { createPrismaClient, generateId } = await import('@aca/database');
   const prisma = createPrismaClient();
   const passwordHash = await hashPassword(PASSWORD);
 
-  // 1. Upsert user
+  // 1. Upsert user (id is mandatory: User.id is @db.Uuid with no default)
   const user = await prisma.user.upsert({
     where: { email: EMAIL },
     update: { passwordHash, displayName: DISPLAY_NAME },
     create: {
+      id: generateId(),
       email: EMAIL,
       passwordHash,
       displayName: DISPLAY_NAME,
@@ -86,7 +87,7 @@ async function main() {
   const org = await prisma.organization.upsert({
     where: { slug: ORG_SLUG },
     update: { name: ORG_NAME, ownerId: user.id },
-    create: { slug: ORG_SLUG, name: ORG_NAME, ownerId: user.id },
+    create: { id: generateId(), slug: ORG_SLUG, name: ORG_NAME, ownerId: user.id },
   });
   console.log(`org:  ${org.id}  slug=${org.slug}  name=${org.name}`);
 
@@ -94,7 +95,7 @@ async function main() {
   const membership = await prisma.membership.upsert({
     where: { userId_orgId: { userId: user.id, orgId: org.id } },
     update: { role: 'OWNER', status: 'ACTIVE' },
-    create: { userId: user.id, orgId: org.id, role: 'OWNER', status: 'ACTIVE' },
+    create: { id: generateId(), userId: user.id, orgId: org.id, role: 'OWNER', status: 'ACTIVE' },
   });
   console.log(`membership: ${membership.id}  role=${membership.role}  status=${membership.status}`);
 

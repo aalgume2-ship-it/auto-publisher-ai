@@ -38,7 +38,7 @@ export class AssetStore {
     await mkdir(dirname(full), { recursive: true });
     await writeFile(full, data);
     // Durable copy — the ONLY guarantee bytes survive an ephemeral-disk wipe.
-    await this.prisma.assetBlob.upsert({ where: { storageKey }, update: {}, create: { storageKey, data } });
+    await this.prisma.assetBlob.upsert({ where: { storageKey }, update: {}, create: { storageKey, data: new Uint8Array(data) } });
     return { storageKey, bytes: data.byteLength };
   }
 

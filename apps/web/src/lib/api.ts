@@ -135,6 +135,17 @@ function getCurrentToken(): string | null {
   }
 }
 
+/**
+ * Mutations are @Idempotent() on the API and REQUIRE an Idempotency-Key
+ * header (400 otherwise). The browser has no natural key, so mint one per
+ * mutating request — unique per call, satisfies the contract, and keeps
+ * accidental double-clicks from replaying (the API dedupes by key+payload).
+ */
+function newIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -146,6 +157,7 @@ async function request<T>(
       method,
       headers: {
         ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(method !== 'GET' && method !== 'HEAD' ? { 'Idempotency-Key': newIdempotencyKey() } : {}),
         ...(opts.token ? { Authorization: `Bearer ${opts.token}` } : {}),
       },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : null,
