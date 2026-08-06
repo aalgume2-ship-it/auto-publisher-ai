@@ -74,8 +74,8 @@ async function bootstrap(): Promise<void> {
 
   // SEED_ADMIN_ON_BOOT — when set, ensure an OWNER user + org + membership
   // exists so a human can log in from the web app. This is the only way
-  // to bootstrap an admin on Render's free tier (no shell access, no
-  // one-off jobs). It is fully idempotent and is gated by the env var so
+  // to bootstrap an admin on a managed host (no shell access, no one-off
+  // jobs). It is fully idempotent and is gated by the env var so
   // production never runs it unless explicitly opted in.
   if (process.env.SEED_ADMIN_ON_BOOT === 'true') {
     try {

@@ -1,8 +1,8 @@
 /**
  * AssetStore — binary persistence for generated media.
  *
- * Free-tier reality (no bundled object storage on Render free): the Render
- * instance disk (default /tmp/aca-storage) is EPHEMERAL — it is wiped on
+ * Serverless reality (no bundled object storage): the instance disk
+ * (default /tmp/aca-storage) is EPHEMERAL — it is wiped on
  * spin-down/restart, which previously stranded READY videos whose MP4 bytes
  * had vanished (media routes 500d). Durability is therefore two-tier:
  *

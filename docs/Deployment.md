@@ -101,29 +101,63 @@ in Business-Model §5 unchanged (absorbed in infra line at 1k-org scale).
 
 ---
 
-## 2. Preview on Render (one-click Blueprint — durable trial URL)
+## 2. Vercel-first architecture (current — Render removed)
 
-`render.yaml` (repo root) provisions the full preview stack on Render —
-web service + managed Postgres 16 + free KeyValue (Redis protocol) — with
-zero local tooling:
+The platform no longer depends on Render. The deployment topology is:
 
-1. <https://dashboard.render.com> → **New → Blueprint** → connect this repo.
-2. Render reads `render.yaml` and runs, per deploy: pnpm install → prisma
-   generate → `turbo build` → **pre-deploy** `ensure-vector.mjs` (pgvector,
-   idempotent) → `prisma db push` → `pnpm db:seed` → start
-   `node apps/api/dist/main.js`.
-3. When Live, the service URL (`https://<service>.onrender.com`) serves
-   `/docs`, `/openapi.json`, `/health`, `/health/ready`, `/metrics` publicly;
-   the remaining surface needs a session JWT: mint one from the web service's
-   Render **Shell** tab — `node infra/scripts/mint-dev-token.mjs` (demo-org +
-   demo user seed because `NODE_ENV=development`; a staging cut sets
-   `NODE_ENV=production`, skipping demo data per Database.md §7).
+```
+┌─────────────────────────────┐
+│  Vercel — web (Next.js 15)  │   <-- the URL the customer opens
+│  /api/v1/* → proxy to API   │       (server-side API_UPSTREAM env)
+└──────────────┬──────────────┘
+               │ HTTPS
+┌──────────────▼──────────────┐
+│  API host: Railway (or Fly) │   long-lived NestJS + queue workers + ffmpeg
+│  node apps/api/dist/main.js │   (cannot run on serverless — see §2.2)
+└──────┬──────────────┬───────┘
+       │              │
+   Neon Postgres   Upstash Redis
+   (DATABASE_URL)  (REDIS_URL, Streams)
+       │
+   Vercel Blob / S3 (optional, for media offload)
+```
 
-Free-plan realities (Render, by design): web sleeps after 15 min idle (cold
-start on next request), free Postgres lasts 90 days, KeyValue free tier is
-25 MB. `AUTH_JWT_SECRET` is generated per service by Render; `TRUST_PROXY`
-is set so per-client rate limiting keys off the real client IP behind
-Render's balancer.
+### 2.1 Why the API is not a Vercel Function
+
+The API is NestJS + **Redis Streams queue workers** (generation/publish) +
+**ffmpeg renders** (~30–40 s of CPU per video). Serverless functions have
+hard duration limits and no persistent process, so queue workers and
+renders cannot survive there. The division of labor is therefore:
+
+- **Vercel** → the Next.js web app + the same-origin `/api/v1/*` proxy
+  (Route Handlers, `apps/web/src/app/api/v1/[...path]/route.ts`).
+- **Railway (or Fly.io)** → the API, reading `railway.json` / `fly.toml`.
+- **Neon** → Postgres 16 + pgvector (the schema's `vector` extension).
+- **Upstash Redis** → `REDIS_URL` (Streams + rate limits + idempotency).
+
+### 2.2 One-click deploy
+
+1. **Neon:** console.neon.tech → create project → copy `DATABASE_URL`.
+2. **Upstash:** console.upstash.com → Redis database → copy `REDIS_URL`.
+3. **API (Railway):** railway.app → **New Project → Deploy from GitHub repo**
+   → select this repo → `railway.json` is auto-detected (Nixpacks).
+   Set env vars: `DATABASE_URL`, `REDIS_URL`, `AUTH_JWT_SECRET`,
+   `AI_PROVIDER_MODE=demo` (until real keys), `SEED_ADMIN_ON_BOOT=true`,
+   `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `NODE_ENV=production`.
+   Railway runs `prisma db push` + seed via the included GitHub Action
+   (`.github/workflows/deploy-railway.yml`) or the service's start command.
+4. **Web (Vercel):** vercel.com → **New Project** → import this repo →
+   `vercel.json` auto-configures the build. Add env `API_UPSTREAM=https://
+   <your-railway-service>.up.railway.app`. (Or use the included GitHub
+   Action `.github/workflows/deploy-vercel.yml` with `VERCEL_TOKEN` +
+   `VERCEL_ORG_ID` + `VERCEL_PROJECT_ID`.)
+5. Open the Vercel URL → register → the full flow works end-to-end
+   (workspace/channel/asset/series/video + demo render).
+
+Free-plan realities: Railway services sleep after ~5 min idle (cold start on
+next request), Neon free tier pauses after 7 days idle (the GitHub Action's
+`prisma db push` wakes it), Upstash free tier is 10k commands/day — plenty
+for a preview. `AUTH_JWT_SECRET` must be set manually (never committed).
 
 ---
 

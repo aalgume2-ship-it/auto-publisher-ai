@@ -1,7 +1,7 @@
 /**
  * VideoComposer — REAL render: scene images (Ken Burns) + voiceover + burned
  * Arabic subtitles → 720x1280 H.264 MP4, via the ffmpeg/ffprobe static
- * binaries (works on the Render free runtime — no system packages needed).
+ * binaries (bundled via npm — no system packages needed on any runtime).
  * Arabic captions: libass `subtitles` filter with the bundled Noto Naskh
  * Arabic font (OFL, infra/fonts).
  */
@@ -74,7 +74,7 @@ const ffmpegPath: string = resolveFfmpeg();
 const ffprobePath: string = resolveFfprobe();
 
 function findFontsDir(): string {
-  // repo root on Render = project src root; walk up looking for infra/fonts.
+  // repo root = project src root; walk up looking for infra/fonts.
   let dir = process.cwd();
   for (let i = 0; i < 5; i += 1) {
     const candidate = join(dir, 'infra', 'fonts');
@@ -222,9 +222,8 @@ export class VideoComposer {
 
     const videoPath = join(workDir, 'final.mp4');
     /**
-     * MEMORY CONTRACT (Render free = 512Mi container; verified: default
-     * veryfast x264 config OOM-kills the whole API process — Render event
-     * stream `server_failed … oomKilled … 512Mi` 2026-08-03). ultrafast +
+     * MEMORY CONTRACT (512Mi containers: default veryfast x264 config
+     * OOM-kills the whole API process — verified 2026-08-03). ultrafast +
      * no lookahead/mbtree keeps x264's buffered-frame count near zero; one
      * encoder thread caps thread-stack + row buffers; 24 fps cuts frame
      * volume 25%. Still a real cinema-grade render — just container-safe.
@@ -253,7 +252,7 @@ export class VideoComposer {
    * Every clip is normalized to its exact narration window (trim when long,
    * gentle setpts stretch ≤1.6 when short — stays cinematic), scaled/cropped
    * uniformly, concatenated, captions burned, voiceover muxed. Same OOM-safe
-   * encoder contract as the stills path (Render free = 512Mi).
+   * encoder contract as the stills path (512Mi containers).
    */
   async composeMoving(scenes: MovingComposeScene[], audioPath: string, workDir: string): Promise<{ videoPath: string; durationMs: number }> {
     if (scenes.length === 0) throw new Error('composeMoving: no scenes');

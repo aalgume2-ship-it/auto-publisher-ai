@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * seed-admin — Render-shell one-shot that creates an OWNER user with a
+ * seed-admin — one-shot runner that creates an OWNER user with a
  * scrypt-hashed password, an org, and a membership, so a human can log in
  * via the web app without having to re-register.
  *
@@ -10,7 +10,7 @@
  * then redirects to /register, which now 409s). This script skips the
  * whole chicken-and-egg loop by inserting through Prisma directly.
  *
- * Usage (Render Shell tab on autocreator-api-preview):
+ * Usage (Railway shell / local with DATABASE_URL set):
  *   node infra/scripts/seed-admin.mjs --email admin@autocreator.sa \
  *       --password 'AdminRiyadh2026!' --displayName 'Studio Admin'
  */
@@ -23,7 +23,7 @@ import { promisify } from 'node:util';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..', '..');
 
-// Load .env (Render provides DATABASE_URL via the env, but tolerate a local one).
+// Load .env (hosts provide DATABASE_URL via the env, but tolerate a local one).
 try {
   process.loadEnvFile(resolve(root, '.env'));
 } catch { /* env provided externally */ }
@@ -63,7 +63,7 @@ async function hashPassword(password) {
 }
 
 async function main() {
-  // Import compiled @aca/database (Render has run `pnpm build` during image build).
+  // Import compiled @aca/database (hosts run `pnpm build` during image build).
   const { createPrismaClient, generateId } = await import('@aca/database');
   const prisma = createPrismaClient();
   const passwordHash = await hashPassword(PASSWORD);
