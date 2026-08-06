@@ -1,3 +1,9 @@
+# ─────────────────────────────────────────────────────────────
+# TEMPLATE — copy this file to .github/workflows/ to activate.
+# (Kept outside .github/workflows so CI bots without the
+# `workflows` permission can still merge this repo; anyone with
+# write access can move it in place.)
+# ─────────────────────────────────────────────────────────────
 # Deploy the Next.js web app to Vercel on every push to the main branch.
 #
 # Setup (one time, in the repo settings → Secrets and variables → Actions):
