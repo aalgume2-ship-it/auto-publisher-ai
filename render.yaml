@@ -14,6 +14,13 @@
 # Free-plan caveats (Render, not us): web services sleep after 15 min idle
 # (first request after sleep is a cold start), free Postgres expires after 90
 # days, and free KeyValue is 25 MB noeviction — plenty for a preview.
+#
+# PRODUCTION = always-on: for no cold starts / no "Unreachable" in the UI, the
+# API service MUST run on a non-sleeping plan (`plan: standard` or higher, or
+# the K8s topology in docs/Deployment.md). The web app's keep-alive cron
+# (vercel.json → GET /api/v1/health every 10 min) is a stopgap that keeps THIS
+# instance warm so first requests are served immediately, but it is not a
+# substitute for an always-on host.
 
 services:
   - type: web

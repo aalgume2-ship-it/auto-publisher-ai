@@ -13,6 +13,10 @@
  * fallback to the public NEXT_PUBLIC_API_BASE so that local dev works without
  * extra config.  The browser never sees the upstream URL — all traffic goes
  * through /api/v1/… on the same origin.
+ *
+ * Always-on: this same /health route is used by the keep-alive cron declared
+ * in vercel.json so the upstream is pinged every 10 minutes and never idles
+ * into a sleep (see report: cold-start elimination).
  */
 import { NextRequest, NextResponse } from 'next/server';
 
