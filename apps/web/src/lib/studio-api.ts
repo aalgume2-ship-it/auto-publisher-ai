@@ -10,12 +10,15 @@
  * could not be reached — callers keep the UI in a friendly "Processing…"
  * state and retry automatically; the product never shows "API Unreachable"
  * or "Cold Start" to the user.
+ *
+ * Robustness upgrade: timeout (15s), cold-start detection (HTML or 502/503),
+ * automatic retry with backoff (up to 3 attempts for auth, 2 for others).
  */
 
 export const API_BASE = '/api/v1';
 
 export interface StudioApiError {
-  kind: 'http' | 'network';
+  kind: 'http' | 'network' | 'cold_start';
   status?: number;
   code?: string;
   detail?: string;
@@ -34,35 +37,113 @@ function normalizePath(path: string): string {
   return path;
 }
 
+function isColdStartResponse(status: number, text: string, contentType: string | null): boolean {
+  if (status === 502 || status === 503) {
+    const t = text.slice(0, 2000).toLowerCase();
+    if (t.includes('cold') || t.includes('waking') || t.includes('unreachable') || t.includes('application loading')) return true;
+    // If 502/503 and not JSON, likely cold start
+    if (contentType && contentType.includes('text/html')) return true;
+    if (text.trim().startsWith('<!doctype') || text.trim().startsWith('<html')) return true;
+  }
+  if (contentType && contentType.includes('text/html')) return true;
+  const lower = text.slice(0, 2000).toLowerCase();
+  return lower.includes('application loading') || lower.includes('service waking up') || lower.includes('allocating compute');
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...init, signal: ac.signal });
+    return res;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function call<T>(
   method: string,
   path: string,
   body?: unknown,
   token?: string | null,
 ): Promise<ApiResult<T>> {
-  try {
-    const res = await fetch(`${API_BASE}${normalizePath(path)}`, {
-      method,
-      headers: {
-        Accept: 'application/json',
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-        // @Idempotent() routes require the header — mint one per mutation.
-        ...(method !== 'GET' && method !== 'HEAD' ? { 'Idempotency-Key': crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}` } : {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-    const text = await res.text();
-    let json: unknown = null;
-    if (text) { try { json = JSON.parse(text); } catch { json = null; } }
-    if (!res.ok) {
-      const pb = (json ?? {}) as { code?: string; detail?: string };
-      return { ok: false, reachable: true, error: { kind: 'http', status: res.status, code: pb.code, detail: pb.detail } };
+  const finalPath = `${API_BASE}${normalizePath(path)}`;
+  // For auth, we retry more aggressively because cold start happens often on first login
+  const isAuth = path.includes('/auth/');
+  const maxAttempts = isAuth ? 4 : 3;
+  const timeoutMs = isAuth ? 20000 : 15000;
+
+  let lastError: ApiResult<T> | null = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const res = await fetchWithTimeout(
+        finalPath,
+        {
+          method,
+          headers: {
+            Accept: 'application/json',
+            ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+            ...(method !== 'GET' && method !== 'HEAD' ? { 'Idempotency-Key': (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`) } : {}),
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+        },
+        timeoutMs,
+      );
+
+      const contentType = res.headers.get('content-type');
+      const text = await res.text();
+      let json: any = null;
+      if (text) {
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = null;
+        }
+      }
+
+      // Cold start detection - treat HTML or specific 502/503 as retryable network issue
+      if (isColdStartResponse(res.status, text, contentType)) {
+        // If this is not the last attempt, wait and retry
+        if (attempt < maxAttempts - 1) {
+          const delay = 2000 * Math.pow(1.7, attempt); // 2s, 3.4s, 5.8s, 9.8s
+          await new Promise((r) => setTimeout(r, delay));
+          lastError = { ok: false, reachable: false, error: { kind: 'cold_start', status: res.status, detail: 'cold start - retrying' } };
+          continue;
+        }
+        // Final attempt - return as cold_start / unreachable
+        return {
+          ok: false,
+          reachable: false,
+          error: { kind: 'cold_start', status: res.status, code: json?.code || 'COLD_START', detail: 'Service is waking up' },
+        };
+      }
+
+      if (!res.ok) {
+        const pb = (json ?? {}) as { code?: string; detail?: string };
+        // For 502/503 that are JSON (our proxy's COLD_START JSON), treat as retryable if auth and not last attempt
+        if ((res.status === 502 || res.status === 503) && isAuth && attempt < maxAttempts - 1) {
+          const delay = 2500 * Math.pow(1.5, attempt);
+          await new Promise((r) => setTimeout(r, delay));
+          lastError = { ok: false, reachable: false, error: { kind: 'cold_start', status: res.status, code: pb.code, detail: pb.detail || 'upstream waking' } };
+          continue;
+        }
+        return { ok: false, reachable: true, error: { kind: 'http', status: res.status, code: pb.code, detail: pb.detail } };
+      }
+      return { ok: true, reachable: true, data: json as T };
+    } catch (err: any) {
+      const isTimeout = err?.name === 'AbortError';
+      if (attempt < maxAttempts - 1) {
+        const delay = 2000 * Math.pow(1.6, attempt);
+        await new Promise((r) => setTimeout(r, delay));
+        lastError = { ok: false, reachable: false, error: { kind: 'network', detail: isTimeout ? 'timeout - retrying' : 'backend unreachable - retrying' } };
+        continue;
+      }
+      return { ok: false, reachable: false, error: { kind: 'network', detail: isTimeout ? 'Request timed out' : 'backend unreachable' } };
     }
-    return { ok: true, reachable: true, data: json as T };
-  } catch {
-    return { ok: false, reachable: false, error: { kind: 'network', detail: 'backend unreachable' } };
   }
+  return lastError ?? { ok: false, reachable: false, error: { kind: 'network', detail: 'backend unreachable' } };
 }
 
 /* ---------------------------------------------------------------- auth --- */

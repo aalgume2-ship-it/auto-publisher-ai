@@ -19,15 +19,45 @@ function LoginInner() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [retryMsg, setRetryMsg] = useState<string | null>(null);
 
   async function submitEmail(e: React.FormEvent) {
     e.preventDefault();
-    setBusy(true); setErr(null);
-    const r = await signinWith(email.trim().toLowerCase(), password);
+    setBusy(true); 
+    setErr(null);
+    setRetryMsg(null);
+
+    // Retry loop for cold-start friendly UX - up to 5 attempts
+    let attempts = 0;
+    const maxAttempts = 5;
+    while (attempts < maxAttempts) {
+      attempts++;
+      const r = await signinWith(email.trim().toLowerCase(), password);
+      if (r.ok) {
+        // Give JWT storage a moment then navigate
+        if (!r.session.plan) {
+          setBusy(false);
+          router.push('/subscribe?next=/dashboard');
+          return;
+        }
+        setBusy(false);
+        router.push(next);
+        return;
+      }
+      // If not ok, check if retryable (network/cold start)
+      if (r.retryable && attempts < maxAttempts) {
+        setRetryMsg(`الخدمة تستيقظ الآن... محاولة ${attempts}/${maxAttempts} - نعيد المحاولة تلقائياً خلال ثوانٍ`);
+        await new Promise((resolve) => setTimeout(resolve, 3000 * attempts)); // increasing backoff
+        continue;
+      }
+      // Final failure
+      setBusy(false);
+      setRetryMsg(null);
+      setErr(r.message);
+      return;
+    }
     setBusy(false);
-    if (!r.ok) { setErr(r.message); return; }
-    if (!r.session.plan) { router.push('/subscribe?next=/dashboard'); return; }
-    router.push(next);
+    setErr('تعذر تسجيل الدخول بعد عدة محاولات - الخدمة قد تكون نائمة، حاول مرة أخرى.');
   }
 
   return (
@@ -39,6 +69,7 @@ function LoginInner() {
           <h1>Welcome back</h1>
           <p className="hint">Sign in to keep creating.</p>
           {err && <div className="alert err" style={{ marginBottom: 14 }}>{err}</div>}
+          {retryMsg && <div className="alert" style={{ marginBottom: 14, background: 'rgba(139,123,255,0.15)', border: '1px solid rgba(139,123,255,0.3)', color: '#d8d0ff', padding: '10px 14px', borderRadius: 10, fontSize: 13 }}>{retryMsg}</div>}
           <div className="soc-row">
             <button className="soc-btn" disabled={!oauthEnabled('google')} title={oauthEnabled('google') ? '' : 'Configure GOOGLE_OAUTH_URL to enable'} onClick={() => { if (OAUTH_GOOGLE_URL) window.location.href = OAUTH_GOOGLE_URL; }}>
               <GoogleIcon /> Google
@@ -51,9 +82,12 @@ function LoginInner() {
           <form onSubmit={submitEmail}>
             <div className="field"><label>Email</label><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></div>
             <div className="field"><label>Password</label><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password" autoComplete="current-password" /></div>
-            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? 'Signing in…' : 'Sign in'}</button>
+            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? (retryMsg ? 'Waking service...' : 'Signing in...') : 'Sign in'}</button>
           </form>
           <div className="alt">New to Lumen? <Link href={`/signup?next=${encodeURIComponent(next)}`}>Create account</Link></div>
+          <div className="alt" style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
+            <span>Trouble? The API may be cold-starting on Render free tier. Wait 30s and retry, or check <Link href="/api/v1/health" target="_blank">health</Link>.</span>
+          </div>
         </motion.div>
       </main>
     </div>

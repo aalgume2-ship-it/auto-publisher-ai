@@ -6,35 +6,18 @@
  *
  * Auto-refresh: when a GET request returns 401 and a refresh token is present,
  * the client silently refreshes the session and retries the request once.
+ *
+ * Robustness: timeout (15-20s), cold-start detection (HTML), auto-retry with backoff.
  */
-import { ErrorCodes } from '@aca/shared/errors.js'; // browser-safe leaf (no node builtins); root pulls server utils
+import { ErrorCodes } from '@aca/shared/errors.js';
 
-/**
- * Same-origin by default: all API traffic goes through the Next.js proxy
- * (/api/v1/*) on the SAME host as the web app, so a Vercel deployment needs
- * zero public API host configured on the browser side. NEXT_PUBLIC_API_BASE
- * is kept for deployments that prefer a direct public API origin.
- */
 export const API_BASE: string =
   process.env.NEXT_PUBLIC_API_BASE?.replace(/\/+$/, '') ?? '/api';
 
-/** All API calls go through the local Next.js proxy (/api/v1/…). */
 const API_PROXY = '/api/v1';
 
-/**
- * Strip a redundant leading `/v1` from a caller-supplied path.
- *
- * The web app has been calling `api.post('/v1/auth/login', …)` everywhere
- * (auth, dashboard, channels, etc.) while the shared base URL is
- * `/api/v1`. Without normalization this concatenated to
- * `/api/v1/v1/auth/login` — which the upstream Render API does not have,
- * producing 404s on every call.
- *
- * Normalize once at the boundary so every existing caller continues to
- * work without having to touch dozens of call-sites.
- */
 function normalizePath(path: string): string {
-  if (path.startsWith('/v1/')) return path.slice(3); // '/v1/auth/login' → '/auth/login'
+  if (path.startsWith('/v1/')) return path.slice(3);
   if (path === '/v1') return '';
   return path;
 }
@@ -66,22 +49,22 @@ const CODE_MESSAGES: Record<string, string> = {
   FORBIDDEN: 'ليست لديك صلاحية كافية لهذا الإجراء',
   NOT_FOUND: 'العنصر المطلوب غير موجود',
   PLATFORM_ERROR: 'عذراً — هذه الميزة غير مفعّلة على هذا الخادم حالياً',
+  COLD_START: 'الخدمة تستيقظ الآن — نعيد المحاولة تلقائياً',
+  UPSTREAM_UNREACHABLE: 'الخدمة غير متاحة مؤقتاً — نعيد المحاولة تلقائياً',
 };
 
 export function arabicMessage(p: ApiProblem | ProblemBody): string {
   const body: ProblemBody = p instanceof ApiProblem ? p.body : p;
-  const code = p.code;
-  // Some codes carry directly actionable operator details from the backend.
+  const code = (p as ApiProblem).code ?? body.code;
+  if (code === 'COLD_START' || code === 'UPSTREAM_UNREACHABLE') {
+    return 'الخدمة تستيقظ الآن — ثوانٍ ونعيد المحاولة تلقائياً';
+  }
   if (body.detail && (code === 'VALIDATION_FAILED' || code === 'AI_CREDENTIALS_MISSING' || code === 'PLATFORM_ERROR')) return body.detail;
   if (code && code in CODE_MESSAGES) return CODE_MESSAGES[code as keyof typeof CODE_MESSAGES] as string;
-  if (ErrorCodes.includes(code as never)) return body.detail ?? 'حدث خطأ غير متوقع';
+  if (code && ErrorCodes.includes(code as never)) return body.detail ?? 'حدث خطأ غير متوقع';
   return body.detail ?? (p as { message?: string }).message ?? 'تعذّر الاتصال بالخادم — تحقق من الشبكة';
 }
 
-/**
- * Attempt to refresh the session token. Returns true if refresh succeeded
- * and the caller should retry their request.
- */
 async function tryRefreshSession(): Promise<boolean> {
   if (typeof window === 'undefined') return false;
   try {
@@ -90,14 +73,17 @@ async function tryRefreshSession(): Promise<boolean> {
     const session = JSON.parse(raw) as { refreshToken?: string; accessToken?: string };
     if (!session.refreshToken) return false;
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
     const res = await fetch(`${API_PROXY}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken: session.refreshToken }),
+      signal: controller.signal,
     });
+    clearTimeout(timer);
 
     if (!res.ok) {
-      // Refresh failed — clear session so user is redirected to login
       window.localStorage.removeItem('aca.session.v1');
       return false;
     }
@@ -107,7 +93,6 @@ async function tryRefreshSession(): Promise<boolean> {
       tokens: { accessToken: string; refreshToken: string };
     };
 
-    // Update stored session with new tokens
     const updated = {
       ...session,
       accessToken: json.tokens.accessToken,
@@ -122,7 +107,6 @@ async function tryRefreshSession(): Promise<boolean> {
   }
 }
 
-/** Get the current access token from storage (for retry after refresh) */
 function getCurrentToken(): string | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -135,15 +119,31 @@ function getCurrentToken(): string | null {
   }
 }
 
-/**
- * Mutations are @Idempotent() on the API and REQUIRE an Idempotency-Key
- * header (400 otherwise). The browser has no natural key, so mint one per
- * mutating request — unique per call, satisfies the contract, and keeps
- * accidental double-clicks from replaying (the API dedupes by key+payload).
- */
 function newIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function isColdStartText(text: string): boolean {
+  const t = text.slice(0, 3000).toLowerCase();
+  return (
+    t.includes('application loading') ||
+    t.includes('service waking up') ||
+    t.includes('allocating compute') ||
+    (t.includes('<!doctype') && t.includes('<html')) ||
+    (t.includes('<html') && t.includes('render'))
+  );
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...init, signal: ac.signal });
+    return res;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function request<T>(
@@ -151,48 +151,80 @@ async function request<T>(
   path: string,
   opts: { token?: string | null; body?: unknown; isRetry?: boolean } = {},
 ): Promise<T> {
-  let res: Response;
-  try {
-    res = await fetch(`${API_PROXY}${normalizePath(path)}`, {
-      method,
-      headers: {
-        ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-        ...(method !== 'GET' && method !== 'HEAD' ? { 'Idempotency-Key': newIdempotencyKey() } : {}),
-        ...(opts.token ? { Authorization: `Bearer ${opts.token}` } : {}),
-      },
-      body: opts.body !== undefined ? JSON.stringify(opts.body) : null,
-    });
-  } catch {
-    throw new ApiProblem(0, undefined, { detail: 'تعذّر الوصول إلى الخادم — تحقق من اتصالك وأعد المحاولة' });
-  }
+  const isAuth = path.includes('/auth/');
+  const maxAttempts = isAuth ? 4 : 3;
+  const timeoutMs = isAuth ? 20000 : 15000;
 
-  // Auto-refresh on 401 for GET requests (idempotent, safe to retry)
-  if (res.status === 401 && method === 'GET' && !opts.isRetry && opts.token) {
-    const refreshed = await tryRefreshSession();
-    if (refreshed) {
-      const newToken = getCurrentToken();
-      if (newToken) {
-        return request<T>(method, path, { ...opts, token: newToken, isRetry: true });
+  let lastProblem: ApiProblem | null = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    let res: Response;
+    try {
+      res = await fetchWithTimeout(`${API_PROXY}${normalizePath(path)}`, {
+        method,
+        headers: {
+          ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+          ...(method !== 'GET' && method !== 'HEAD' ? { 'Idempotency-Key': newIdempotencyKey() } : {}),
+          ...(opts.token ? { Authorization: `Bearer ${opts.token}` } : {}),
+        },
+        body: opts.body !== undefined ? JSON.stringify(opts.body) : null,
+      }, timeoutMs);
+    } catch (err: any) {
+      const isTimeout = err?.name === 'AbortError';
+      if (attempt < maxAttempts - 1) {
+        const delay = 2000 * Math.pow(1.6, attempt);
+        await new Promise((r) => setTimeout(r, delay));
+        lastProblem = new ApiProblem(0, 'UPSTREAM_UNREACHABLE', { detail: isTimeout ? 'انتهت مهلة الطلب - نعيد المحاولة' : 'تعذر الوصول - نعيد المحاولة' });
+        continue;
+      }
+      throw new ApiProblem(0, undefined, { detail: 'تعذّر الوصول إلى الخادم — تحقق من اتصالك وأعد المحاولة' });
+    }
+
+    if (res.status === 401 && method === 'GET' && !opts.isRetry && opts.token) {
+      const refreshed = await tryRefreshSession();
+      if (refreshed) {
+        const newToken = getCurrentToken();
+        if (newToken) {
+          return request<T>(method, path, { ...opts, token: newToken, isRetry: true });
+        }
       }
     }
-  }
 
-  const text = await res.text();
-  // Parse defensively — if the proxy or CDN hands us a non-JSON body
-  // (e.g. a Vercel auth redirect page, or a 502 HTML), we still want
-  // to surface an `ApiProblem` with the raw text instead of throwing
-  // a SyntaxError that callers (login/register) misclassify as
-  // "تعذّر الاتصال".
-  let json: ProblemBody = {};
-  if (text.length > 0) {
-    try {
-      json = JSON.parse(text) as ProblemBody;
-    } catch {
-      json = { title: res.statusText || 'Unexpected response', detail: text.slice(0, 240) };
+    const text = await res.text();
+    if (isColdStartText(text) && (res.status === 502 || res.status === 503 || res.status === 200)) {
+      // Detect HTML interstitial as cold start
+      if (attempt < maxAttempts - 1) {
+        const delay = 2500 * Math.pow(1.6, attempt);
+        await new Promise((r) => setTimeout(r, delay));
+        lastProblem = new ApiProblem(res.status, 'COLD_START', { detail: 'الخدمة تستيقظ الآن - نعيد المحاولة' });
+        continue;
+      }
+      throw new ApiProblem(res.status, 'COLD_START', { detail: 'الخدمة تستيقظ الآن - حاول مرة أخرى بعد ثوانٍ' });
     }
+
+    let json: ProblemBody = {};
+    if (text.length > 0) {
+      try {
+        json = JSON.parse(text) as ProblemBody;
+      } catch {
+        json = { title: res.statusText || 'Unexpected response', detail: text.slice(0, 240) };
+      }
+    }
+
+    // If 502/503 with JSON code COLD_START, retry
+    if ((res.status === 502 || res.status === 503) && (json.code === 'COLD_START' || json.code === 'UPSTREAM_UNREACHABLE')) {
+      if (attempt < maxAttempts - 1) {
+        const delay = 2500 * Math.pow(1.5, attempt);
+        await new Promise((r) => setTimeout(r, delay));
+        lastProblem = new ApiProblem(res.status, json.code, json);
+        continue;
+      }
+    }
+
+    if (!res.ok) throw new ApiProblem(res.status, json.code, json);
+    return json as T;
   }
-  if (!res.ok) throw new ApiProblem(res.status, json.code, json);
-  return json as T;
+  throw lastProblem ?? new ApiProblem(0, 'UPSTREAM_UNREACHABLE', { detail: 'تعذر الاتصال بعد عدة محاولات' });
 }
 
 export const api = {
