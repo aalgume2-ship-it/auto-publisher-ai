@@ -86,7 +86,7 @@ function LoginInner() {
           </form>
           <div className="alt">New to Lumen? <Link href={`/signup?next=${encodeURIComponent(next)}`}>Create account</Link></div>
           <div className="alt" style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
-            <span>Trouble? The API may be cold-starting on Render free tier. Wait 30s and retry, or check <Link href="/api/v1/health" target="_blank">health</Link>.</span>
+            <span>Having trouble? Please wait a moment and retry, or check <Link href="/api/v1/health" target="_blank">service health</Link>.</span>
           </div>
         </motion.div>
       </main>

@@ -1,22 +1,8 @@
 /**
- * Catch-all API proxy: /api/v1/* → the API upstream (Railway).
+ * Catch-all API proxy: /api/v1/* → Railway API upstream.
  *
- * Route mapping:
- *   /api/v1/auth/*    → UPSTREAM/v1/auth/*
- *   /api/v1/health/*  → UPSTREAM/health/*  (VERSION_NEUTRAL on the API)
- *   /api/v1/<other>   → UPSTREAM/v1/<other>
- *
- * Migration: Render → Railway (always-on)
- * - Primary upstream from API_UPSTREAM env var (set to Railway URL)
- * - Fallback chain tries Railway candidates, then local mock
- * - Cold-start handling: Railway Hobby still may sleep after inactivity,
- *   but we retry with backoff and keep it warm via:
- *   1) Vercel cron /api/v1/health every 10 min (vercel.json)
- *   2) Client HealthChip polls every 30s when dashboard open
- *   3) GitHub Actions keep-alive workflow every 5 min (if added)
- * - Returns proper RFC9457 JSON, never raw HTML
- * - Local mock fallback keeps login working even if Railway is down,
- *   so production URL never fully 503s
+ * No Render fallback - Railway only per migration.
+ * This file MUST point to Railway after migration.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -27,19 +13,13 @@ const RAW_UPSTREAM =
   process.env.RAILWAY_PUBLIC_DOMAIN?.trim() ||
   '';
 
- // Railway-first fallback candidates (Render removed per migration request)
- // User moved from Render to Railway to avoid sleep. Render URL kept as last resort
- // until Railway is confirmed healthy, then can be removed.
+ // Railway-only fallback - NO RENDER
+ // Real Railway URL MUST be set as API_UPSTREAM in Vercel env vars
 const FALLBACK_UPSTREAMS = [
-  // If RAILWAY_PUBLIC_DOMAIN is set like "xxx.up.railway.app", use it
   process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN.replace(/^https?:\/\//, '')}` : '',
-  // Common Railway patterns - will be tried if API_UPSTREAM missing
-  // These are guessed; real Railway URL should be set as API_UPSTREAM in Vercel env
   'https://auto-publisher-ai-production.up.railway.app',
   'https://autocreator-api-production.up.railway.app',
   'https://auto-publisher-ai.up.railway.app',
-  // Last resort legacy Render (to keep site working until Railway fully confirmed)
-  'https://autocreator-api-preview.onrender.com',
 ].filter(Boolean);
 
 function cleanOrigin(s: string): string {
@@ -71,11 +51,10 @@ function isHtmlInterstitial(text: string, contentType: string | null): boolean {
     t.includes('<!doctype html') ||
     t.includes('<html') ||
     t.includes('application loading') ||
-    (t.includes('render') && t.includes('waking up')) ||
     t.includes('allocating compute resources') ||
     t.includes('service waking up') ||
     t.includes('your app is almost live') ||
-    t.includes('train has not arrived') // Railway 404 page
+    t.includes('train has not arrived')
   );
 }
 
@@ -92,156 +71,6 @@ async function fetchWithTimeout(
   } finally {
     clearTimeout(timer);
   }
-}
-
-// Minimal in-memory fallback for demo when upstream is dead
-type MockUser = { id: string; email: string; displayName: string; password: string };
-const mockUsers = new Map<string, MockUser>();
-function mockJwt(user: MockUser): string {
-  const payload = {
-    sub: user.id,
-    email: user.email,
-    exp: Math.floor(Date.now() / 1000) + 900,
-    iat: Math.floor(Date.now() / 1000),
-  };
-  const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
-  return `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64(payload)}.mock-signature`;
-}
-
-function handleLocalMock(segments: string[], method: string, bodyText: string | null) {
-  const path = '/' + segments.join('/');
-  if (path.startsWith('/health')) {
-    return NextResponse.json(
-      {
-        status: 'ok',
-        service: 'apps/web-local-fallback',
-        version: '0.2.0-railway-migration',
-        environment: process.env.NODE_ENV || 'production',
-        upstream: 'fallback-active',
-        timestamp: new Date().toISOString(),
-        note: 'API upstream unreachable - serving local fallback. Railway migration in progress.',
-      },
-      { status: 200 },
-    );
-  }
-  if (path === '/auth/register' && method === 'POST') {
-    try {
-      const b = bodyText ? JSON.parse(bodyText) : {};
-      const email = (b.email || '').toString().trim().toLowerCase();
-      const password = (b.password || '').toString();
-      const displayName = (b.displayName || email.split('@')[0] || 'User').toString();
-      if (!email || !password || password.length < 8) {
-        return NextResponse.json(
-          { code: 'VALIDATION_FAILED', title: 'Validation failed', status: 400, detail: 'Email and password required (min 8 chars)' },
-          { status: 400 },
-        );
-      }
-      if (mockUsers.has(email)) {
-        return NextResponse.json(
-          { code: 'CONFLICT', title: 'Email taken', status: 409, detail: 'An account with this email already exists' },
-          { status: 409 },
-        );
-      }
-      const user: MockUser = {
-        id: `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-        email,
-        displayName,
-        password,
-      };
-      mockUsers.set(email, user);
-      const tokens = {
-        accessToken: mockJwt(user),
-        refreshToken: `refresh-${user.id}-${Date.now()}`,
-        tokenType: 'Bearer',
-      };
-      return NextResponse.json(
-        {
-          user: { id: user.id, email: user.email, displayName: user.displayName },
-          tokens,
-          workspace: { id: `ws-${user.id}`, name: `${displayName} Studio`, slug: `${email.split('@')[0]}-studio` },
-        },
-        { status: 201 },
-      );
-    } catch {
-      return NextResponse.json(
-        { code: 'PLATFORM_ERROR', title: 'Mock error', status: 500, detail: 'Fallback mock failed' },
-        { status: 500 },
-      );
-    }
-  }
-  if (path === '/auth/login' && method === 'POST') {
-    try {
-      const b = bodyText ? JSON.parse(bodyText) : {};
-      const email = (b.email || '').toString().trim().toLowerCase();
-      const password = (b.password || '').toString();
-      const user = mockUsers.get(email);
-      if (!user || user.password !== password) {
-        if (user && user.password !== password) {
-          return NextResponse.json(
-            { code: 'UNAUTHENTICATED', title: 'Invalid credentials', status: 401, detail: 'Incorrect email or password' },
-            { status: 401 },
-          );
-        }
-        return NextResponse.json(
-          { code: 'UNAUTHENTICATED', title: 'Invalid credentials', status: 401, detail: 'Incorrect email or password - please register first' },
-          { status: 401 },
-        );
-      }
-      const tokens = {
-        accessToken: mockJwt(user),
-        refreshToken: `refresh-${user.id}-${Date.now()}`,
-        tokenType: 'Bearer',
-      };
-      return NextResponse.json(
-        {
-          kind: 'tokens',
-          user: { id: user.id, email: user.email, displayName: user.displayName },
-          tokens,
-        },
-        { status: 200 },
-      );
-    } catch {
-      return NextResponse.json(
-        { code: 'PLATFORM_ERROR', title: 'Mock error', status: 500, detail: 'Fallback mock failed' },
-        { status: 500 },
-      );
-    }
-  }
-  if (path === '/auth/refresh' && method === 'POST') {
-    try {
-      const email = mockUsers.keys().next().value as string | undefined;
-      let user: MockUser | undefined;
-      if (email) user = mockUsers.get(email);
-      if (!user) {
-        return NextResponse.json(
-          { code: 'UNAUTHENTICATED', title: 'Session expired', status: 401, detail: 'Session not found' },
-          { status: 401 },
-        );
-      }
-      const tokens = {
-        accessToken: mockJwt(user),
-        refreshToken: `refresh-${user.id}-${Date.now()}`,
-        tokenType: 'Bearer',
-      };
-      return NextResponse.json(
-        { user: { id: user.id, email: user.email, displayName: user.displayName }, tokens },
-        { status: 200 },
-      );
-    } catch {
-      return NextResponse.json(
-        { code: 'PLATFORM_ERROR', title: 'Mock error', status: 500, detail: 'Fallback mock failed' },
-        { status: 500 },
-      );
-    }
-  }
-
-  if (path.startsWith('/organizations')) {
-    if (method === 'GET' && (path === '/organizations' || path.includes('/videos') || path.includes('/series'))) {
-      return NextResponse.json({ items: [] }, { status: 200 });
-    }
-  }
-
-  return null;
 }
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
@@ -278,7 +107,7 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
   if (candidates.length === 0) {
     if (isHealth) {
       return NextResponse.json(
-        { status: 'ok', service: 'apps/web', version: '0.2.0-railway', environment: 'production', timestamp: new Date().toISOString(), note: 'no upstream configured - local health' },
+        { status: 'ok', service: 'apps/web', version: '0.3.0-railway-only', environment: 'production', timestamp: new Date().toISOString(), note: 'no upstream configured - set API_UPSTREAM to Railway URL' },
         { status: 200 },
       );
     }
@@ -290,11 +119,9 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
 
   const hasBody = !['GET', 'HEAD'].includes(request.method);
   let bodyBuffer: ArrayBuffer | undefined;
-  let bodyText: string | null = null;
   if (hasBody) {
     try {
       bodyBuffer = await request.arrayBuffer();
-      if (bodyBuffer) bodyText = Buffer.from(bodyBuffer).toString('utf-8');
     } catch {
       bodyBuffer = undefined;
     }
@@ -310,8 +137,8 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
     headers.delete('transfer-encoding');
     if (!headers.has('accept')) headers.set('accept', 'application/json');
 
-    const maxAttempts = isHealth ? 2 : 4;
-    const baseDelayMs = 2000;
+    const maxAttempts = isHealth ? 2 : 3;
+    const baseDelayMs = 1500;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
@@ -324,7 +151,7 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
             // @ts-expect-error duplex
             duplex: hasBody ? 'half' : undefined,
           },
-          isHealth ? 8000 : 20000,
+          isHealth ? 8000 : 15000,
         );
 
         const contentType = upstreamRes.headers.get('content-type');
@@ -355,10 +182,10 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
                 status: 'waking',
                 service: 'api-upstream',
                 upstream: upstreamOrigin,
-                detail: 'Upstream is waking up (Railway cold start). Retried and still serving interstitial.',
+                detail: 'Upstream is waking up (Railway cold start).',
                 timestamp: new Date().toISOString(),
               },
-              { status: 200, headers: { 'Retry-After': '15' } },
+              { status: 200, headers: { 'Retry-After': '10' } },
             );
           }
           return NextResponse.json(
@@ -367,7 +194,7 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
               title: 'Upstream cold start',
               status: 503,
               code: 'COLD_START',
-              detail: 'الخدمة تستيقظ الآن (cold start) - يتم إعادة المحاولة تلقائياً. حاول مرة أخرى خلال 10 ثوانٍ.',
+              detail: 'الخدمة تستيقظ الآن - يتم إعادة المحاولة تلقائياً.',
               upstream: upstreamOrigin,
             },
             { status: 503, headers: { 'Retry-After': '10' } },
@@ -387,7 +214,6 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
       } catch (err: any) {
         const isAbort = err?.name === 'AbortError';
         console.error(`[api/v1 proxy] attempt ${attempt + 1}/${maxAttempts} failed for ${target} (${isAbort ? 'timeout' : err?.message})`);
-
         if (attempt < maxAttempts - 1) {
           const delay = baseDelayMs * Math.pow(1.6, attempt);
           await new Promise((r) => setTimeout(r, delay));
@@ -398,16 +224,13 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
     }
   }
 
-  const localMock = handleLocalMock(segments, request.method, bodyText);
-  if (localMock) return localMock;
-
   if (isHealth) {
     return NextResponse.json(
       {
         status: 'degraded',
         service: 'apps/web-proxy',
         timestamp: new Date().toISOString(),
-        detail: 'All API upstreams unreachable - proxy degraded but web alive',
+        detail: 'All Railway upstreams unreachable - check API_UPSTREAM env and Railway deployment',
         upstreams: candidates,
       },
       { status: 200 },
@@ -420,7 +243,7 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
       title: 'Upstream unreachable',
       status: 502,
       code: 'UPSTREAM_UNREACHABLE',
-      detail: 'تعذّر الوصول إلى الخادم الخلفي - الخدمة قد تكون في وضع الاستيقاظ. يتم إعادة المحاولة تلقائياً.',
+      detail: 'تعذّر الوصول إلى Railway - تأكد أن الخدمة تعمل وأن API_UPSTREAM صحيح.',
       upstreams: candidates,
     },
     { status: 502, headers: { 'Retry-After': '5' } },
