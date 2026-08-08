@@ -1,0 +1,32 @@
+{
+  "name": "@aca/video-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AutoCreator AI video rendering engine: FFmpeg 7 wrapper with encoding profiles, subtitle overlay, caption burn-in (RTL support), and LUFS audio normalization",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aca/logger": "workspace:*",
+    "@aca/shared": "workspace:*",
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@aca/typescript-config": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

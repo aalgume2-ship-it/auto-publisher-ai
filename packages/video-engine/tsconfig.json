@@ -1,0 +1,12 @@
+{
+  "extends": "@aca/typescript-config/tsconfig.lib.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../logger" },
+    { "path": "../shared" }
+  ]
+}
