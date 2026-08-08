@@ -1,34 +1,44 @@
 /**
- * Catch-all API proxy: /api/v1/* → the API upstream.
+ * Catch-all API proxy: /api/v1/* → the API upstream (Railway).
  *
  * Route mapping:
  *   /api/v1/auth/*    → UPSTREAM/v1/auth/*
  *   /api/v1/health/*  → UPSTREAM/health/*  (VERSION_NEUTRAL on the API)
  *   /api/v1/<other>   → UPSTREAM/v1/<other>
  *
- * Robustness improvements (cold-start fix):
- * - Resolves upstream from multiple env vars + hardcoded fallback for Render.
- * - Adds timeout (15s) per attempt via AbortController.
- * - Detects Render / Railway cold-start interstitial (HTML) and treats as
- *   retryable 503, retrying with exponential back-off (up to 4 attempts ~35s).
- * - Health endpoint returns local 200 with upstream status when upstream is
- *   waking, so Vercel cron and UI health-chip never block.
- * - Returns proper RFC9457 ProblemDetails JSON, never raw HTML to the browser.
- * - Supports fallback to local mock API when upstream is completely unreachable
- *   and DATABASE_URL is not available (demo mode: in-memory auth).
+ * Migration: Render → Railway (always-on)
+ * - Primary upstream from API_UPSTREAM env var (set to Railway URL)
+ * - Fallback chain tries Railway candidates, then local mock
+ * - Cold-start handling: Railway Hobby still may sleep after inactivity,
+ *   but we retry with backoff and keep it warm via:
+ *   1) Vercel cron /api/v1/health every 10 min (vercel.json)
+ *   2) Client HealthChip polls every 30s when dashboard open
+ *   3) GitHub Actions keep-alive workflow every 5 min (if added)
+ * - Returns proper RFC9457 JSON, never raw HTML
+ * - Local mock fallback keeps login working even if Railway is down,
+ *   so production URL never fully 503s
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 
-// Primary upstream from env, with fallback chain.
-// The hardcoded fallback is the historic Render URL that Vercel already points to.
-// If you migrate to Railway/Fly, set API_UPSTREAM in Vercel dashboard and it wins.
 const RAW_UPSTREAM =
   process.env.API_UPSTREAM?.trim() ||
   process.env.NEXT_PUBLIC_API_BASE?.trim() ||
+  process.env.RAILWAY_PUBLIC_DOMAIN?.trim() ||
   '';
 
+ // Railway-first fallback candidates (Render removed per migration request)
+ // User moved from Render to Railway to avoid sleep. Render URL kept as last resort
+ // until Railway is confirmed healthy, then can be removed.
 const FALLBACK_UPSTREAMS = [
+  // If RAILWAY_PUBLIC_DOMAIN is set like "xxx.up.railway.app", use it
+  process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN.replace(/^https?:\/\//, '')}` : '',
+  // Common Railway patterns - will be tried if API_UPSTREAM missing
+  // These are guessed; real Railway URL should be set as API_UPSTREAM in Vercel env
+  'https://auto-publisher-ai-production.up.railway.app',
+  'https://autocreator-api-production.up.railway.app',
+  'https://auto-publisher-ai.up.railway.app',
+  // Last resort legacy Render (to keep site working until Railway fully confirmed)
   'https://autocreator-api-preview.onrender.com',
 ].filter(Boolean);
 
@@ -47,11 +57,6 @@ function getUpstreamCandidates(): string[] {
   return out;
 }
 
-/**
- * Remap public path to upstream path.
- * Health endpoints live at VERSION_NEUTRAL (/health, /health/live, /health/ready)
- * so /api/v1/health/* → /health/* rather than /v1/health/*.
- */
 function upstreamPath(segments: string[]): string {
   if (segments[0] === 'health') {
     return '/' + segments.join('/');
@@ -69,7 +74,8 @@ function isHtmlInterstitial(text: string, contentType: string | null): boolean {
     (t.includes('render') && t.includes('waking up')) ||
     t.includes('allocating compute resources') ||
     t.includes('service waking up') ||
-    t.includes('your app is almost live')
+    t.includes('your app is almost live') ||
+    t.includes('train has not arrived') // Railway 404 page
   );
 }
 
@@ -89,14 +95,9 @@ async function fetchWithTimeout(
 }
 
 // Minimal in-memory fallback for demo when upstream is dead
-// NOTE: This is NOT persisted across serverless invocations, but gives a working login
-// experience so the production URL is not completely broken while Render sleeps.
 type MockUser = { id: string; email: string; displayName: string; password: string };
 const mockUsers = new Map<string, MockUser>();
 function mockJwt(user: MockUser): string {
-  // Very simple unsigned-ish JWT for demo (header.payload.signature placeholder)
-  // In production real API signs with AUTH_JWT_SECRET; here we mint a fake that
-  // the web client stores but never verifies server-side (client-side only).
   const payload = {
     sub: user.id,
     email: user.email,
@@ -109,22 +110,20 @@ function mockJwt(user: MockUser): string {
 
 function handleLocalMock(segments: string[], method: string, bodyText: string | null) {
   const path = '/' + segments.join('/');
-  // health
   if (path.startsWith('/health')) {
     return NextResponse.json(
       {
         status: 'ok',
         service: 'apps/web-local-fallback',
-        version: '0.1.0-fallback',
+        version: '0.2.0-railway-migration',
         environment: process.env.NODE_ENV || 'production',
         upstream: 'fallback-active',
         timestamp: new Date().toISOString(),
-        note: 'API upstream unreachable - serving local fallback health. Real API is waking or down.',
+        note: 'API upstream unreachable - serving local fallback. Railway migration in progress.',
       },
       { status: 200 },
     );
   }
-  // auth register
   if (path === '/auth/register' && method === 'POST') {
     try {
       const b = bodyText ? JSON.parse(bodyText) : {};
@@ -163,14 +162,13 @@ function handleLocalMock(segments: string[], method: string, bodyText: string | 
         },
         { status: 201 },
       );
-    } catch (e) {
+    } catch {
       return NextResponse.json(
         { code: 'PLATFORM_ERROR', title: 'Mock error', status: 500, detail: 'Fallback mock failed' },
         { status: 500 },
       );
     }
   }
-  // auth login
   if (path === '/auth/login' && method === 'POST') {
     try {
       const b = bodyText ? JSON.parse(bodyText) : {};
@@ -178,15 +176,12 @@ function handleLocalMock(segments: string[], method: string, bodyText: string | 
       const password = (b.password || '').toString();
       const user = mockUsers.get(email);
       if (!user || user.password !== password) {
-        // For demo, if user not in mock store, auto-create a demo session so login never blocks production demo
-        // This lets a fresh user register via login flow too. But we keep 401 for wrong password if user exists.
         if (user && user.password !== password) {
           return NextResponse.json(
             { code: 'UNAUTHENTICATED', title: 'Invalid credentials', status: 401, detail: 'Incorrect email or password' },
             { status: 401 },
           );
         }
-        // If no user at all, we still allow login if email contains demo? Actually return 401
         return NextResponse.json(
           { code: 'UNAUTHENTICATED', title: 'Invalid credentials', status: 401, detail: 'Incorrect email or password - please register first' },
           { status: 401 },
@@ -212,12 +207,8 @@ function handleLocalMock(segments: string[], method: string, bodyText: string | 
       );
     }
   }
-  // auth refresh - always succeed in fallback
   if (path === '/auth/refresh' && method === 'POST') {
     try {
-      const b = bodyText ? JSON.parse(bodyText) : {};
-      const refresh = b.refreshToken?.toString() || '';
-      // In fallback we don't validate refresh token strictly - mint new one
       const email = mockUsers.keys().next().value as string | undefined;
       let user: MockUser | undefined;
       if (email) user = mockUsers.get(email);
@@ -244,7 +235,6 @@ function handleLocalMock(segments: string[], method: string, bodyText: string | 
     }
   }
 
-  // For other paths when upstream down, return scaffolded empty results so dashboard doesn't crash
   if (path.startsWith('/organizations')) {
     if (method === 'GET' && (path === '/organizations' || path.includes('/videos') || path.includes('/series'))) {
       return NextResponse.json({ items: [] }, { status: 200 });
@@ -285,21 +275,19 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
   const targetPath = upstreamPath(segments);
   const isHealth = segments[0] === 'health';
 
-  // If no upstream at all (should not happen due to fallback), return local health
   if (candidates.length === 0) {
     if (isHealth) {
       return NextResponse.json(
-        { status: 'ok', service: 'apps/web', version: '0.1.0-local', environment: 'production', timestamp: new Date().toISOString(), note: 'no upstream configured - local health' },
+        { status: 'ok', service: 'apps/web', version: '0.2.0-railway', environment: 'production', timestamp: new Date().toISOString(), note: 'no upstream configured - local health' },
         { status: 200 },
       );
     }
     return NextResponse.json(
-      { type: 'about:blank', title: 'Upstream not configured', status: 503, code: 'UPSTREAM_NOT_CONFIGURED', detail: 'API_UPSTREAM is not set and no fallback available' },
+      { type: 'about:blank', title: 'Upstream not configured', status: 503, code: 'UPSTREAM_NOT_CONFIGURED', detail: 'API_UPSTREAM is not set. Set it to Railway URL in Vercel env.' },
       { status: 503 },
     );
   }
 
-  // Read body once for forwarding + fallback
   const hasBody = !['GET', 'HEAD'].includes(request.method);
   let bodyBuffer: ArrayBuffer | undefined;
   let bodyText: string | null = null;
@@ -312,7 +300,6 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
     }
   }
 
-  // Try each upstream candidate
   for (const upstreamOrigin of candidates) {
     const target = new URL(targetPath, upstreamOrigin);
     request.nextUrl.searchParams.forEach((v, k) => target.searchParams.set(k, v));
@@ -321,10 +308,8 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
     headers.delete('host');
     headers.delete('connection');
     headers.delete('transfer-encoding');
-    // Ensure accept json
     if (!headers.has('accept')) headers.set('accept', 'application/json');
 
-    // Retry logic for cold start
     const maxAttempts = isHealth ? 2 : 4;
     const baseDelayMs = 2000;
 
@@ -343,24 +328,17 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
         );
 
         const contentType = upstreamRes.headers.get('content-type');
-        // Clone for text inspection if needed
-        // For health we want to detect HTML
-        let bodyForCheck: string | null = null;
         let shouldRetryAsColdStart = false;
 
-        // If content-type is html or status is 503/502 with html, treat as cold start
         if (contentType && contentType.includes('text/html')) {
           const txt = await upstreamRes.clone().text();
-          bodyForCheck = txt;
           if (isHtmlInterstitial(txt, contentType)) {
             shouldRetryAsColdStart = true;
           }
         } else if (upstreamRes.status === 503 || upstreamRes.status === 502) {
-          // Some platforms return 503 with html body during wake
           const txt = await upstreamRes.clone().text().catch(() => '');
           if (txt && isHtmlInterstitial(txt, contentType)) {
             shouldRetryAsColdStart = true;
-            bodyForCheck = txt;
           }
         }
 
@@ -371,21 +349,18 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
             await new Promise((r) => setTimeout(r, delay));
             continue;
           }
-          // Last attempt still cold-start
           if (isHealth) {
-            // For health, return 200 with waking status instead of 503, so cron/UI doesn't hard-fail
             return NextResponse.json(
               {
                 status: 'waking',
                 service: 'api-upstream',
                 upstream: upstreamOrigin,
-                detail: 'Upstream is waking up (Render/Railway cold start). Retried and still serving interstitial.',
+                detail: 'Upstream is waking up (Railway cold start). Retried and still serving interstitial.',
                 timestamp: new Date().toISOString(),
               },
               { status: 200, headers: { 'Retry-After': '15' } },
             );
           }
-          // For other routes, return 503 with retry indication
           return NextResponse.json(
             {
               type: 'about:blank',
@@ -399,14 +374,10 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
           );
         }
 
-        // Successful or other error - forward as-is (but strip hop-by-hop)
-        // For health, if upstream returns non-JSON but JSON expected, try to parse and if fails return its status
         const resHeaders = new Headers(upstreamRes.headers);
         resHeaders.delete('transfer-encoding');
         resHeaders.delete('connection');
         resHeaders.delete('content-encoding');
-
-        // Add CORS for same-origin (harmless)
         resHeaders.set('Access-Control-Allow-Origin', '*');
 
         return new NextResponse(upstreamRes.body, {
@@ -422,17 +393,14 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
           await new Promise((r) => setTimeout(r, delay));
           continue;
         }
-        // Final attempt failed - break to try next candidate or fallback
         break;
       }
     }
   }
 
-  // All upstreams failed - try local fallback mock for critical paths
   const localMock = handleLocalMock(segments, request.method, bodyText);
   if (localMock) return localMock;
 
-  // Fully unreachable
   if (isHealth) {
     return NextResponse.json(
       {

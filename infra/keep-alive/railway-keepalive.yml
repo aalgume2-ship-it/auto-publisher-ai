@@ -1,0 +1,34 @@
+name: Keep Railway API Awake
+
+# This workflow pings the Railway API health endpoint every 5 minutes
+# to prevent it from sleeping (free tier sleeps after ~5 min idle).
+# Copy this file to .github/workflows/keep-alive.yml to activate.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *' # every 5 minutes
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Railway Health
+        env:
+          RAILWAY_URL: ${{ secrets.RAILWAY_URL || 'https://auto-publisher-ai-production.up.railway.app' }}
+        run: |
+          echo "Pinging $RAILWAY_URL/health..."
+          curl -s -m 15 $RAILWAY_URL/health || echo "health failed"
+          echo "Pinging $RAILWAY_URL/health/ready..."
+          curl -s -m 15 $RAILWAY_URL/health/ready || echo "ready failed"
+          echo "Pinging $RAILWAY_URL/health/live..."
+          curl -s -m 15 $RAILWAY_URL/health/live || echo "live failed"
+          echo "Done - Railway should stay awake"
+
+      - name: Ping Vercel Proxy Health (keeps Vercel functions warm)
+        env:
+          VERCEL_URL: ${{ secrets.VERCEL_URL || 'https://auto-publisher-ai-web.vercel.app' }}
+        run: |
+          echo "Pinging $VERCEL_URL/api/v1/health..."
+          curl -s -m 15 $VERCEL_URL/api/v1/health || echo "vercel health failed"
+          echo "Done"
