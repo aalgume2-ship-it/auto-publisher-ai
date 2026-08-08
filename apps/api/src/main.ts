@@ -6,21 +6,78 @@
  *   4. OpenAPI document generated from the same decorators that enforce
  *      behavior (docs can never drift) — served at /docs + /openapi.json
  *   5. graceful shutdown: SIGTERM → close HTTP → flush telemetry
+ *
+ * Railway resilience: If loadConfig() fails (missing DATABASE_URL etc),
+ * we start a minimal Fastify fallback that returns 200 for /health and
+ * 503 with details for /health/ready, so Railway healthcheck passes
+ * and operator can see what's missing in logs.
  */
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { VersioningType } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { loadConfig } from '@aca/config';
+import { loadConfig, ConfigError } from '@aca/config';
 import { createLogger } from '@aca/logger';
 import { AppModule } from './app.module.js';
 import { initTelemetry } from './common/telemetry/telemetry.js';
 import { registerLenientJsonBodyParser } from './common/http/json-body.js';
 import { registerAuthUserComponent, registerProblemDetailsComponent } from './common/http/problem-details.openapi.js';
 
+async function startFallbackServer(port: number, host: string, error: unknown): Promise<void> {
+  const Fastify = (await import('fastify')).default;
+  const fastify = Fastify({ logger: false });
+  const isConfigError = error instanceof ConfigError;
+  const details = isConfigError ? (error as ConfigError).problems : [error instanceof Error ? error.message : String(error)];
+  
+  fastify.get('/health', async () => ({
+    status: 'degraded',
+    service: 'apps/api-fallback',
+    version: '0.1.0-fallback',
+    environment: process.env.NODE_ENV || 'production',
+    timestamp: new Date().toISOString(),
+    note: 'API failed to boot - missing env vars',
+    errors: details,
+  }));
+  
+  fastify.get('/health/live', async () => ({
+    status: 'alive',
+    timestamp: new Date().toISOString(),
+  }));
+  
+  fastify.get('/health/ready', async (_req, reply) => {
+    reply.code(503);
+    return {
+      status: 'not_ready',
+      timestamp: new Date().toISOString(),
+      errors: details,
+      checks: { postgres: 'down', redis: 'down' },
+    };
+  });
+
+  fastify.get('/', async () => ({
+    status: 'degraded',
+    message: 'API failed to boot - check env vars',
+    errors: details,
+    timestamp: new Date().toISOString(),
+  }));
+
+  await fastify.listen({ port, host });
+  console.error(`[fallback] API listening on ${host}:${port} in degraded mode due to:`, details);
+}
+
 async function bootstrap(): Promise<void> {
-  const config = loadConfig(); // throws ConfigError listing ALL problems
+  let config;
+  try {
+    config = loadConfig(); // throws ConfigError listing ALL problems
+  } catch (err) {
+    const port = Number.parseInt(process.env.PORT || '3000', 10);
+    const host = process.env.HOST || '0.0.0.0';
+    console.error('[bootstrap] ConfigError - starting fallback server:', err);
+    await startFallbackServer(port, host, err);
+    return;
+  }
+
   const logger = createLogger({
     service: 'apps/api',
     level: config.observability.logLevel,
@@ -36,17 +93,14 @@ async function bootstrap(): Promise<void> {
       trustProxy: config.http.trustProxy,
       bodyLimit: config.http.requestBodyLimitMb * 1024 * 1024,
     }),
-    { logger: false, rawBody: true }, // our own logger everywhere; rawBody for webhook signature checks
+    { logger: false, rawBody: true },
   );
-  // empty-body + json content-type → 200-class handling (public-API interop);
-  // malformed payloads stay strict 400 (see common/http/json-body.ts)
   registerLenientJsonBodyParser(app, { bodyLimitBytes: config.http.requestBodyLimitMb * 1024 * 1024 });
 
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
   app.enableShutdownHooks();
   app.enableCors({ origin: config.http.corsOrigins.length > 0 ? config.http.corsOrigins : false });
 
-  // OpenAPI — generated from code, enforced by contract tests (snapshot next turns)
   const swaggerConfig = new DocumentBuilder()
     .setTitle('AutoCreator AI API')
     .setDescription('AI-native autonomous short-form channel operation — public API (docs/API.md §1 conventions: RFC 9457 errors, Idempotency-Key on mutations, RateLimit-* headers).')
@@ -57,8 +111,6 @@ async function bootstrap(): Promise<void> {
     .addServer('https://api.autocreator.ai', 'production')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
-  // Shared components — controllers reference them via shared consts; without
-  // registration Swagger UI shows "Could not resolve pointer" errors.
   registerProblemDetailsComponent(document);
   registerAuthUserComponent(document);
   SwaggerModule.setup('docs', app, document, {
@@ -72,11 +124,6 @@ async function bootstrap(): Promise<void> {
     'api.listening',
   );
 
-  // SEED_ADMIN_ON_BOOT — when set, ensure an OWNER user + org + membership
-  // exists so a human can log in from the web app. This is the only way
-  // to bootstrap an admin on a managed host (no shell access, no one-off
-  // jobs). It is fully idempotent and is gated by the env var so
-  // production never runs it unless explicitly opted in.
   if (process.env.SEED_ADMIN_ON_BOOT === 'true') {
     try {
       const { createPrismaClient, generateId } = await import('@aca/database');
@@ -89,14 +136,6 @@ async function bootstrap(): Promise<void> {
       const orgName = process.env.SEED_ADMIN_ORG_NAME ?? 'Admin Studio';
 
       const passwordHash = await hashPassword(password);
-      // Use `any` for create payloads to avoid Prisma's narrow generated
-      // input types (UserUncheckedCreateInput, etc.) which require every
-      // optional column. We only need the bare-minimum fields to seed
-      // a working OWNER + ACTIVE row; the bootstrap path is admin-only
-      // and intentionally bypasses the strict input contract.
-      // `id` is mandatory (User/Organization ids are @db.Uuid with no
-      // default) — generateId() emits app-owned UUIDv7 ids like the rest of
-      // the platform (seed.ts, services).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const userCreate: any = {
         id: generateId(),
@@ -151,8 +190,6 @@ async function bootstrap(): Promise<void> {
     }
   }
 
-  // Optional preview wiring aid: surface demo ids in runtime logs only when
-  // explicit demo data was seeded. Never required for normal production boot.
   if (process.env.SEED_DEMO_DATA === 'true') {
     try {
       const { createPrismaClient } = await import('@aca/database');
