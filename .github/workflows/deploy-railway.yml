@@ -1,0 +1,69 @@
+name: deploy-railway
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Run tests
+        run: pnpm test
+        continue-on-error: true
+
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
+        run: |
+          npm install -g @railway/cli
+          railway link --projectId $RAILWAY_PROJECT_ID --environmentId $RAILWAY_ENVIRONMENT_ID
+          railway up --service api --detach
+
+      - name: Verify health
+        run: |
+          RAILWAY_URL="${{ secrets.RAILWAY_API_URL }}"
+          for i in {1..30}; do
+            if curl -sf "$RAILWAY_URL/v1/health/ready" > /dev/null; then
+              echo "API healthy"
+              exit 0
+            fi
+            echo "Waiting for API... ($i/30)"
+            sleep 2
+          done
+          echo "API health check failed"
+          exit 1

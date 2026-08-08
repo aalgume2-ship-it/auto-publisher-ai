@@ -1,14 +1,23 @@
 {
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
-    "builder": "NIXPACKS",
-    "buildCommand": "pnpm install --no-frozen-lockfile && pnpm db:generate && pnpm exec turbo run build --filter=@aca/api..."
+    "builder": "nixpacks"
   },
   "deploy": {
     "startCommand": "node apps/api/dist/main.js",
-    "healthcheckPath": "/health",
-    "healthcheckTimeout": 120,
-    "restartPolicyType": "ALWAYS",
-    "restartPolicyMaxRetries": 10
+    "restartPolicyType": "on_failure",
+    "restartPolicyMaxRetries": 5,
+    "healthchecks": {
+      "readiness": {
+        "interval": 10,
+        "timeout": 5,
+        "path": "/v1/health/ready"
+      },
+      "liveness": {
+        "interval": 30,
+        "timeout": 5,
+        "path": "/v1/health/live"
+      }
+    }
   }
 }
