@@ -6,8 +6,8 @@
   },
   "deploy": {
     "startCommand": "node apps/api/dist/main.js",
-    "healthcheckPath": "/health",
-    "healthcheckTimeout": 180,
+    "healthcheckPath": "/health/live",
+    "healthcheckTimeout": 300,
     "restartPolicyType": "ALWAYS",
     "restartPolicyMaxRetries": 10
   }
