@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@aca/auth": "workspace:*",
     "@aca/config": "workspace:*",
     "@aca/database": "workspace:*",
     "@aca/events": "workspace:*",
