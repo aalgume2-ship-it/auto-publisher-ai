@@ -34,30 +34,28 @@ function LoginInner() {
       attempts++;
       const r = await signinWith(email.trim().toLowerCase(), password);
       if (r.ok) {
-        // Give JWT storage a moment then navigate
+        // Preserve original next (e.g. /generate) through subscribe
         if (!r.session.plan) {
           setBusy(false);
-          router.push('/subscribe?next=/dashboard');
+          router.push(`/subscribe?next=${encodeURIComponent(next)}`);
           return;
         }
         setBusy(false);
         router.push(next);
         return;
       }
-      // If not ok, check if retryable (network/cold start)
       if (r.retryable && attempts < maxAttempts) {
-        setRetryMsg(`الخدمة تستيقظ الآن... محاولة ${attempts}/${maxAttempts} - نعيد المحاولة تلقائياً خلال ثوانٍ`);
-        await new Promise((resolve) => setTimeout(resolve, 3000 * attempts)); // increasing backoff
+        setRetryMsg(`Processing — محاولة ${attempts}/${maxAttempts} — جاري المعالجة ونعيد المحاولة تلقائياً`);
+        await new Promise((resolve) => setTimeout(resolve, 3000 * attempts));
         continue;
       }
-      // Final failure
       setBusy(false);
       setRetryMsg(null);
       setErr(r.message);
       return;
     }
     setBusy(false);
-    setErr('تعذر تسجيل الدخول بعد عدة محاولات - الخدمة قد تكون نائمة، حاول مرة أخرى.');
+    setErr('تعذر تسجيل الدخول بعد عدة محاولات — يرجى المحاولة مجدداً.');
   }
 
   return (
@@ -69,7 +67,7 @@ function LoginInner() {
           <h1>Welcome back</h1>
           <p className="hint">Sign in to keep creating.</p>
           {err && <div className="alert err" style={{ marginBottom: 14 }}>{err}</div>}
-          {retryMsg && <div className="alert" style={{ marginBottom: 14, background: 'rgba(139,123,255,0.15)', border: '1px solid rgba(139,123,255,0.3)', color: '#d8d0ff', padding: '10px 14px', borderRadius: 10, fontSize: 13 }}>{retryMsg}</div>}
+          {retryMsg && <div className="alert" style={{ marginBottom: 14, background: 'var(--accent-soft)', border: '1px solid var(--accent-border)', color: '#eaffc7', padding: '10px 14px', borderRadius: 10, fontSize: 13 }}>{retryMsg}</div>}
           <div className="soc-row">
             <button className="soc-btn" disabled={!oauthEnabled('google')} title={oauthEnabled('google') ? '' : 'Configure GOOGLE_OAUTH_URL to enable'} onClick={() => { if (OAUTH_GOOGLE_URL) window.location.href = OAUTH_GOOGLE_URL; }}>
               <GoogleIcon /> Google
@@ -82,7 +80,7 @@ function LoginInner() {
           <form onSubmit={submitEmail}>
             <div className="field"><label>Email</label><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></div>
             <div className="field"><label>Password</label><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password" autoComplete="current-password" /></div>
-            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? (retryMsg ? 'Waking service...' : 'Signing in...') : 'Sign in'}</button>
+            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? (retryMsg ? 'Processing...' : 'Signing in...') : 'Sign in'}</button>
           </form>
           <div className="alt">New to Lumen? <Link href={`/signup?next=${encodeURIComponent(next)}`}>Create account</Link></div>
           <div className="alt" style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>

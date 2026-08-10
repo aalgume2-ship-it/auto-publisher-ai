@@ -38,6 +38,7 @@ interface Integrations {
   ai: { active: { provider: string; source: string } | null; items: AiItem[] };
   video: { active: { provider: string; source: string } | null; items: VideoItem[] };
   youtube: { configured: boolean; source: 'org' | 'env' | null; hint: string | null; redirectUri: string | null };
+  tiktok: { configured: boolean; source: 'org' | 'env' | null; hint: string | null; redirectUri: string | null };
 }
 
 const PROVIDER_BLURB: Record<string, string> = {
@@ -60,7 +61,10 @@ export default function SettingsPage() {
   const [videoKey, setVideoKey] = useState('');
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
+  const [tiktokKey, setTiktokKey] = useState('');
+  const [tiktokSecret, setTiktokSecret] = useState('');
   const [copied, setCopied] = useState(false);
+  const [copiedTikTok, setCopiedTikTok] = useState(false);
 
   const load = useCallback(async () => {
     if (!session?.orgId) return;
@@ -143,6 +147,26 @@ export default function SettingsPage() {
     if (!data?.youtube.redirectUri) return;
     try { await navigator.clipboard.writeText(data.youtube.redirectUri); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch {}
   };
+  const copyTikTokRedirect = async () => {
+    if (!data?.tiktok.redirectUri) return;
+    try { await navigator.clipboard.writeText(data.tiktok.redirectUri); setCopiedTikTok(true); setTimeout(() => setCopiedTikTok(false), 1800); } catch {}
+  };
+
+  const saveTikTok = async () => {
+    if (!session?.orgId || tiktokKey.trim().length < 4 || tiktokSecret.trim().length < 8) return setError('ألصق TikTok Client Key و Secret كاملين');
+    setBusy('tiktok'); setError(null); setNotice(null);
+    try {
+      await api.put(`/v1/organizations/${session.orgId}/settings/integrations/oauth/tiktok`, { clientKey: tiktokKey.trim(), clientSecret: tiktokSecret.trim() }, session.accessToken);
+      setNotice('تحققت TikTok من العميل وحُفظ مشفراً — أصبح الربط عبر TikTok جاهزاً.');
+      setTiktokKey(''); setTiktokSecret(''); await load();
+    } catch (e) { setError(arabicMessage(e as never)); } finally { setBusy(null); }
+  };
+  const deleteTikTok = async () => {
+    if (!session?.orgId) return;
+    setBusy('tiktok'); setError(null);
+    try { await api.del(`/v1/organizations/${session.orgId}/settings/integrations/oauth/tiktok`, session.accessToken); setNotice('تم حذف عميل TikTok المحفوظ'); await load(); }
+    catch (e) { setError(arabicMessage(e as never)); } finally { setBusy(null); }
+  };
 
   if (!ready || !session) return <div className="auth-shell"><div className="glass-card" style={{ padding: 28 }}>Checking session…</div></div>;
 
@@ -151,10 +175,10 @@ export default function SettingsPage() {
       {error && <div className="alert err">{error}</div>}
       {notice && <div className="alert ok">{notice}</div>}
 
-      <div className="section-grid three">
+      <div className="section-grid two">
         <Reveal>
           <GlassCard>
-            <SectionHeader eyebrow="LLM Providers" title="Script generation keys." body="Attach the model provider that powers your creative writing stage." />
+            <SectionHeader eyebrow="LLM Providers" title="Script generation keys." body="Attach the model provider that powers your creative writing stage. Prompts are versioned (script v1 / idea v1 / hook v1) — no hard-coded strings in UI." />
             {data?.ai.active && <div className="alert ok">Active provider: <strong>{data.ai.items.find((i) => i.id === data.ai.active?.provider)?.label}</strong></div>}
             <div className="field"><label>Provider</label><select value={provider} onChange={(e) => setProvider(e.target.value)}>{(data?.ai.items ?? []).map((i) => <option key={i.id} value={i.id}>{i.label} ({i.model})</option>)}</select></div>
             <div className="field"><label>API key</label><input dir="ltr" type="password" placeholder="Paste provider key" value={apiKey} onChange={(e) => setApiKey(e.target.value)} /></div>
@@ -173,18 +197,37 @@ export default function SettingsPage() {
             <p className="form-note">{chosenVideo?.priceHint}</p>
           </GlassCard>
         </Reveal>
+      </div>
 
-        <Reveal delay={0.12}>
+      <div className="section-grid two" style={{ marginTop: 18 }}>
+        <Reveal>
           <GlassCard>
-            <SectionHeader eyebrow="Channel OAuth" title="Google client pair." body="Store a verified Google OAuth client so channel linking becomes available for this workspace." />
+            <SectionHeader eyebrow="Channel OAuth — YouTube" title="Google client pair." body="Store a verified Google OAuth client so YouTube linking becomes available for this workspace. 503 until configured — exact env keys named in the error." />
             {data?.youtube.configured ? (
               <div className="alert ok">Google OAuth configured {data.youtube.hint ? `(${data.youtube.hint})` : ''}. <button className="btn btn-ghost" style={{ marginInlineStart: 10 }} onClick={() => void deleteGoogle()} disabled={busy === 'google'}>Delete client</button></div>
             ) : (
               <>
-                <div className="field"><label>Redirect URI</label><div className="row"><input readOnly value={data?.youtube.redirectUri ?? `${API_BASE}/v1/channels/oauth/youtube/callback`} /><button className="btn btn-ghost" onClick={() => void copyRedirect()}>{copied ? 'Copied' : 'Copy'}</button></div></div>
+                <div className="field"><label>Redirect URI (register exactly in Google Cloud Console)</label><div className="row"><input readOnly value={data?.youtube.redirectUri ?? `${API_BASE}/v1/channels/oauth/youtube/callback`} /><button className="btn btn-ghost" onClick={() => void copyRedirect()}>{copied ? 'Copied' : 'Copy'}</button></div></div>
                 <div className="field"><label>Client ID</label><input dir="ltr" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="...apps.googleusercontent.com" /></div>
                 <div className="field"><label>Client Secret</label><input dir="ltr" type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder="GOCSPX-..." /></div>
                 <button className="btn btn-primary btn-block" onClick={() => void saveGoogle()} disabled={busy === 'google'}><ShieldEllipsis size={16} /> {busy === 'google' ? 'Validating…' : 'Validate & Save'}</button>
+              </>
+            )}
+          </GlassCard>
+        </Reveal>
+
+        <Reveal delay={0.06}>
+          <GlassCard>
+            <SectionHeader eyebrow="Channel OAuth — TikTok" title="TikTok Client pair (PKCE)." body="Store a verified TikTok OAuth client (Login Kit + Video Upload API) so TikTok linking & publishing become available. Provider-isolated — uses TikTok Content Posting API v2." />
+            {data?.tiktok.configured ? (
+              <div className="alert ok">TikTok OAuth configured {data.tiktok.hint ? `(${data.tiktok.hint})` : ''}. <button className="btn btn-ghost" style={{ marginInlineStart: 10 }} onClick={() => void deleteTikTok()} disabled={busy === 'tiktok'}>Delete client</button></div>
+            ) : (
+              <>
+                <div className="field"><label>Redirect URI (register exactly in TikTok Developers)</label><div className="row"><input readOnly value={data?.tiktok.redirectUri ?? `${API_BASE}/v1/channels/oauth/tiktok/callback`} /><button className="btn btn-ghost" onClick={() => void copyTikTokRedirect()}>{copiedTikTok ? 'Copied' : 'Copy'}</button></div></div>
+                <div className="field"><label>Client Key</label><input dir="ltr" value={tiktokKey} onChange={(e) => setTiktokKey(e.target.value)} placeholder="TikTok Client Key" /></div>
+                <div className="field"><label>Client Secret</label><input dir="ltr" type="password" value={tiktokSecret} onChange={(e) => setTiktokSecret(e.target.value)} placeholder="TikTok Client Secret" /></div>
+                <button className="btn btn-primary btn-block" onClick={() => void saveTikTok()} disabled={busy === 'tiktok'}><ShieldEllipsis size={16} /> {busy === 'tiktok' ? 'Validating…' : 'Validate & Save'}</button>
+                <p className="form-note">TikTok requires PKCE — handled automatically. Env: <code>TIKTOK_CLIENT_KEY</code> / <code>TIKTOK_CLIENT_SECRET</code></p>
               </>
             )}
           </GlassCard>

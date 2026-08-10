@@ -38,7 +38,7 @@ function SignupInner() {
       const res = await signupWith(email.trim().toLowerCase(), password, name);
       if (res.ok) { setBusy(false); redirectToSubscribe(); return; }
       if (res.retryable && attempts < maxAttempts) {
-        setRetryMsg(`الخدمة تستيقظ الآن... محاولة ${attempts}/${maxAttempts} - نعيد المحاولة تلقائياً`);
+        setRetryMsg(`Processing — محاولة ${attempts}/${maxAttempts} — جاري المعالجة ونعيد المحاولة تلقائياً`);
         await new Promise((r) => setTimeout(r, 2500 * attempts));
         continue;
       }
@@ -58,7 +58,7 @@ function SignupInner() {
           <h1>Create your account</h1>
           <p className="hint">Sign up securely — you'll choose a plan next.</p>
           {err && <div className="alert err" style={{ marginBottom: 14 }}>{err}</div>}
-          {retryMsg && <div className="alert" style={{ marginBottom: 14, background: 'rgba(139,123,255,0.15)', border: '1px solid rgba(139,123,255,0.3)', color: '#d8d0ff', padding: '10px 14px', borderRadius: 10, fontSize: 13 }}>{retryMsg}</div>}
+          {retryMsg && <div className="alert" style={{ marginBottom: 14, background: 'var(--accent-soft)', border: '1px solid var(--accent-border)', color: '#eaffc7', padding: '10px 14px', borderRadius: 10, fontSize: 13 }}>{retryMsg}</div>}
           <div className="soc-row">
             <button className="soc-btn" disabled={!oauthEnabled('google')} title={oauthEnabled('google') ? '' : 'Configure GOOGLE_OAUTH_URL to enable'} onClick={() => { if (OAUTH_GOOGLE_URL) window.location.href = OAUTH_GOOGLE_URL; }}>
               <GoogleIcon /> Google
@@ -71,7 +71,7 @@ function SignupInner() {
           <form onSubmit={submitEmail}>
             <div className="field"><label>Email</label><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></div>
             <div className="field"><label>Password</label><input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="6+ characters" autoComplete="new-password" /></div>
-            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? (retryMsg ? 'Waking service...' : 'Creating...') : 'Create account'}</button>
+            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? (retryMsg ? 'Processing...' : 'Creating...') : 'Create account'}</button>
           </form>
           <div className="alt">Already have an account? <Link href={`/login?next=${encodeURIComponent(next)}`}>Sign in</Link></div>
         </motion.div>

@@ -14,7 +14,7 @@ export function Logo() {
         transition={{ type: 'spring', stiffness: 200, damping: 16 }}
         style={{
           width: 34, height: 34, borderRadius: 11, display: 'grid', placeItems: 'center',
-          background: 'linear-gradient(135deg,#8b7bff,#e25cff)', color: '#fff', boxShadow: '0 8px 24px rgba(160,80,255,0.45)',
+          background: 'linear-gradient(135deg,#a3e635 0%,#84cc16 55%,#65a30d 100%)', color: '#0a1300', boxShadow: '0 8px 24px rgba(132,204,22,0.38)',
         }}
       >
         <Sparkles size={18} />
@@ -65,7 +65,7 @@ export default function StudioNav({ minimal = false }: { minimal?: boolean }) {
         ) : (
           <>
             <Link className="btn btn-ghost" href="/login">Sign in</Link>
-            <Link className="btn btn-primary" href="/signup">Get started</Link>
+            <Link className="btn btn-primary" href="/create">Try — no account needed</Link>
           </>
         )}
       </div>

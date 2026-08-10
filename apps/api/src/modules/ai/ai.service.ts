@@ -3,23 +3,30 @@
  *
  * Routing:
  *   script  → first configured LLM credential (org vault → env): OpenAI /
- *             Groq / Gemini / OpenRouter / Pollinations-keyed — all REAL.
+ *             Groq / Gemini / OpenRouter / Pollinations — all REAL.
  *             No credential anywhere → AI_CREDENTIALS_MISSING (terminal).
  *   voice   → OpenAI tts-1 when the resolved credential is OpenAI;
  *             otherwise gTTS (key-less REAL Arabic speech).
  *   visuals → Pollinations image API (still genuinely key-less — verified).
  * Every method THROWS on provider failure: the pipeline marks the video
  * FAILED with the provider message — never a silent fallback, never a mock.
+ *
+ * Prompts are versioned via prompts/registry.ts — never hard-coded inline.
+ * Retries: transient failures are retried with exponential backoff (3×), with
+ * user-friendly status mapping (Processing/Retrying/Completed/Failed) surfaced
+ * via seo.step, never raw stack traces.
+ *
+ * NO demo/mock/local fallback — every path requires a real provider.
  */
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
 import type { AppConfig } from '@aca/config';
 import { API_CONFIG } from '../../common/redis.provider.js';
 import { ApiError } from '../../common/errors/api-error.js';
 import { OrgCredentialsService } from '../../common/credentials/org-credentials.service.js';
-import { LLM_PROVIDERS, chatCompletion, type LlmCredential, type LlmProviderDef } from './providers.js';
+import { LLM_PROVIDERS, chatCompletion, type LlmCredential } from './providers.js';
 import { generateClip, type VideoCredential } from './providers-video.js';
-import { renderSilentWav, renderSolidJpeg } from '../videos/compose.service.js';
+import { getPrompt, renderUserPrompt } from './prompts/registry.js';
 
 export const SceneSchema = z.object({
   narration: z.string().min(10),
@@ -40,16 +47,11 @@ export interface ScriptRequest {
   niche: string;
   language: string; // 'ar' | 'en'…
   targetSeconds: number;
+  promptVersion?: string;
 }
-
-const AR_SYSTEM = `أنت كاتب سيناريو محترف لمقاطع فيديو قصيرة (Shorts/Reels) بالعربية الفصحى المبسطة.
-أخرج JSON صالحاً فقط (بدون أي نص خارج JSON) بالمخطط:
-{"title":string,"description":string,"tags":string[],"hook":string,"cta":string,"scenes":[{"narration":string,"visualPrompt":string}]}
-القواعد: title جذاب ≤70 حرفاً؛ description عربية حقيقية مع وسمين؛ tags عربية/إنجليزية 6-12 وسمية؛ hook جملة افتتاحية صادمة؛ cta دعوة متابعة؛ scenes من 4 إلى 6 مشاهد، narration لكل مشهد جملتان قصيرتان للتعليق الصوتي، visualPrompt بالإنجليزية لوصف مشهد سينمائي عمودي (بدون وجوه أشخاص حقيقيين).`;
-
-const EN_SYSTEM = `You are a pro short-form scriptwriter. Output VALID JSON ONLY matching:
-{"title":string,"description":string,"tags":string[],"hook":string,"cta":string,"scenes":[{"narration":string,"visualPrompt":string}]}
-Rules: catchy title ≤70 chars; real description with 2 hashtags; 6-12 tags; shocking hook; follow CTA; 4-6 scenes, each with two short narration sentences and an ENGLISH cinematic vertical visual prompt (no real human faces).`;
+export interface IdeaRequest { niche: string; keywords: string; platform: string; }
+export interface TitleRequest { keyword: string; synopsis: string; }
+export interface HookRequest { keyword: string; context: string; }
 
 export function extractJson(raw: string): string {
   const start = raw.indexOf('{');
@@ -58,16 +60,31 @@ export function extractJson(raw: string): string {
   return raw.slice(start, end + 1);
 }
 
+/** Exponential backoff retry — terminal errors (AI_CREDENTIALS_MISSING etc.) are never retried. */
+async function withRetry<T>(label: string, fn: () => Promise<T>, logger?: Logger): Promise<T> {
+  const delays = [0, 900, 2200];
+  let last: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      if (attempt > 1) await new Promise(r => setTimeout(r, delays[attempt - 1]!));
+      return await fn();
+    } catch (err) {
+      last = err;
+      const terminal = (err as { terminal?: boolean })?.terminal === true;
+      const isApiError = err instanceof ApiError && (err as ApiError).code === 'AI_CREDENTIALS_MISSING';
+      if (terminal || isApiError) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const retryable = /429|500|502|503|504|timeout|ECONN|ETIMEDOUT|fetch failed|network/i.test(msg) || attempt < 3;
+      if (!retryable || attempt === 3) break;
+      logger?.warn(`[ai:${label}] attempt ${attempt}/3 failed: ${msg.slice(0, 160)} — retrying`);
+    }
+  }
+  throw last instanceof Error ? last : new Error(String(last));
+}
+
 @Injectable()
 export class AiService {
-  /**
-   * Offline demo pipeline (AI_PROVIDER_MODE=demo): deterministic Arabic
-   * scripts, silent voiceover track and generated placeholder scene stills —
-   * ZERO network, ZERO API keys. Lets a fresh deployment render a real
-   * test video end-to-end before any AI provider is configured. Every other
-   * mode keeps the fail-closed real-provider behavior.
-   */
-  private readonly demoMode: boolean = process.env.AI_PROVIDER_MODE === 'demo';
+  private readonly logger = new Logger(AiService.name);
 
   constructor(
     @Inject(API_CONFIG) private readonly config: AppConfig,
@@ -84,19 +101,6 @@ export class AiService {
    * the named env vars on the API service.
    */
   private async requireLlm(orgId: string): Promise<LlmCredential> {
-    if (this.demoMode) {
-      const def: LlmProviderDef = {
-        id: 'openai', // reused shape only; never actually called in demo mode
-        label: 'Demo (local)',
-        model: 'demo',
-        kind: 'openai-compatible',
-        consoleUrl: '',
-        free: true,
-        envKey: '',
-        strictJson: false,
-      };
-      return { def, apiKey: 'demo', source: 'env' };
-    }
     const cred = await this.creds.resolveLlm(orgId);
     if (!cred) {
       const envList = LLM_PROVIDERS.map((p) => p.envKey).join(' أو ');
@@ -107,7 +111,7 @@ export class AiService {
           'أضف مفتاحاً مجانياً من Groq (console.groq.com/keys) أو Google AI Studio (aistudio.google.com/apikey) — ' +
           'يتم التحقق منه لحظياً وتخزينه مشفراً. أو اضبط أحد متغيرات البيئة على خدمة الـ API: ' +
           envList +
-          '. (أوقفت Pollinations التوليد المجاني بدون مفتاح — HTTP 402 لأي طلب جديد، وبقيت الصور عبرها مجانية.)',
+          '.',
       });
       (err as ApiError & { terminal?: boolean }).terminal = true;
       throw err;
@@ -116,13 +120,14 @@ export class AiService {
   }
 
   async generateScript(req: ScriptRequest, orgId: string): Promise<{ script: VideoScript; provider: string }> {
-    if (this.demoMode) return { script: this.demoScript(req), provider: 'demo' };
     const cred = await this.requireLlm(orgId);
-    const system = req.language.startsWith('ar') ? AR_SYSTEM : EN_SYSTEM;
-    const user = req.language.startsWith('ar')
-      ? `الكلمة المفتاحية: «${req.keyword}» — النيتش: ${req.niche} — المدة المستهدفة: ~${req.targetSeconds} ثانية. أخرج JSON الآن.`
-      : `Keyword: "${req.keyword}" — niche: ${req.niche} — target length ~${req.targetSeconds}s. Output the JSON now.`;
-    const raw = await chatCompletion(cred, { system, user });
+    const prompt = getPrompt('script', req.promptVersion, req.language);
+    const user = renderUserPrompt(prompt.userTemplate, {
+      keyword: req.keyword,
+      niche: req.niche,
+      targetSeconds: req.targetSeconds,
+    });
+    const raw = await withRetry('script', () => chatCompletion(cred, { system: prompt.system, user }), this.logger);
     let json: unknown;
     try {
       json = JSON.parse(extractJson(raw));
@@ -136,71 +141,62 @@ export class AiService {
     return { script: parsed.data, provider: cred.def.id };
   }
 
-  /* ----------------------------------------------------------------- VOICE */
+  // ── Additional prompt families (versioned, retry-wrapped) ─────────────────
 
-  /**
-   * Deterministic offline script (AI_PROVIDER_MODE=demo). Satisfies the same
-   * VideoScriptSchema contract the real LLMs must pass, so the pipeline below
-   * is exercised end-to-end (scenes, captions, durations, assets).
-   */
-  private demoScript(req: ScriptRequest): VideoScript {
-    const keyword = req.keyword.trim() || 'التعلم المستمر';
-    const k = keyword;
-    const scenes: Array<{ narration: string; visualPrompt: string }> = [
-      {
-        narration: `هل تساءلت يوماً عن أسرار ${k}؟ في هذا الفيديو سنكشف لك كل ما تحتاج معرفته عن ${k} بطريقة مبسطة وسريعة.`,
-        visualPrompt: `cinematic close-up of ${k}, glowing details, deep colors, vertical 9:16`,
-      },
-      {
-        narration: `أولاً، يبدأ كل شيء بفهم الأساسيات. ${k} ليس معقداً كما تظن، بل يحتاج فقط إلى خطوات واضحة ومنظمة.`,
-        visualPrompt: `clean infographic illustration about ${k}, bright palette, vertical 9:16`,
-      },
-      {
-        narration: `ثانياً، التطبيق العملي هو سر الإتقان. جرّب بنفسك وستكتشف أن ${k} يصبح أسهل مع كل محاولة جديدة.`,
-        visualPrompt: `hands working on a ${k} project, cinematic lighting, vertical 9:16`,
-      },
-      {
-        narration: `وأخيراً، المداومة تصنع الفرق الحقيقي. خصص وقتاً يومياً صغيراً وسوف تتفاجأ بالنتائج الكبيرة على المدى الطويل.`,
-        visualPrompt: `abstract golden success path about ${k}, soft glow, vertical 9:16`,
-      },
-    ];
-    return {
-      title: `أسرار ${k} التي لا يعرفها معظم الناس`,
-      description: `اكتشف ${k} من الصفر إلى الاحتراف في دقائق. شرح مبسط بالعربية مع خطوات عملية وتطبيق مباشر. #تعلم #${k.replace(/\s+/g, '')}`,
-      tags: [k, 'تعلم', 'نصائح', 'معلومة', 'تطوير', 'مختصر'],
-      hook: `لن تصدق كم هو سهل إتقان ${k} بهذه الطريقة!`,
-      cta: 'تابعنا لمزيد من المحتوى المفيد، وفعّل الجرس ليصلك كل جديد.',
-      scenes,
-    };
+  async generateIdeas(req: IdeaRequest, orgId: string): Promise<{ ideas: Array<{ title: string; angle: string; why: string; hook: string }>; provider: string }> {
+    const cred = await this.requireLlm(orgId);
+    const prompt = getPrompt('idea');
+    const user = renderUserPrompt(prompt.userTemplate, { niche: req.niche, keywords: req.keywords, platform: req.platform });
+    const raw = await withRetry('idea', () => chatCompletion(cred, { system: prompt.system, user }), this.logger);
+    const json = JSON.parse(extractJson(raw)) as { ideas?: Array<{ title: string; angle: string; why: string; hook: string }> };
+    return { ideas: json.ideas ?? [], provider: cred.def.id };
   }
 
-  /** Real Arabic voiceover: OpenAI tts when that credential resolved, else gTTS chunked MP3(s). */
+  async generateTitles(req: TitleRequest, orgId: string): Promise<{ titles: string[]; provider: string }> {
+    const cred = await this.requireLlm(orgId);
+    const prompt = getPrompt('title');
+    const user = renderUserPrompt(prompt.userTemplate, { keyword: req.keyword, synopsis: req.synopsis });
+    const raw = await withRetry('title', () => chatCompletion(cred, { system: prompt.system, user }), this.logger);
+    const json = JSON.parse(extractJson(raw)) as { titles?: string[] };
+    return { titles: json.titles ?? [], provider: cred.def.id };
+  }
+
+  async generateHooks(req: HookRequest, orgId: string): Promise<{ hooks: string[]; provider: string }> {
+    const cred = await this.requireLlm(orgId);
+    const prompt = getPrompt('hook');
+    const user = renderUserPrompt(prompt.userTemplate, { keyword: req.keyword, context: req.context });
+    const raw = await withRetry('hook', () => chatCompletion(cred, { system: prompt.system, user }), this.logger);
+    const json = JSON.parse(extractJson(raw)) as { hooks?: string[] };
+    return { hooks: json.hooks ?? [], provider: cred.def.id };
+  }
+
+  async generateMetadata(req: { title: string; keyword: string; niche: string }, orgId: string): Promise<{ description: string; tags: string[]; hashtags: string[]; provider: string }> {
+    const cred = await this.requireLlm(orgId);
+    const prompt = getPrompt('metadata');
+    const user = renderUserPrompt(prompt.userTemplate, { title: req.title, keyword: req.keyword, niche: req.niche });
+    const raw = await withRetry('metadata', () => chatCompletion(cred, { system: prompt.system, user }), this.logger);
+    const json = JSON.parse(extractJson(raw)) as { description?: string; tags?: string[]; hashtags?: string[] };
+    return { description: json.description ?? '', tags: json.tags ?? [], hashtags: json.hashtags ?? [], provider: cred.def.id };
+  }
+
+  /* ----------------------------------------------------------------- VOICE */
+
+  /** Real voiceover: OpenAI tts when that credential resolved, else gTTS chunked MP3(s). No silent mock. */
   async synthesizeVoice(text: string, language: string, orgId: string): Promise<{ chunks: Buffer[]; provider: string; mime: string }> {
-    if (this.demoMode) {
-      // Silent track sized from the narration (≈2.2 words/sec reading pace) so
-      // scene windows and the final duration stay realistic without any TTS API.
-      const wordCount = text.split(/\s+/).filter(Boolean).length;
-      const secs = Math.max(10, Math.round(wordCount / 2.2));
-      const { mkdtemp, readFile } = await import('node:fs/promises');
-      const { join } = await import('node:path');
-      const { tmpdir } = await import('node:os');
-      const wd = await mkdtemp(join(tmpdir(), 'aca-tts-'));
-      const out = join(wd, 'voice.wav');
-      await renderSilentWav(secs, out);
-      const buf = await readFile(out);
-      return { chunks: [buf], provider: 'demo', mime: 'audio/wav' };
-    }
     const cred = await this.creds.resolveLlm(orgId);
     if (cred?.def.id === 'openai') {
-      const res = await fetch('https://api.openai.com/v1/audio/speech', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${cred.apiKey}` },
-        body: JSON.stringify({ model: 'tts-1', voice: this.config.ai.openaiTtsVoice, input: text, response_format: 'mp3' }),
-      });
-      if (!res.ok) throw new Error(`openai tts ${res.status}: ${(await res.text()).slice(0, 200)}`);
-      return { chunks: [Buffer.from(await res.arrayBuffer())], provider: 'openai', mime: 'audio/mpeg' };
+      const chunks = await withRetry('tts-openai', async () => {
+        const res = await fetch('https://api.openai.com/v1/audio/speech', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${cred.apiKey}` },
+          body: JSON.stringify({ model: 'tts-1', voice: this.config.ai.openaiTtsVoice, input: text, response_format: 'mp3' }),
+        });
+        if (!res.ok) throw new Error(`openai tts ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        return [Buffer.from(await res.arrayBuffer())];
+      }, this.logger);
+      return { chunks, provider: 'openai', mime: 'audio/mpeg' };
     }
-    const chunks = await this.gtts(text, language.startsWith('ar') ? 'ar' : 'en');
+    const chunks = await withRetry('tts-gtts', () => this.gtts(text, language.startsWith('ar') ? 'ar' : 'en'), this.logger);
     return { chunks, provider: 'gtts', mime: 'audio/mpeg' };
   }
 
@@ -237,26 +233,14 @@ export class AiService {
     return out;
   }
 
-  /* ---------------------------------------------------------------- IMAGES */
-
-  /* ---------------------------------------------------------------- IMAGES */
-
   /* ----------------------------------------------------------------- CLIPS */
 
-  /**
-   * Real moving-picture generation for one scene. The scene still becomes the
-   * clip's FIRST FRAME (Runway/Luma/Kling all support it) so the whole cut
-   * stays visually coherent. Provider failures THROW (the pipeline marks the
-   * video FAILED honestly — stills mode is chosen only when no video key
-   * exists at all, before any clip is attempted).
-   */
   async resolveVideoCred(orgId: string): Promise<VideoCredential | null> {
-    if (this.demoMode) return null; // stills path — no external clip providers offline
     return this.creds.resolveVideo(orgId);
   }
 
   async generateSceneClip(cred: VideoCredential, visualPrompt: string, firstFrameUrl: string | null, windowSec: number): Promise<Buffer> {
-    return generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec });
+    return withRetry(`clip-${cred.def.id}`, () => generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec }), this.logger);
   }
 
   /** Public URL of a scene still (passed as FIRST FRAME to clip providers). */
@@ -267,19 +251,15 @@ export class AiService {
 
   /**
    * Real scene artwork via a 3-provider REAL chain, recorded in metadata:
-   *   1. Pollinations flux (AI-generated, key-less — but anonymous tier is
-   *      ~1 slot/IP; bursts → 429, and repeated E2E burns can exhaust the
-   *      window. Live-measured 2026-08-03).
-   *   2. LoremFlickr (real Flickr photo matched to prompt keywords, no key).
-   *   3. Openverse (WP-run CC image search JSON API, no key, generous anon).
-   * Degradation never means silence or a placeholder: every path yields REAL
-   * prompt-relevant photography/artwork downloaded over the wire.
+   *   1. Pollinations flux (AI-generated).
+   *   2. LoremFlickr (real Flickr photo).
+   *   3. Openverse (CC image search).
+   * Every path yields REAL artwork — no placeholder.
    */
   async generateSceneImage(visualPrompt: string, seed: number): Promise<{ data: Buffer; provider: string }> {
-    if (this.demoMode) return this.imageViaDemo(seed);
     const errors: string[] = [];
     try {
-      return await this.imageViaPollinations(visualPrompt, seed);
+      return await withRetry('image-pollinations', () => this.imageViaPollinations(visualPrompt, seed), this.logger);
     } catch (err) {
       errors.push(`pollinations: ${err instanceof Error ? err.message : err}`);
     }
@@ -296,19 +276,6 @@ export class AiService {
     throw new Error(`all image providers failed → ${errors.join(' | ')}`);
   }
 
-  /** Solid-color 720x1280 placeholder still (demo mode only — offline, instant). */
-  private async imageViaDemo(seed: number): Promise<{ data: Buffer; provider: 'demo' }> {
-    const palette = ['0x0f172a', '0x1e1b4b', '0x0c4a6e', '0x134e4a', '0x4c1d95', '0x9a3412', '0x334155', '0x581c87'];
-    const color = palette[Math.abs(seed) % palette.length]!;
-    const { mkdtemp, readFile } = await import('node:fs/promises');
-    const { join } = await import('node:path');
-    const { tmpdir } = await import('node:os');
-    const wd = await mkdtemp(join(tmpdir(), 'aca-img-'));
-    const out = join(wd, 'scene.jpg');
-    await renderSolidJpeg(color, out);
-    return { data: await readFile(out), provider: 'demo' };
-  }
-
   private async imageViaPollinations(visualPrompt: string, seed: number): Promise<{ data: Buffer; provider: 'pollinations' }> {
     const prompt = encodeURIComponent(`${visualPrompt}, vertical 9:16 cinematic, high detail, no text, no watermark`);
     const url = `https://image.pollinations.ai/prompt/${prompt}?width=720&height=1280&seed=${seed}&nologo=true&model=flux`;
@@ -321,7 +288,7 @@ export class AiService {
         if (res.status === 429 || res.status >= 500) {
           lastErr = `http ${res.status}`;
         } else if (!res.ok) {
-          throw new Error(`http ${res.status}`); // 4xx ≠ rate: fail fast
+          throw new Error(`http ${res.status}`);
         } else {
           const buf = Buffer.from(await res.arrayBuffer());
           if (buf.length < 10_000) throw new Error('empty image');
@@ -337,19 +304,9 @@ export class AiService {
     throw new Error(lastErr);
   }
 
-  /**
-   * English keywords from the (contractually English) visual prompt.
-   * Stock-photo fallbacks live or die on these: visuals adjectives
-   * ('animated', 'deep', 'futuristic') produce irrelevant photos — verified
-   * 2026-08-03 ('animated,creatures' → street-meme photo). So we keep only
-   * concrete nouns: drop adjectives/verbs/technical-term noise, prefer the
-   * back half of the prompt where subjects conventionally live.
-   */
   private static promptKeywords(prompt: string, max = 2): string {
     const stop = new Set([
-      // articles/prepositions
       'the', 'a', 'an', 'of', 'in', 'on', 'with', 'and', 'at', 'to', 'for', 'over', 'into', 'from', 'under', 'through',
-      // visual/technical adjectives & style noise
       'style', 'shot', 'vertical', 'cinematic', 'animated', 'detail', 'high', 'deep', 'dark', 'soft', 'glow', 'glowing',
       'dramatic', 'futuristic', 'mysterious', 'ancient', 'modern', 'massive', 'tiny', 'huge', 'beautiful', 'stunning',
       'background', 'foreground', 'closeup', 'macro', 'wide', 'aerial', 'view', 'scene', 'showing', 'illustration',
@@ -362,8 +319,8 @@ export class AiService {
       .toLowerCase()
       .replace(/[^a-z0-9\s]/g, ' ')
       .split(/\s+/)
-      .filter((w) => w.length > 3 && !stop.has(w) && !w.endsWith('ing')); // gerunds = actions, not photo subjects
-    const picked = words.slice(-max); // subjects tend to close the phrase list
+      .filter((w) => w.length > 3 && !stop.has(w) && !w.endsWith('ing'));
+    const picked = words.slice(-max);
     return (picked.length > 0 ? picked : ['nature']).join(',');
   }
 

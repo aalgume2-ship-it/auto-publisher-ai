@@ -117,9 +117,8 @@ export async function probeDurationMs(file: string): Promise<number> {
 
 /**
  * Renders a silent WAV track of the requested length (codec built into every
- * ffmpeg — pcm_s16le, no external codec/lib needed). Used by the offline demo
- * pipeline (AI_PROVIDER_MODE=demo) so a test video can render end-to-end with
- * zero external AI/network dependencies; real deployments keep gTTS/OpenAI TTS.
+ * ffmpeg — pcm_s16le). Utility only — the production pipeline uses real
+ * gTTS / OpenAI TTS, never silent placeholders.
  */
 export async function renderSilentWav(durationSec: number, outPath: string): Promise<void> {
   await run(
@@ -136,8 +135,9 @@ export async function renderSilentWav(durationSec: number, outPath: string): Pro
 }
 
 /**
- * Renders a solid-color 720x1280 JPEG (placeholder scene still). Codec built-in
- * (mjpeg); used only by the offline demo pipeline.
+ * Renders a solid-color 720x1280 JPEG (placeholder still — testing utility).
+ * Codec built-in (mjpeg). Not used in production video pipeline which
+ * requires real AI-generated images.
  */
 export async function renderSolidJpeg(color: string, outPath: string): Promise<void> {
   await run(

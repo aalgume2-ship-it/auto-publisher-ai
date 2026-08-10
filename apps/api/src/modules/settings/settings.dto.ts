@@ -19,6 +19,10 @@ export const SaveGoogleOAuthBodySchema = z.object({
   clientId: z.string().min(10).max(512).regex(/\.apps\.googleusercontent\.com$/, 'clientId must end with .apps.googleusercontent.com'),
   clientSecret: z.string().min(10).max(256),
 });
+export const SaveTikTokOAuthBodySchema = z.object({
+  clientKey: z.string().min(4).max(128),
+  clientSecret: z.string().min(8).max(512),
+});
 
 export const AiProviderItemDoc = {
   type: 'object' as const,
@@ -53,6 +57,15 @@ export const IntegrationsDoc = {
         source: { type: 'string', nullable: true, enum: ['org', 'env', null] },
         hint: { type: 'string', nullable: true },
         redirectUri: { type: 'string', description: 'register this exact URI in Google Cloud Console' },
+      },
+    },
+    tiktok: {
+      type: 'object',
+      properties: {
+        configured: { type: 'boolean' },
+        source: { type: 'string', nullable: true, enum: ['org', 'env', null] },
+        hint: { type: 'string', nullable: true },
+        redirectUri: { type: 'string', description: 'register this exact URI in TikTok Developers' },
       },
     },
   },

@@ -28,6 +28,12 @@ export class SettingsService {
     const base = this.config.urls.publicApi?.replace(/\/+$/, '');
     return base ? `${base}/v1/channels/oauth/youtube/callback` : null;
   }
+  tiktokRedirectUri(): string | null {
+    const explicit = this.config.platforms.tiktokOauthRedirectUri;
+    if (explicit) return explicit;
+    const base = this.config.urls.publicApi?.replace(/\/+$/, '');
+    return base ? `${base}/v1/channels/oauth/tiktok/callback` : null;
+  }
 
   async getIntegrations(orgId: string) {
     const stored = await this.creds.listNamespace(orgId, 'LLM');
@@ -64,6 +70,8 @@ export class SettingsService {
     });
     const google = await this.creds.resolveGoogleOAuth(orgId);
     const googleStored = await this.creds.readSecret(orgId, 'PUBLISHER', 'google-oauth');
+    const tiktok = await this.creds.resolveTikTokOAuth(orgId);
+    const tiktokStored = await this.creds.readSecret(orgId, 'PUBLISHER', 'tiktok-oauth');
     const videoStored = await this.creds.listNamespace(orgId, 'VIDEO_ENGINE');
     const videoActive = await this.creds.resolveVideo(orgId);
     const videoStoredMap = new Map(videoStored.map((s) => [s.provider, s]));
@@ -97,6 +105,12 @@ export class SettingsService {
         source: google?.source ?? null,
         hint: google ? (typeof googleStored?.['hint'] === 'string' ? (googleStored['hint'] as string) : 'env •••') : null,
         redirectUri: this.googleRedirectUri(),
+      },
+      tiktok: {
+        configured: Boolean(tiktok),
+        source: tiktok?.source ?? null,
+        hint: tiktok ? (typeof tiktokStored?.['hint'] === 'string' ? (tiktokStored['hint'] as string) : 'env •••') : null,
+        redirectUri: this.tiktokRedirectUri(),
       },
     };
   }
@@ -174,6 +188,41 @@ export class SettingsService {
   async deleteGoogleOAuth(orgId: string) {
     const removed = await this.creds.deleteGoogleOAuth(orgId);
     if (!removed) throw new ApiError('NOT_FOUND', 'Not Found', { detail: 'لا يوجد عميل Google محفوظ لهذه المنظمة' });
+    return { ok: true as const };
+  }
+
+  async saveTikTokOAuth(orgId: string, clientKey: string, clientSecret: string) {
+    // Validate TikTok client pair by probing token endpoint with invalid code — TikTok returns invalid_grant only for valid pair
+    const res = await fetch('https://open.tiktokapis.com/v2/oauth/token/', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_key: clientKey,
+        client_secret: clientSecret,
+        code: 'probe_invalid_code',
+        grant_type: 'authorization_code',
+        redirect_uri: this.tiktokRedirectUri() ?? 'https://localhost/',
+        code_verifier: 'probe_verifier',
+      }),
+    });
+    const data = (await res.json().catch(() => null)) as { error?: string; error_description?: string; message?: string } | null;
+    const raw = (data?.error ?? data?.message ?? '').toLowerCase();
+    // Valid pair yields "invalid_grant" or "invalid code"; invalid pair yields "invalid_client" / "unauthorized"
+    const isValidPair = raw.includes('invalid_grant') || raw.includes('invalid_code') || raw.includes('code') || res.status === 400;
+    const isInvalidClient = raw.includes('invalid_client') || raw.includes('unauthorized_client') || raw.includes('client');
+    if (isInvalidClient && !isValidPair) {
+      throw badKey(`رفضت TikTok هذا الزوج (Client Key/Secret): ${raw}. تأكد من نسخه من TikTok Developers → Manage apps.`);
+    }
+    if (!isValidPair && res.status === 401) {
+      throw badKey(`رفضت TikTok هذا الزوج (HTTP 401): ${data?.error_description ?? raw}. تأكد من نسخ Client Key و Secret بشكل صحيح.`);
+    }
+    await this.creds.saveTikTokOAuth(orgId, clientKey, clientSecret);
+    return { ok: true as const, provider: 'tiktok-oauth', hint: OrgCredentialsService.hint(clientKey), validatedAt: new Date().toISOString() };
+  }
+
+  async deleteTikTokOAuth(orgId: string) {
+    const removed = await this.creds.deleteTikTokOAuth(orgId);
+    if (!removed) throw new ApiError('NOT_FOUND', 'Not Found', { detail: 'لا يوجد عميل TikTok محفوظ لهذه المنظمة' });
     return { ok: true as const };
   }
 }

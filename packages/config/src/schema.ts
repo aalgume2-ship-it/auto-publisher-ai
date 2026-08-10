@@ -123,6 +123,7 @@ export const AppConfigSchema = z.object({
    * runtime secrets (Render env / Doppler), referenced here by name only.
    * When absent the OAuth start endpoint answers 503 PLATFORM_ERROR naming the
    * exact env keys to provision — a real configuration state, never a stub.
+   * TikTok uses PKCE; Google uses HMAC state.
    */
   platforms: z
     .object({
@@ -130,6 +131,11 @@ export const AppConfigSchema = z.object({
       googleClientSecret: z.string().min(1).optional(),
       /** Full callback URL registered in Google Cloud Console (defaults to PUBLIC_API_URL derivation). */
       googleOauthRedirectUri: z.string().url().optional(),
+      tiktokClientKey: z.string().min(1).optional(),
+      tiktokClientSecret: z.string().min(1).optional(),
+      tiktokOauthRedirectUri: z.string().url().optional(),
+      metaAppId: z.string().min(1).optional(),
+      metaAppSecret: z.string().min(1).optional(),
     })
     .default({}),
 
@@ -210,6 +216,11 @@ export const ENV_MAP = {
   GOOGLE_CLIENT_ID: 'platforms.googleClientId',
   GOOGLE_CLIENT_SECRET: 'platforms.googleClientSecret',
   GOOGLE_OAUTH_REDIRECT_URI: 'platforms.googleOauthRedirectUri',
+  TIKTOK_CLIENT_KEY: 'platforms.tiktokClientKey',
+  TIKTOK_CLIENT_SECRET: 'platforms.tiktokClientSecret',
+  TIKTOK_OAUTH_REDIRECT_URI: 'platforms.tiktokOauthRedirectUri',
+  META_APP_ID: 'platforms.metaAppId',
+  META_APP_SECRET: 'platforms.metaAppSecret',
   OPENAI_API_KEY: 'ai.openaiApiKey',
   OPENAI_MODEL: 'ai.openaiModel',
   OPENAI_TTS_VOICE: 'ai.openaiTtsVoice',
