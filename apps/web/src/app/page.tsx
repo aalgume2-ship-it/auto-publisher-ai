@@ -58,19 +58,24 @@ export default function Landing() {
 
         <CreatePanel initial={loadDraft()} onGenerate={handleGenerate} />
 
-        <section id="models" style={{ marginTop: 64 }}>
-          <div className="row" style={{ justifyContent: 'space-between', marginBottom: 18 }}>
-            <h2 className="h3" style={{ fontSize: 26 }}>Built for every workflow</h2>
+        <section id="models" style={{ marginTop: 80 }}>
+          <div className="bento-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
+            <div>
+              <h2 className="h3" style={{ fontSize: 30, fontWeight: 800 }}>Built for every workflow</h2>
+              <p className="muted" style={{ marginTop: 6 }}>Real AI pipeline — scenes, scripts, renders.</p>
+            </div>
             <span className="section-tag">Features</span>
           </div>
-          <div className="grid-2">
+          <div className="bento-grid">
             {FEATURES.map((f, i) => {
               const Icon = f.icon;
               return (
-                <motion.div key={f.t} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: '-60px' }} transition={{ duration: 0.5, delay: i * 0.05 }} className="glass hoverable" style={{ padding: 22 }}>
-                  <div className="row" style={{ marginBottom: 10 }}><span className="pill-note"><Icon size={15} /></span></div>
-                  <h3 className="h3">{f.t}</h3>
-                  <p className="sm muted" style={{ marginTop: 6 }}>{f.d}</p>
+                <motion.div key={f.t} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: '-60px' }} transition={{ duration: 0.5, delay: i * 0.05 }} className="bento-card" style={{ padding: 28 }}>
+                  <div className="row" style={{ marginBottom: 14 }}>
+                    <span className="pill-note lime-glow"><Icon size={18} /></span>
+                  </div>
+                  <h3 className="h3" style={{ fontSize: 20, fontWeight: 700 }}>{f.t}</h3>
+                  <p className="sm muted" style={{ marginTop: 8 }}>{f.d}</p>
                 </motion.div>
               );
             })}
