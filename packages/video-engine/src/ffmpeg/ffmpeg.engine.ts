@@ -16,8 +16,7 @@ export class FFmpegEngine {
   constructor() {
     this.logger = createLogger({
       service: '@aca/video-engine',
-      module: 'ffmpeg-engine',
-    });
+    }).child({ module: 'ffmpeg-engine' });
   }
 
   /**
