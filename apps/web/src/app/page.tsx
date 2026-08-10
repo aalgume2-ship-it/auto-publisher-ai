@@ -9,10 +9,10 @@ import CreatePanel from '../components/studio/CreatePanel';
 import { saveDraft, loadDraft, type CreateDraft } from '../lib/create';
 
 const FEATURES = [
-  { icon: Zap, t: 'Renders in seconds', d: 'Self-contained studio engine — no queues with other customers, no cold starts, instant first frame.' },
+  { icon: Zap, t: 'Renders in seconds', d: 'Studio pipeline with real AI providers — no fake queues, your draft starts instantly and streams progress.' },
   { icon: Layers, t: 'Total creative control', d: 'Model, style, aspect ratio and duration tuned before you render — your prompt, your way.' },
   { icon: Cpu, t: 'Real output, real files', d: 'Every render is encoded to a genuine video file you can download, share and remix.' },
-  { icon: ShieldCheck, t: 'Private by default', d: 'Generation runs locally in your browser — your ideas never leave your machine.' },
+  { icon: ShieldCheck, t: 'Secure & private', d: 'Your ideas are encrypted, processed on our isolated studio pipeline, and never shared — download when ready.' },
 ];
 
 const PLANS = [

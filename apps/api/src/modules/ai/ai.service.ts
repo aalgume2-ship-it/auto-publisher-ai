@@ -3,7 +3,7 @@
  *
  * Routing:
  *   script  → first configured LLM credential (org vault → env): OpenAI /
- *             Groq / Gemini / OpenRouter / Pollinations-keyed — all REAL.
+ *             Groq / Gemini / OpenRouter / Pollinations — all REAL.
  *             No credential anywhere → AI_CREDENTIALS_MISSING (terminal).
  *   voice   → OpenAI tts-1 when the resolved credential is OpenAI;
  *             otherwise gTTS (key-less REAL Arabic speech).
@@ -15,6 +15,8 @@
  * Retries: transient failures are retried with exponential backoff (3×), with
  * user-friendly status mapping (Processing/Retrying/Completed/Failed) surfaced
  * via seo.step, never raw stack traces.
+ *
+ * NO demo/mock/local fallback — every path requires a real provider.
  */
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
@@ -22,9 +24,8 @@ import type { AppConfig } from '@aca/config';
 import { API_CONFIG } from '../../common/redis.provider.js';
 import { ApiError } from '../../common/errors/api-error.js';
 import { OrgCredentialsService } from '../../common/credentials/org-credentials.service.js';
-import { LLM_PROVIDERS, chatCompletion, type LlmCredential, type LlmProviderDef } from './providers.js';
+import { LLM_PROVIDERS, chatCompletion, type LlmCredential } from './providers.js';
 import { generateClip, type VideoCredential } from './providers-video.js';
-import { renderSilentWav, renderSolidJpeg } from '../videos/compose.service.js';
 import { getPrompt, renderUserPrompt } from './prompts/registry.js';
 
 export const SceneSchema = z.object({
@@ -84,14 +85,6 @@ async function withRetry<T>(label: string, fn: () => Promise<T>, logger?: Logger
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
-  /**
-   * Offline demo pipeline (AI_PROVIDER_MODE=demo): deterministic Arabic
-   * scripts, silent voiceover track and generated placeholder scene stills —
-   * ZERO network, ZERO API keys. Lets a fresh deployment render a real
-   * test video end-to-end before any AI provider is configured. Every other
-   * mode keeps the fail-closed real-provider behavior.
-   */
-  private readonly demoMode: boolean = process.env.AI_PROVIDER_MODE === 'demo';
 
   constructor(
     @Inject(API_CONFIG) private readonly config: AppConfig,
@@ -108,19 +101,6 @@ export class AiService {
    * the named env vars on the API service.
    */
   private async requireLlm(orgId: string): Promise<LlmCredential> {
-    if (this.demoMode) {
-      const def: LlmProviderDef = {
-        id: 'openai',
-        label: 'Demo (local)',
-        model: 'demo',
-        kind: 'openai-compatible',
-        consoleUrl: '',
-        free: true,
-        envKey: '',
-        strictJson: false,
-      };
-      return { def, apiKey: 'demo', source: 'env' };
-    }
     const cred = await this.creds.resolveLlm(orgId);
     if (!cred) {
       const envList = LLM_PROVIDERS.map((p) => p.envKey).join(' أو ');
@@ -131,7 +111,7 @@ export class AiService {
           'أضف مفتاحاً مجانياً من Groq (console.groq.com/keys) أو Google AI Studio (aistudio.google.com/apikey) — ' +
           'يتم التحقق منه لحظياً وتخزينه مشفراً. أو اضبط أحد متغيرات البيئة على خدمة الـ API: ' +
           envList +
-          '. (أوقفت Pollinations التوليد المجاني بدون مفتاح — HTTP 402 لأي طلب جديد، وبقيت الصور عبرها مجانية.)',
+          '.',
       });
       (err as ApiError & { terminal?: boolean }).terminal = true;
       throw err;
@@ -140,7 +120,6 @@ export class AiService {
   }
 
   async generateScript(req: ScriptRequest, orgId: string): Promise<{ script: VideoScript; provider: string }> {
-    if (this.demoMode) return { script: this.demoScript(req), provider: 'demo' };
     const cred = await this.requireLlm(orgId);
     const prompt = getPrompt('script', req.promptVersion, req.language);
     const user = renderUserPrompt(prompt.userTemplate, {
@@ -165,15 +144,6 @@ export class AiService {
   // ── Additional prompt families (versioned, retry-wrapped) ─────────────────
 
   async generateIdeas(req: IdeaRequest, orgId: string): Promise<{ ideas: Array<{ title: string; angle: string; why: string; hook: string }>; provider: string }> {
-    if (this.demoMode) {
-      return {
-        ideas: [
-          { title: `5 أسرار عن ${req.niche}`, angle: 'قائمة سريعة بمعلومات غير متوقعة', why: 'ترند دائم', hook: 'كنت تظن أنك تعرف كل شيء عن هذا؟' },
-          { title: `الخطأ القاتل في ${req.niche}`, angle: 'تفنيد مفهوم خاطئ شائع', why: 'فضول + تصحيح', hook: '90% يقعون في هذا الخطأ!' },
-        ],
-        provider: 'demo',
-      };
-    }
     const cred = await this.requireLlm(orgId);
     const prompt = getPrompt('idea');
     const user = renderUserPrompt(prompt.userTemplate, { niche: req.niche, keywords: req.keywords, platform: req.platform });
@@ -183,7 +153,6 @@ export class AiService {
   }
 
   async generateTitles(req: TitleRequest, orgId: string): Promise<{ titles: string[]; provider: string }> {
-    if (this.demoMode) return { titles: [`أسرار ${req.keyword} التي لا تعرفها`, `${req.keyword} بطريقة لم ترها من قبل`], provider: 'demo' };
     const cred = await this.requireLlm(orgId);
     const prompt = getPrompt('title');
     const user = renderUserPrompt(prompt.userTemplate, { keyword: req.keyword, synopsis: req.synopsis });
@@ -193,7 +162,6 @@ export class AiService {
   }
 
   async generateHooks(req: HookRequest, orgId: string): Promise<{ hooks: string[]; provider: string }> {
-    if (this.demoMode) return { hooks: [`هل تعلم أن ${req.keyword} يخفي هذا السر؟`, `توقف — لا تبدأ ${req.keyword} قبل معرفة هذا`], provider: 'demo' };
     const cred = await this.requireLlm(orgId);
     const prompt = getPrompt('hook');
     const user = renderUserPrompt(prompt.userTemplate, { keyword: req.keyword, context: req.context });
@@ -203,7 +171,6 @@ export class AiService {
   }
 
   async generateMetadata(req: { title: string; keyword: string; niche: string }, orgId: string): Promise<{ description: string; tags: string[]; hashtags: string[]; provider: string }> {
-    if (this.demoMode) return { description: `اكتشف ${req.keyword} — دليل مختصر. #تعلم #${req.keyword}`, tags: [req.keyword, 'تعلم', 'نصائح'], hashtags: ['#تعلم', '#معرفة'], provider: 'demo' };
     const cred = await this.requireLlm(orgId);
     const prompt = getPrompt('metadata');
     const user = renderUserPrompt(prompt.userTemplate, { title: req.title, keyword: req.keyword, niche: req.niche });
@@ -214,56 +181,8 @@ export class AiService {
 
   /* ----------------------------------------------------------------- VOICE */
 
-  /**
-   * Deterministic offline script (AI_PROVIDER_MODE=demo). Satisfies the same
-   * VideoScriptSchema contract the real LLMs must pass, so the pipeline below
-   * is exercised end-to-end (scenes, captions, durations, assets).
-   */
-  private demoScript(req: ScriptRequest): VideoScript {
-    const keyword = req.keyword.trim() || 'التعلم المستمر';
-    const k = keyword;
-    const scenes: Array<{ narration: string; visualPrompt: string }> = [
-      {
-        narration: `هل تساءلت يوماً عن أسرار ${k}؟ في هذا الفيديو سنكشف لك كل ما تحتاج معرفته عن ${k} بطريقة مبسطة وسريعة.`,
-        visualPrompt: `cinematic close-up of ${k}, glowing details, deep colors, vertical 9:16`,
-      },
-      {
-        narration: `أولاً، يبدأ كل شيء بفهم الأساسيات. ${k} ليس معقداً كما تظن، بل يحتاج فقط إلى خطوات واضحة ومنظمة.`,
-        visualPrompt: `clean infographic illustration about ${k}, bright palette, vertical 9:16`,
-      },
-      {
-        narration: `ثانياً، التطبيق العملي هو سر الإتقان. جرّب بنفسك وستكتشف أن ${k} يصبح أسهل مع كل محاولة جديدة.`,
-        visualPrompt: `hands working on a ${k} project, cinematic lighting, vertical 9:16`,
-      },
-      {
-        narration: `وأخيراً، المداومة تصنع الفرق الحقيقي. خصص وقتاً يومياً صغيراً وسوف تتفاجأ بالنتائج الكبيرة على المدى الطويل.`,
-        visualPrompt: `abstract golden success path about ${k}, soft glow, vertical 9:16`,
-      },
-    ];
-    return {
-      title: `أسرار ${k} التي لا يعرفها معظم الناس`,
-      description: `اكتشف ${k} من الصفر إلى الاحتراف في دقائق. شرح مبسط بالعربية مع خطوات عملية وتطبيق مباشر. #تعلم #${k.replace(/\s+/g, '')}`,
-      tags: [k, 'تعلم', 'نصائح', 'معلومة', 'تطوير', 'مختصر'],
-      hook: `لن تصدق كم هو سهل إتقان ${k} بهذه الطريقة!`,
-      cta: 'تابعنا لمزيد من المحتوى المفيد، وفعّل الجرس ليصلك كل جديد.',
-      scenes,
-    };
-  }
-
-  /** Real Arabic voiceover: OpenAI tts when that credential resolved, else gTTS chunked MP3(s). */
+  /** Real voiceover: OpenAI tts when that credential resolved, else gTTS chunked MP3(s). No silent mock. */
   async synthesizeVoice(text: string, language: string, orgId: string): Promise<{ chunks: Buffer[]; provider: string; mime: string }> {
-    if (this.demoMode) {
-      const wordCount = text.split(/\s+/).filter(Boolean).length;
-      const secs = Math.max(10, Math.round(wordCount / 2.2));
-      const { mkdtemp, readFile } = await import('node:fs/promises');
-      const { join } = await import('node:path');
-      const { tmpdir } = await import('node:os');
-      const wd = await mkdtemp(join(tmpdir(), 'aca-tts-'));
-      const out = join(wd, 'voice.wav');
-      await renderSilentWav(secs, out);
-      const buf = await readFile(out);
-      return { chunks: [buf], provider: 'demo', mime: 'audio/wav' };
-    }
     const cred = await this.creds.resolveLlm(orgId);
     if (cred?.def.id === 'openai') {
       const chunks = await withRetry('tts-openai', async () => {
@@ -316,15 +235,7 @@ export class AiService {
 
   /* ----------------------------------------------------------------- CLIPS */
 
-  /**
-   * Real moving-picture generation for one scene. The scene still becomes the
-   * clip's FIRST FRAME (Runway/Luma/Kling all support it) so the whole cut
-   * stays visually coherent. Provider failures THROW (the pipeline marks the
-   * video FAILED honestly — stills mode is chosen only when no video key
-   * exists at all, before any clip is attempted).
-   */
   async resolveVideoCred(orgId: string): Promise<VideoCredential | null> {
-    if (this.demoMode) return null;
     return this.creds.resolveVideo(orgId);
   }
 
@@ -340,16 +251,12 @@ export class AiService {
 
   /**
    * Real scene artwork via a 3-provider REAL chain, recorded in metadata:
-   *   1. Pollinations flux (AI-generated, key-less — but anonymous tier is
-   *      ~1 slot/IP; bursts → 429, and repeated E2E burns can exhaust the
-   *      window. Live-measured 2026-08-03).
-   *   2. LoremFlickr (real Flickr photo matched to prompt keywords, no key).
-   *   3. Openverse (WP-run CC image search JSON API, no key, generous anon).
-   * Degradation never means silence or a placeholder: every path yields REAL
-   * prompt-relevant photography/artwork downloaded over the wire.
+   *   1. Pollinations flux (AI-generated).
+   *   2. LoremFlickr (real Flickr photo).
+   *   3. Openverse (CC image search).
+   * Every path yields REAL artwork — no placeholder.
    */
   async generateSceneImage(visualPrompt: string, seed: number): Promise<{ data: Buffer; provider: string }> {
-    if (this.demoMode) return this.imageViaDemo(seed);
     const errors: string[] = [];
     try {
       return await withRetry('image-pollinations', () => this.imageViaPollinations(visualPrompt, seed), this.logger);
@@ -367,19 +274,6 @@ export class AiService {
       errors.push(`openverse: ${err instanceof Error ? err.message : err}`);
     }
     throw new Error(`all image providers failed → ${errors.join(' | ')}`);
-  }
-
-  /** Solid-color 720x1280 placeholder still (demo mode only — offline, instant). */
-  private async imageViaDemo(seed: number): Promise<{ data: Buffer; provider: 'demo' }> {
-    const palette = ['0x0f172a', '0x1e1b4b', '0x0c4a6e', '0x134e4a', '0x4c1d95', '0x9a3412', '0x334155', '0x581c87'];
-    const color = palette[Math.abs(seed) % palette.length]!;
-    const { mkdtemp, readFile } = await import('node:fs/promises');
-    const { join } = await import('node:path');
-    const { tmpdir } = await import('node:os');
-    const wd = await mkdtemp(join(tmpdir(), 'aca-img-'));
-    const out = join(wd, 'scene.jpg');
-    await renderSolidJpeg(color, out);
-    return { data: await readFile(out), provider: 'demo' };
   }
 
   private async imageViaPollinations(visualPrompt: string, seed: number): Promise<{ data: Buffer; provider: 'pollinations' }> {

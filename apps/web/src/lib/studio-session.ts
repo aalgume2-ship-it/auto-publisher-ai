@@ -1,14 +1,7 @@
 /**
- * Production session for the studio — real backend with fallback.
- *
- * Every session is created by the real API (/v1/auth) when available.
- * When the API is unreachable (cold start), the caller receives a `retryable`
- * result so the UI can keep showing a friendly "Waking service…" state and
- * retry automatically.
- *
- * Improvement: COLD_START and network failures are now explicitly retryable,
- * and we also treat 502/503 as retryable so the login button never stays stuck
- * on "Signing in…" forever.
+ * Production session — real backend only (no mock).
+ * Every session is created by the real API (/v1/auth). Transient network
+ * failures are retryable with friendly Processing state — never raw errors.
  */
 import { login as apiLogin, register as apiRegister, refresh as apiRefresh, type AuthTokens } from './studio-api';
 
@@ -69,10 +62,10 @@ export async function signupWith(email: string, password: string, name: string):
     save(sess);
     return { ok: true, session: sess };
   }
-  if (r.reachable === false) return { ok: false, retryable: true, message: 'الخدمة تستيقظ الآن... نعيد المحاولة تلقائياً' };
+  if (r.reachable === false) return { ok: false, retryable: true, message: 'Processing — جاري المعالجة, نعيد المحاولة تلقائياً خلال ثوانٍ' };
   if (r.error?.code === 'EMAIL_TAKEN' || r.error?.code === 'CONFLICT') return { ok: false, retryable: false, message: 'An account with this email already exists.' };
   if (r.error?.status === 502 || r.error?.status === 503 || r.error?.code === 'COLD_START' || r.error?.code === 'UPSTREAM_UNREACHABLE') {
-    return { ok: false, retryable: true, message: 'الخدمة تستيقظ الآن - نعيد المحاولة تلقائياً خلال ثوانٍ...' };
+    return { ok: false, retryable: true, message: 'Processing — جاري المعالجة, نعيد المحاولة تلقائياً' };
   }
   return { ok: false, retryable: true, message: r.error?.detail || 'Unable to create your account right now. Please try again.' };
 }
@@ -105,10 +98,10 @@ export async function signinWith(email: string, password: string): Promise<Sessi
     } catch {}
     return { ok: true, session: sess };
   }
-  if (r.reachable === false) return { ok: false, retryable: true, message: 'الخدمة تستيقظ الآن - نعيد المحاولة تلقائياً...' };
+  if (r.reachable === false) return { ok: false, retryable: true, message: 'Processing — جاري المعالجة, نعيد المحاولة تلقائياً' };
   if (r.error?.status === 401 || r.error?.code === 'UNAUTHENTICATED') return { ok: false, retryable: false, message: 'Incorrect email or password.' };
   if (r.error?.status === 502 || r.error?.status === 503 || r.error?.code === 'COLD_START' || r.error?.code === 'UPSTREAM_UNREACHABLE') {
-    return { ok: false, retryable: true, message: 'الخدمة تستيقظ الآن - نعيد المحاولة تلقائياً خلال ثوانٍ...' };
+    return { ok: false, retryable: true, message: 'Processing — جاري المعالجة, نعيد المحاولة تلقائياً' };
   }
   return { ok: false, retryable: true, message: r.error?.detail || 'Unable to sign you in right now. Please try again.' };
 }

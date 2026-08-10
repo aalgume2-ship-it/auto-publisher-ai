@@ -65,7 +65,7 @@ export default function StudioNav({ minimal = false }: { minimal?: boolean }) {
         ) : (
           <>
             <Link className="btn btn-ghost" href="/login">Sign in</Link>
-            <Link className="btn btn-primary" href="/signup">Get started</Link>
+            <Link className="btn btn-primary" href="/create">Try — no account needed</Link>
           </>
         )}
       </div>
