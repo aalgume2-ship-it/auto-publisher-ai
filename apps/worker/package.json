@@ -9,8 +9,8 @@
     "dev": "tsc -b --watch",
     "start": "node dist/main.js",
     "lint": "eslint .",
-    "typecheck": "tsc -b --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@aca/auth": "workspace:*",
