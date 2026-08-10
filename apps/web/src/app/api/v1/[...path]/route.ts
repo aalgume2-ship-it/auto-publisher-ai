@@ -1,40 +1,31 @@
 /**
- * Catch-all API proxy: /api/v1/* → Railway API upstream.
+ * Catch-all API proxy: /api/v1/* → AWS-hosted API upstream.
  *
- * No Render fallback - Railway only per migration.
- * This file MUST point to Railway after migration.
+ * The AutoCreator AI backend (apps/api, NestJS) is deployed to AWS
+ * (ECS/Fargate, EC2, or App Runner). Vercel hosts only the web app and
+ * this serverless proxy; the browser never talks to AWS directly.
+ *
+ * Configuration:
+ *   API_UPSTREAM              Required. e.g. https://api.aca.example.com
+ *   ACA_INTERNAL_API_TOKEN    Optional. Bearer token forwarded as
+ *                             `X-Internal-Token` for service-to-service
+ *                             auth in production.
+ *
+ * No localhost fallback, no Render fallback, no Railway fallback. The
+ * serverless proxy is intentionally minimal — every other concern
+ * (retry, rate limit, observability) lives in the AWS API.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 
-const RAW_UPSTREAM =
-  process.env.API_UPSTREAM?.trim() ||
-  process.env.NEXT_PUBLIC_API_BASE?.trim() ||
-  process.env.RAILWAY_PUBLIC_DOMAIN?.trim() ||
-  '';
-
- // Railway-only fallback - NO RENDER
- // Real Railway URL MUST be set as API_UPSTREAM in Vercel env vars
-const FALLBACK_UPSTREAMS = [
-  process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN.replace(/^https?:\/\//, '')}` : '',
-  'https://auto-publisher-ai-production.up.railway.app',
-  'https://autocreator-api-production.up.railway.app',
-  'https://auto-publisher-ai.up.railway.app',
-].filter(Boolean);
+const RAW_UPSTREAM = process.env.API_UPSTREAM?.trim() || '';
 
 function cleanOrigin(s: string): string {
   return s.replace(/\/+$/, '').trim();
 }
 
-function getUpstreamCandidates(): string[] {
-  const out: string[] = [];
-  const primary = RAW_UPSTREAM ? cleanOrigin(RAW_UPSTREAM) : '';
-  if (primary && primary.startsWith('http')) out.push(primary);
-  for (const fb of FALLBACK_UPSTREAMS) {
-    const c = cleanOrigin(fb);
-    if (c && !out.includes(c)) out.push(c);
-  }
-  return out;
+function getUpstreamOrigin(): string {
+  return RAW_UPSTREAM ? cleanOrigin(RAW_UPSTREAM) : '';
 }
 
 function upstreamPath(segments: string[]): string {
@@ -52,9 +43,7 @@ function isHtmlInterstitial(text: string, contentType: string | null): boolean {
     t.includes('<html') ||
     t.includes('application loading') ||
     t.includes('allocating compute resources') ||
-    t.includes('service waking up') ||
-    t.includes('your app is almost live') ||
-    t.includes('train has not arrived')
+    t.includes('service waking up')
   );
 }
 
@@ -100,21 +89,47 @@ export async function OPTIONS() {
 }
 
 async function proxy(request: NextRequest, segments: string[]): Promise<NextResponse> {
-  const candidates = getUpstreamCandidates();
+  const upstreamOrigin = getUpstreamOrigin();
   const targetPath = upstreamPath(segments);
   const isHealth = segments[0] === 'health';
 
-  if (candidates.length === 0) {
+  if (!upstreamOrigin) {
     if (isHealth) {
       return NextResponse.json(
-        { status: 'ok', service: 'apps/web', version: '0.3.0-railway-only', environment: 'production', timestamp: new Date().toISOString(), note: 'no upstream configured - set API_UPSTREAM to Railway URL' },
+        {
+          status: 'ok',
+          service: 'apps/web-proxy',
+          upstream: null,
+          detail: 'API_UPSTREAM not configured. Set it in Vercel env to your AWS API URL (e.g. https://api.aca.example.com).',
+          timestamp: new Date().toISOString(),
+        },
         { status: 200 },
       );
     }
     return NextResponse.json(
-      { type: 'about:blank', title: 'Upstream not configured', status: 503, code: 'UPSTREAM_NOT_CONFIGURED', detail: 'API_UPSTREAM is not set. Set it to Railway URL in Vercel env.' },
+      {
+        type: 'about:blank',
+        title: 'Upstream not configured',
+        status: 503,
+        code: 'UPSTREAM_NOT_CONFIGURED',
+        detail: 'API_UPSTREAM is not set. Configure the AWS API URL in Vercel env.',
+      },
       { status: 503 },
     );
+  }
+
+  const target = new URL(targetPath, upstreamOrigin);
+  request.nextUrl.searchParams.forEach((v, k) => target.searchParams.set(k, v));
+
+  const headers = new Headers(request.headers);
+  headers.delete('host');
+  headers.delete('connection');
+  headers.delete('transfer-encoding');
+  if (!headers.has('accept')) headers.set('accept', 'application/json');
+
+  // Optional service-to-service auth header for production deployments.
+  if (process.env.ACA_INTERNAL_API_TOKEN) {
+    headers.set('X-Internal-Token', process.env.ACA_INTERNAL_API_TOKEN);
   }
 
   const hasBody = !['GET', 'HEAD'].includes(request.method);
@@ -127,100 +142,64 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
     }
   }
 
-  for (const upstreamOrigin of candidates) {
-    const target = new URL(targetPath, upstreamOrigin);
-    request.nextUrl.searchParams.forEach((v, k) => target.searchParams.set(k, v));
+  const maxAttempts = isHealth ? 1 : 2;
+  const baseDelayMs = 1000;
 
-    const headers = new Headers(request.headers);
-    headers.delete('host');
-    headers.delete('connection');
-    headers.delete('transfer-encoding');
-    if (!headers.has('accept')) headers.set('accept', 'application/json');
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const upstreamRes = await fetchWithTimeout(
+        target.toString(),
+        {
+          method: request.method,
+          headers,
+          body: bodyBuffer,
+          // @ts-expect-error duplex
+          duplex: hasBody ? 'half' : undefined,
+        },
+        isHealth ? 5000 : 20000,
+      );
 
-    const maxAttempts = isHealth ? 2 : 3;
-    const baseDelayMs = 1500;
+      const contentType = upstreamRes.headers.get('content-type');
+      let shouldRetryAsColdStart = false;
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        const upstreamRes = await fetchWithTimeout(
-          target.toString(),
-          {
-            method: request.method,
-            headers,
-            body: bodyBuffer,
-            // @ts-expect-error duplex
-            duplex: hasBody ? 'half' : undefined,
-          },
-          isHealth ? 8000 : 15000,
-        );
-
-        const contentType = upstreamRes.headers.get('content-type');
-        let shouldRetryAsColdStart = false;
-
-        if (contentType && contentType.includes('text/html')) {
-          const txt = await upstreamRes.clone().text();
-          if (isHtmlInterstitial(txt, contentType)) {
-            shouldRetryAsColdStart = true;
-          }
-        } else if (upstreamRes.status === 503 || upstreamRes.status === 502) {
-          const txt = await upstreamRes.clone().text().catch(() => '');
-          if (txt && isHtmlInterstitial(txt, contentType)) {
-            shouldRetryAsColdStart = true;
-          }
+      if (contentType && contentType.includes('text/html')) {
+        const txt = await upstreamRes.clone().text();
+        if (isHtmlInterstitial(txt, contentType)) {
+          shouldRetryAsColdStart = true;
         }
-
-        if (shouldRetryAsColdStart) {
-          if (attempt < maxAttempts - 1) {
-            const delay = baseDelayMs * Math.pow(1.8, attempt);
-            console.warn(`[api/v1 proxy] cold-start detected (attempt ${attempt + 1}/${maxAttempts}) for ${target} - retrying in ${delay}ms`);
-            await new Promise((r) => setTimeout(r, delay));
-            continue;
-          }
-          if (isHealth) {
-            return NextResponse.json(
-              {
-                status: 'waking',
-                service: 'api-upstream',
-                upstream: upstreamOrigin,
-                detail: 'Upstream is waking up (Railway cold start).',
-                timestamp: new Date().toISOString(),
-              },
-              { status: 200, headers: { 'Retry-After': '10' } },
-            );
-          }
-          return NextResponse.json(
-            {
-              type: 'about:blank',
-              title: 'Upstream cold start',
-              status: 503,
-              code: 'COLD_START',
-              detail: 'الخدمة تستيقظ الآن - يتم إعادة المحاولة تلقائياً.',
-              upstream: upstreamOrigin,
-            },
-            { status: 503, headers: { 'Retry-After': '10' } },
-          );
+      } else if (upstreamRes.status === 503 || upstreamRes.status === 502) {
+        const txt = await upstreamRes.clone().text().catch(() => '');
+        if (txt && isHtmlInterstitial(txt, contentType)) {
+          shouldRetryAsColdStart = true;
         }
-
-        const resHeaders = new Headers(upstreamRes.headers);
-        resHeaders.delete('transfer-encoding');
-        resHeaders.delete('connection');
-        resHeaders.delete('content-encoding');
-        resHeaders.set('Access-Control-Allow-Origin', '*');
-
-        return new NextResponse(upstreamRes.body, {
-          status: upstreamRes.status,
-          headers: resHeaders,
-        });
-      } catch (err: any) {
-        const isAbort = err?.name === 'AbortError';
-        console.error(`[api/v1 proxy] attempt ${attempt + 1}/${maxAttempts} failed for ${target} (${isAbort ? 'timeout' : err?.message})`);
-        if (attempt < maxAttempts - 1) {
-          const delay = baseDelayMs * Math.pow(1.6, attempt);
-          await new Promise((r) => setTimeout(r, delay));
-          continue;
-        }
-        break;
       }
+
+      if (shouldRetryAsColdStart && attempt < maxAttempts - 1) {
+        const delay = baseDelayMs * Math.pow(2, attempt);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+
+      const resHeaders = new Headers(upstreamRes.headers);
+      resHeaders.delete('transfer-encoding');
+      resHeaders.delete('connection');
+      resHeaders.delete('content-encoding');
+      resHeaders.set('Access-Control-Allow-Origin', '*');
+
+      return new NextResponse(upstreamRes.body, {
+        status: upstreamRes.status,
+        headers: resHeaders,
+      });
+    } catch (err) {
+      const e = err as { name?: string; message?: string };
+      const isAbort = e?.name === 'AbortError';
+      console.error(`[api/v1 proxy] attempt ${attempt + 1}/${maxAttempts} failed for ${target} (${isAbort ? 'timeout' : e?.message})`);
+      if (attempt < maxAttempts - 1) {
+        const delay = baseDelayMs * Math.pow(2, attempt);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      break;
     }
   }
 
@@ -229,9 +208,9 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
       {
         status: 'degraded',
         service: 'apps/web-proxy',
+        upstream: upstreamOrigin,
+        detail: 'AWS API upstream unreachable. Verify the service is running and API_UPSTREAM is correct.',
         timestamp: new Date().toISOString(),
-        detail: 'All Railway upstreams unreachable - check API_UPSTREAM env and Railway deployment',
-        upstreams: candidates,
       },
       { status: 200 },
     );
@@ -243,8 +222,8 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
       title: 'Upstream unreachable',
       status: 502,
       code: 'UPSTREAM_UNREACHABLE',
-      detail: 'تعذّر الوصول إلى Railway - تأكد أن الخدمة تعمل وأن API_UPSTREAM صحيح.',
-      upstreams: candidates,
+      detail: 'تعذّر الوصول إلى الخدمة - تأكد أن API_UPSTREAM يشير إلى AWS API الصحيح.',
+      upstream: upstreamOrigin,
     },
     { status: 502, headers: { 'Retry-After': '5' } },
   );

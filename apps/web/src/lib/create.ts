@@ -37,6 +37,14 @@ export interface CreateDraft {
   negative?: string;
   seed?: number;
   updatedAt?: number;
+  fps?: number;
+  resolution?: string;
+  shotType?: string;
+  cameraMove?: string;
+  quality?: string;
+  audio?: string;
+  referenceImages?: string[];
+  refRoles?: Record<string, 'character' | 'product' | 'style' | 'scene' | 'first_frame' | 'last_frame'>;
 }
 
 export const DEFAULT_DRAFT: CreateDraft = {

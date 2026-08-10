@@ -1,12 +1,18 @@
 /**
- * Orchestrates create → queue → render.
+ * Video generation flow — talks to the real backend only.
  *
- * In guest/preview mode, the studio runs without a real backend. The
- * studio flow still produces a deterministic placeholder job that the
- * result page can render immediately, so the entire experience
- * (create → generate → result) feels instant and complete.
+ * Pipeline (every step is a real API call to /api/v1/*):
+ *   submitGeneration
+ *     → POST /v1/organizations/:orgId/series/:seriesId/videos
+ *       (real Runway / Luma / fal.ai job is enqueued on the server)
+ *   pollVideo
+ *     → GET /v1/organizations/:orgId/videos/:videoId (real provider status)
+ *   requeueVideo
+ *     → POST /v1/organizations/:orgId/videos/:videoId/regenerate
  *
- * When the real backend auth is re-enabled, this file is reverted.
+ * If the backend is not configured, every call returns a typed
+ * `not_configured` result. The UI surfaces this as a banner — the
+ * job is NEVER marked "completed" with a fake video.
  */
 import type { StudioSession } from './studio-session';
 
@@ -17,13 +23,23 @@ export interface SubmittedJob {
   keyword: string;
   targetSeconds: number;
 }
+
 export type SubmitResult =
   | { kind: 'job'; job: SubmittedJob }
   | { kind: 'retry' }
+  | { kind: 'error'; message: string }
+  | { kind: 'not_configured'; detail: string };
+
+export type PollResult =
+  | { kind: 'status'; status: string }
+  | { kind: 'not_configured'; detail: string }
   | { kind: 'error'; message: string };
 
-function newId(prefix: string): string {
-  return prefix + '_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+const POLL_INTERVAL_MS = 3000;
+
+function getToken(session: StudioSession): string | null {
+  if (session.mode === 'guest') return null;
+  return session.tokens?.accessToken ?? null;
 }
 
 export async function submitGeneration(
@@ -31,110 +47,121 @@ export async function submitGeneration(
   keyword: string,
   targetSeconds: number,
 ): Promise<SubmitResult> {
-  // Guest/preview mode: synthesize a local job so the result page renders
-  // immediately. The real backend will replace this when auth is back.
-  if (session.mode === 'guest') {
+  const token = getToken(session);
+  if (!token) {
     return {
-      kind: 'job',
-      job: {
-        orgId: session.orgId ?? 'guest',
-        seriesId: 'guest-series',
-        videoId: newId('v'),
-        keyword,
-        targetSeconds,
-      },
+      kind: 'not_configured',
+      detail: 'Sign in and configure at least one video provider (Runway, Luma, fal.ai, Replicate) to generate real videos.',
     };
   }
-  // Below is the legacy real-backend path (kept for type compatibility;
-  // unreachable while guest mode is the default).
-  const { listOrgs, createOrg, listSeries, createSeries, generateVideo } = await import('./studio-api');
-  const token = session.tokens?.accessToken;
-  if (!token) return { kind: 'retry' };
 
   let orgId = session.orgId;
-  try {
-    const orgs = await listOrgs(token);
-    if (!orgs.reachable) return { kind: 'retry' };
-    if (!orgs.ok) {
-      if (orgs.error?.status === 401) return { kind: 'error', message: 'Your session has expired.' };
-      return { kind: 'retry' };
-    }
-    if (!orgId) {
-      const existing = orgs.data?.items?.[0]?.organization;
-      if (existing) orgId = existing.id;
-    }
-    if (!orgId) {
-      const created = await createOrg(token, 'My Studio');
-      if (!created.ok) return { kind: 'retry' };
-      orgId = created.data!.id;
-    }
-  } catch {
-    return { kind: 'retry' };
+  if (!orgId) {
+    return { kind: 'not_configured', detail: 'No organization is linked to this session.' };
   }
 
-  let seriesId: string | undefined;
   try {
-    const series = await listSeries(token, orgId);
-    if (series.reachable === false) return { kind: 'retry' };
-    if (series.ok) seriesId = series.data?.items?.[0]?.id;
+    const api = await import('./studio-api');
+    // 1) Find or create a series.
+    const series = await api.listSeries(token, orgId);
+    if (!series.reachable) return { kind: 'not_configured', detail: 'API is unreachable. Check API_UPSTREAM.' };
+    if (series.error?.status === 401) return { kind: 'error', message: 'Your session has expired.' };
+    if (!series.ok && !series.reachable) return { kind: 'retry' };
+
+    let seriesId = series.data?.items?.[0]?.id;
     if (!seriesId) {
-      const created = await createSeries(token, orgId, 'Studio Clips');
-      if (!created.ok) return { kind: 'retry' };
+      const created = await api.createSeries(token, orgId, 'Studio Clips');
+      if (!created.ok) return { kind: 'error', message: created.error?.detail ?? 'Failed to create a series.' };
       seriesId = created.data!.id;
     }
-  } catch {
-    return { kind: 'retry' };
-  }
 
-  try {
-    const job = await generateVideo(token, orgId, seriesId, keyword, targetSeconds);
-    if (job.reachable === false) return { kind: 'retry' };
+    // 2) Submit the real generation job.
+    const job = await api.generateVideo(token, orgId, seriesId, keyword, targetSeconds);
+    if (job.reachable === false) return { kind: 'not_configured', detail: 'API is unreachable.' };
     if (!job.ok) {
       if (job.error?.status === 401) return { kind: 'error', message: 'Your session has expired.' };
-      return { kind: 'retry' };
+      if (job.error?.code === 'PROVIDER_NOT_CONFIGURED') {
+        return {
+          kind: 'not_configured',
+          detail: job.error.detail ?? 'No video provider is configured on the server. Set RUNWAY_API_KEY, LUMA_API_KEY, FAL_API_KEY, or REPLICATE_API_TOKEN.',
+        };
+      }
+      return { kind: 'error', message: job.error?.detail ?? 'Failed to submit the video job.' };
     }
     return { kind: 'job', job: { orgId, seriesId, videoId: job.data!.id, keyword, targetSeconds } };
-  } catch {
-    return { kind: 'retry' };
+  } catch (err) {
+    return { kind: 'error', message: (err as Error).message ?? 'Unexpected error.' };
   }
 }
 
 export function friendlyStatus(status: string): 'Preparing' | 'Generating' | 'Rendering' | 'Completed' | 'Processing' {
   const s = (status || '').toUpperCase();
-  if (s === 'READY') return 'Completed';
-  if (s === 'RENDERING') return 'Rendering';
-  if (s === 'QUEUED' || s === 'PENDING') return 'Generating';
+  if (s === 'READY' || s === 'COMPLETED' || s === 'DONE') return 'Completed';
+  if (s === 'RENDERING' || s === 'ENCODING' || s === 'UPLOADING') return 'Rendering';
+  if (s === 'QUEUED' || s === 'PENDING' || s === 'PREPARING') return 'Preparing';
+  if (s === 'GENERATING' || s === 'PROCESSING') return 'Generating';
   if (s === 'FAILED' || s === 'ERROR' || s === 'CANCELLED') return 'Processing';
   return 'Processing';
 }
 
+/**
+ * Poll the real backend for video status. Calls the API at fixed
+ * intervals; the caller decides what to do with the result.
+ */
 export async function pollVideo(
-  _token: string,
-  _orgId: string,
-  _videoId: string,
+  session: StudioSession,
+  orgId: string,
+  videoId: string,
   onStatus: (status: string) => void,
-  maxMs = 5 * 60_000,
-): Promise<'completed' | 'processing' | 'session'> {
-  // In guest mode the job is already 'READY' on the client — but to keep
-  // the experience feeling real, we walk the same phase transitions
-  // (Queued → Generating → Rendering → Ready) before completing.
-  const started = Date.now();
-  const phases: Array<{ status: string; durMs: number }> = [
-    { status: 'QUEUED', durMs: 600 },
-    { status: 'GENERATING', durMs: 1500 },
-    { status: 'RENDERING', durMs: 1200 },
-    { status: 'READY', durMs: 0 },
-  ];
-  let i = 0;
-  while (i < phases.length) {
-    const p = phases[i++];
-    onStatus(p.status);
-    if (p.durMs > 0) await new Promise((res) => setTimeout(res, p.durMs));
-    if (Date.now() - started > maxMs) return 'processing';
+  opts: { intervalMs?: number; maxMs?: number; signal?: AbortSignal } = {},
+): Promise<'completed' | 'failed' | 'processing' | 'session' | 'not_configured'> {
+  const token = getToken(session);
+  if (!token) {
+    onStatus('NOT_CONFIGURED');
+    return 'not_configured';
   }
-  return 'completed';
+
+  const interval = opts.intervalMs ?? POLL_INTERVAL_MS;
+  const max = opts.maxMs ?? 5 * 60_000;
+  const started = Date.now();
+  const api = await import('./studio-api');
+
+  while (Date.now() - started < max) {
+    if (opts.signal?.aborted) return 'processing';
+    const r = await api.getVideo(token, orgId, videoId);
+    if (r.reachable === false) {
+      onStatus('RETRY');
+      await new Promise((res) => setTimeout(res, interval));
+      continue;
+    }
+    if (!r.ok) {
+      if (r.error?.status === 401) return 'session';
+      onStatus('RETRY');
+      await new Promise((res) => setTimeout(res, interval));
+      continue;
+    }
+    const st = r.data?.status ?? 'QUEUED';
+    onStatus(st);
+    if (st === 'READY' || st === 'COMPLETED' || st === 'DONE') return 'completed';
+    if (st === 'FAILED' || st === 'ERROR' || st === 'CANCELLED') return 'failed';
+    await new Promise((res) => setTimeout(res, interval));
+  }
+  return 'processing';
 }
 
-export async function requeueVideo(_session: StudioSession, _orgId: string, _videoId: string): Promise<boolean> {
-  return true;
+export async function requeueVideo(
+  session: StudioSession,
+  orgId: string,
+  videoId: string,
+): Promise<{ ok: boolean; detail?: string }> {
+  const token = getToken(session);
+  if (!token) return { ok: false, detail: 'No active session.' };
+  try {
+    const api = await import('./studio-api');
+    const r = await api.regenerateVideo(token, orgId, videoId);
+    if (!r.ok) return { ok: false, detail: r.error?.detail ?? 'Re-queue failed.' };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, detail: (err as Error).message };
+  }
 }

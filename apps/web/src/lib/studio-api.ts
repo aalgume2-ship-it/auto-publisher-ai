@@ -186,6 +186,13 @@ export interface VideoDto {
   keyword?: string;
   createdAt: string;
   renditions?: Array<{ status: string; url?: string }>;
+  streamUrl?: string;
+  failureReason?: string;
+  provider?: string;
+  model?: string;
+  durationSec?: number;
+  width?: number;
+  height?: number;
 }
 
 export function createSeries(token: string, orgId: string, name: string) {

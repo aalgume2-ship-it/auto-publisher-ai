@@ -3,10 +3,12 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Check, Link2, RefreshCcw } from 'lucide-react';
+import { AlertCircle, Check, ExternalLink, Link2, RefreshCcw, Sparkles } from 'lucide-react';
 import StudioNav from '../../components/studio/StudioNav';
 import ActionBar from '../../components/studio/ActionBar';
 import { loadStudioSession } from '../../lib/studio-session';
+
+type VideoStatus = 'READY' | 'COMPLETED' | 'DONE' | 'RENDERING' | 'QUEUED' | 'GENERATING' | 'PREPARING' | 'PENDING' | 'UPLOADING' | 'FAILED' | 'ERROR' | 'CANCELLED' | 'UNKNOWN';
 
 function ResultInner() {
   const router = useRouter();
@@ -16,38 +18,61 @@ function ResultInner() {
   const width = Number(sp.get('w') || 1280);
   const height = Number(sp.get('h') || 720);
   const seconds = Number(sp.get('sec') || 6);
-  const model = sp.get('model') || 'Lumen';
+  const model = sp.get('model') || 'lumen-pro';
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [src, setSrc] = useState<string | null>(null);
+  const [status, setStatus] = useState<VideoStatus>('UNKNOWN');
+  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const session = loadStudioSession();
   const isGuest = session?.mode === 'guest';
-  const token = session?.tokens?.accessToken ?? 'guest';
+  const token = session?.tokens?.accessToken ?? '';
 
-  // In guest mode we show a public placeholder video so the result
-  // page still has something to render without the real backend.
+  // 1) Poll the real backend for status + signed stream URL.
   useEffect(() => {
     if (!videoId || !orgId) return;
-    if (isGuest) {
-      // Small public-domain mp4 used as a stand-in render preview.
-      setSrc('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4');
+    if (isGuest || !token) {
+      setError('Sign in and configure a video provider to view the real result.');
       return;
     }
     let cancelled = false;
-    (async () => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
       try {
-        const { fetchStreamBlob } = await import('../../lib/studio-api');
-        const res = await fetchStreamBlob(orgId, videoId, token);
-        if (!cancelled && res) setSrc(res.url);
-      } catch {
-        /* ignore — keep spinner */
+        const api = await import('../../lib/studio-api');
+        const r = await api.getVideo(token, orgId, videoId);
+        if (cancelled) return;
+        if (r.reachable === false) {
+          setError('API is unreachable. Check API_UPSTREAM in Vercel env.');
+          return;
+        }
+        if (!r.ok) {
+          setError(r.error?.detail ?? 'Failed to load the video.');
+          return;
+        }
+        const v = r.data!;
+        setStatus((v.status as VideoStatus) ?? 'UNKNOWN');
+        if (v.status === 'READY' || v.status === 'COMPLETED' || v.status === 'DONE') {
+          if (v.streamUrl) setSrc(v.streamUrl);
+        } else if (v.status === 'FAILED' || v.status === 'ERROR' || v.status === 'CANCELLED') {
+          setError(v.failureReason ?? 'Generation failed.');
+        } else {
+          // still processing — schedule another poll
+          timer = setTimeout(tick, 3000);
+        }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
       }
-    })();
+    };
+
+    void tick();
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [videoId, orgId, token, isGuest]);
 
@@ -65,24 +90,24 @@ function ResultInner() {
   async function regenerate() {
     if (!orgId || !videoId) return;
     if (isGuest) {
-      // In guest mode the re-render is a local re-roll: re-run the
-      // generate flow with the same prompt.
-      setBusy('remix');
-      window.setTimeout(() => {
-        setBusy(null);
-        notify('Starting a new render…');
-        router.push('/create');
-      }, 500);
+      notify('Sign in to use this action.');
       return;
     }
     setBusy('remix');
-    const { regenerateVideo } = await import('../../lib/studio-api');
-    const r = await regenerateVideo(token, orgId, videoId);
-    setBusy(null);
-    if (r.ok) {
-      notify('Starting a new render…');
-      window.setTimeout(() => router.push('/generate'), 600);
-    } else notify('Could not start a new render right now.');
+    try {
+      const api = await import('../../lib/studio-api');
+      const r = await api.regenerateVideo(token, orgId, videoId);
+      if (r.ok) {
+        notify('Starting a new render…');
+        window.setTimeout(() => router.push('/generate'), 600);
+      } else {
+        notify(r.error?.detail ?? 'Could not start a new render.');
+      }
+    } catch (e) {
+      notify((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function download() {
@@ -93,11 +118,11 @@ function ResultInner() {
       const blob = await res.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `lumen-${videoId}-${Math.round(width)}x${Math.round(height)}-${seconds}s.mp4`;
+      a.download = `autocreator-${videoId}-${Math.round(width)}x${Math.round(height)}-${seconds}s.mp4`;
       a.click();
       notify('Download started');
-    } catch {
-      notify('Could not start download');
+    } catch (e) {
+      notify(`Download failed: ${(e as Error).message}`);
     } finally {
       setBusy(null);
     }
@@ -106,7 +131,7 @@ function ResultInner() {
   async function share() {
     if (navigator.share) {
       try {
-        await navigator.share({ title: 'Lumen Studio render', text: 'Made with Lumen', url: location.href });
+        await navigator.share({ title: 'AutoCreator AI render', text: 'Made with AutoCreator AI', url: location.href });
         return;
       } catch {
         /* fall through */
@@ -161,9 +186,23 @@ function ResultInner() {
                 playsInline
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               />
+            ) : error ? (
+              <div className="overlay-mask" style={{ flexDirection: 'column', gap: 14, padding: 28, textAlign: 'center' }}>
+                <AlertCircle size={32} style={{ color: 'var(--accent-strong)' }} />
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{error}</div>
+                <button className="btn btn-primary" onClick={() => router.push('/create')}>
+                  <Sparkles size={16} /> Try a new render
+                </button>
+                <a className="btn btn-ghost" href="/api/v1/health/providers" target="_blank" rel="noreferrer">
+                  <ExternalLink size={14} /> Check provider status
+                </a>
+              </div>
             ) : (
               <div className="overlay-mask">
                 <div className="spinner magenta" />
+                <div className="sm muted" style={{ position: 'absolute', bottom: 18 }}>
+                  {status === 'RENDERING' || status === 'GENERATING' ? 'Rendering…' : 'Loading…'}
+                </div>
               </div>
             )}
             {busy && (
@@ -206,10 +245,22 @@ function ResultInner() {
                 <b>{seconds}s</b>
               </div>
               <div className="row between">
-                <span className="muted">Source</span>
+                <span className="muted">Status</span>
                 <b className="pill-note">
-                  <Check size={13} /> {isGuest ? 'Preview render' : 'Cloud render'}
+                  {status === 'READY' || status === 'COMPLETED' || status === 'DONE' ? (
+                    <>
+                      <Check size={13} /> Ready
+                    </>
+                  ) : status === 'FAILED' || status === 'ERROR' || status === 'CANCELLED' ? (
+                    <>Failed</>
+                  ) : (
+                    <>{status}</>
+                  )}
                 </b>
+              </div>
+              <div className="row between">
+                <span className="muted">Video ID</span>
+                <code className="sm muted">{videoId}</code>
               </div>
             </div>
           </div>
@@ -219,7 +270,7 @@ function ResultInner() {
             </div>
             <p className="sm muted">Re-run the render for a fresh take, download the file, or copy its link.</p>
             <div className="row" style={{ marginTop: 12 }}>
-              <button className="chip" onClick={regenerate}>
+              <button className="chip" onClick={regenerate} disabled={isGuest}>
                 <RefreshCcw size={13} /> Re-render
               </button>
               <button className="chip" onClick={copyLink}>
