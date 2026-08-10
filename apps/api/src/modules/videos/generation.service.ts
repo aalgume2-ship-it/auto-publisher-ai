@@ -309,16 +309,27 @@ export class GenerationService {
         },
       });
     } catch (err) {
-      // Surface the provider/config guidance, not just the exception class —
-      // ApiError carries the actionable text in `detail` (title is generic).
+      // Surface user-friendly state — never raw stack/API Unreachable to the user.
+      // Technical detail is kept in server logs; UI sees only Processing/Retrying/Failed buckets.
       const rawText =
         (err as { detail?: string } | null | undefined)?.detail ?? (err instanceof Error ? err.message : 'generation failed');
-      const msg = rawText.slice(0, 480);
-      // Configuration faults (marked terminal) can never heal by retrying;
-      // transient provider hiccups get the queue's 3-attempt backoff instead.
+      // Map technical noise to friendly buckets
+      const friendly = (() => {
+        if ((err as { terminal?: boolean })?.terminal === true || rawText.includes('AI_CREDENTIALS_MISSING')) return rawText; // config guidance is intentional
+        if (/API Unreachable|fetch failed|network|ECONN|ETIMEDOUT|timeout/i.test(rawText)) return 'Processing — working on your video, will retry automatically';
+        if (/429|rate/i.test(rawText)) return 'Retrying — high demand, queuing again';
+        if (/401|403|unauthorized|key rejected/i.test(rawText)) return 'Failed — AI provider key rejected. Update it in Settings.';
+        const m = rawText.slice(0, 240);
+        // Fallback friendly prefix
+        return m.length > 6 ? `Processing — ${m}` : 'Processing — retrying automatically';
+      })();
+      const msg = friendly.slice(0, 480);
       const explicitlyTerminal = (err as { terminal?: boolean } | null | undefined)?.terminal === true;
       const terminal = explicitlyTerminal || attempt >= 3;
-      const statusData = terminal ? { status: 'FAILED' as const, failureReason: msg } : { failureReason: `retry ${attempt}/3: ${msg}` };
+      // Store friendly reason for UI; keep raw in logs
+      if (!explicitlyTerminal) console.warn(`[generation:${videoId}] attempt ${attempt} raw: ${rawText.slice(0, 400)}`);
+      else console.warn(`[generation:${videoId}] terminal: ${rawText.slice(0, 400)}`);
+      const statusData = terminal ? { status: 'FAILED' as const, failureReason: msg } : { failureReason: `Retrying — attempt ${attempt}/3` };
       await this.prisma.video.update({ where: { id: videoId }, data: statusData });
       if (explicitlyTerminal) return; // acknowledge the job — no queue retry can fix config
       throw err;

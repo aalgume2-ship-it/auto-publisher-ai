@@ -325,20 +325,22 @@ export class VideosService {
     const channel = await this.prisma.channel.findFirst({ where: { id: body.channelId, orgId, status: 'CONNECTED' } });
     if (!channel) throw notFound('channel not found or not connected');
     const when = body.scheduledAt ? new Date(body.scheduledAt) : new Date();
+    // Platform is derived from the channel (providers are per-channel), not hard-coded.
+    const platform = channel.platform ?? 'youtube';
     const task = await this.prisma.publishingTask.create({
       data: {
         id: generateId(),
         orgId,
         videoId,
         channelId: channel.id,
-        platform: 'youtube',
+        platform,
         renditionProfile: 'shorts-720x1280',
         scheduledAt: when,
         hashtags: video.tags,
       },
     });
     const delayMs = Math.max(0, when.getTime() - Date.now());
-    const jobId = await this.queue.enqueue('publish', 'youtube.publish', { taskId: task.id }, { delayMs });
+    const jobId = await this.queue.enqueue('publish', `${platform}.publish`, { taskId: task.id }, { delayMs });
     return { task: this.publicTask(task), jobId };
   }
 

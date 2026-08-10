@@ -1,8 +1,11 @@
 /**
- * ChannelsService — Module-2 core: YouTube channel linking (real OAuth),
+ * ChannelsService — Multi-platform channel linking (real OAuth),
  * encrypted credential vault, refresh, disconnect. THIN-controller rule:
- * all logic lives here. Fail-closed: missing Google client config or vault
+ * all logic lives here. Fail-closed: missing client config or vault
  * master key → 503 PLATFORM_ERROR naming the exact env keys to provision.
+ *
+ * Providers are isolated (publishers/): adding Instagram/Facebook/etc.
+ * is a new publisher file + OAuth file — no core rebuild.
  */
 import { Inject, Injectable } from '@nestjs/common';
 import type { AppConfig } from '@aca/config';
@@ -22,6 +25,17 @@ import {
   signState,
   verifyState,
 } from './google-oauth.js';
+import {
+  buildTikTokAuthorizeUrl,
+  exchangeTikTokCode,
+  fetchTikTokUser,
+  newTikTokState,
+  pkcePair,
+  refreshTikTokToken,
+  revokeTikTokToken,
+  signTikTokState,
+  verifyTikTokState,
+} from './tiktok-oauth.js';
 
 const notFound = (what: string) => new ApiError('NOT_FOUND', 'Not Found', { detail: what });
 
@@ -45,11 +59,6 @@ export class ChannelsService {
     return new SecretEnvelope(keyringFromHex(key, this.config.secrets.masterKeyId));
   }
 
-  /**
-   * Google OAuth client resolution — the org's own client saved via
-   * /dashboard/settings (vault) wins; process env is the fallback. Without
-   * either we fail closed (503) with the exact self-service steps.
-   */
   private async googleConfig(orgId: string): Promise<{ clientId: string; clientSecret: string; redirectUri: string }> {
     const base = this.config.urls.publicApi;
     const redirectUri = this.config.platforms.googleOauthRedirectUri ?? (base ? `${base.replace(/\/+$/, '')}/v1/channels/oauth/youtube/callback` : undefined);
@@ -66,6 +75,22 @@ export class ChannelsService {
     return { clientId: resolved.clientId, clientSecret: resolved.clientSecret, redirectUri };
   }
 
+  private async tiktokConfig(orgId: string): Promise<{ clientKey: string; clientSecret: string; redirectUri: string }> {
+    const base = this.config.urls.publicApi;
+    const redirectUri = this.config.platforms.tiktokOauthRedirectUri ?? (base ? `${base.replace(/\/+$/, '')}/v1/channels/oauth/tiktok/callback` : undefined);
+    const resolved = await this.creds.resolveTikTokOAuth(orgId);
+    if (!resolved || !redirectUri) {
+      throw new ApiError('PLATFORM_ERROR', 'Service Unavailable', {
+        status: 503,
+        detail:
+          'ربط TikTok يحتاج تطبيق TikTok for Developers (~3 دقائق): من https://developers.tiktok.com → Manage apps → Create app → أضف Login Kit و Video Upload API، وسجّل Redirect URI التالي: ' +
+          (redirectUri ?? 'https://<api-host>/v1/channels/oauth/tiktok/callback') +
+          ' ثم ألصق Client Key و Client Secret في لوحة التحكم ← الإعدادات ← TikTok OAuth. أو اضبط TIKTOK_CLIENT_KEY و TIKTOK_CLIENT_SECRET في بيئة الـ API.',
+      });
+    }
+    return { clientKey: resolved.clientKey, clientSecret: resolved.clientSecret, redirectUri };
+  }
+
   private stateSecret(): string {
     const s = this.config.auth.jwtSecret;
     if (!s) throw new ApiError('PLATFORM_ERROR', 'Service Unavailable', { status: 503, detail: 'AUTH_JWT_SECRET missing' });
@@ -80,7 +105,7 @@ export class ChannelsService {
       orderBy: { connectedAt: 'desc' },
     });
     return {
-      items: rows.map((c) => ({
+      items: rows.map((c: any) => ({
         id: c.id,
         platform: c.platform,
         platformChannelId: c.platformChannelId,
@@ -96,16 +121,14 @@ export class ChannelsService {
     };
   }
 
-  /* --------------------------------------------------------- OAuth: start */
+  /* ------------------------------------------------------ YouTube OAuth: start */
 
   async startYoutubeLink(orgId: string, userId: string) {
     const { clientId, redirectUri } = await this.googleConfig(orgId);
-    this.vault(); // fail closed BEFORE the user walks to Google
+    this.vault();
     const state = signState(newState(orgId, userId), this.stateSecret());
     return { authorizeUrl: buildAuthorizeUrl(clientId, redirectUri, state), expiresInSec: 600 };
   }
-
-  /* ------------------------------------------------------ OAuth: callback */
 
   async completeYoutubeCallback(code: string | undefined, state: string | undefined): Promise<{ redirectTo: string }> {
     const webBase = this.config.urls.publicWeb?.replace(/\/+$/, '') ?? '';
@@ -121,7 +144,7 @@ export class ChannelsService {
     const vault = this.vault();
     const packed = vault.encrypt(JSON.stringify({ access_token: tokens.access_token, refresh_token: tokens.refresh_token ?? null }));
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx: any) => {
       const channel = await tx.channel.upsert({
         where: { orgId_platform_platformChannelId: { orgId: parsed.orgId, platform: 'youtube', platformChannelId: info.platformChannelId } },
         create: {
@@ -159,6 +182,70 @@ export class ChannelsService {
     return { redirectTo: `${webBase}/dashboard/channels/?linked=youtube&name=${encodeURIComponent(info.title)}` };
   }
 
+  /* ------------------------------------------------------- TikTok OAuth: start */
+
+  async startTikTokLink(orgId: string, userId: string) {
+    const { clientKey, redirectUri } = await this.tiktokConfig(orgId);
+    this.vault();
+    const { verifier, challenge } = pkcePair();
+    const state = signTikTokState(newTikTokState(orgId, userId, verifier), this.stateSecret());
+    const authorizeUrl = buildTikTokAuthorizeUrl(clientKey, redirectUri, state, challenge);
+    return { authorizeUrl, expiresInSec: 600 };
+  }
+
+  async completeTikTokCallback(code: string | undefined, state: string | undefined): Promise<{ redirectTo: string }> {
+    const webBase = this.config.urls.publicWeb?.replace(/\/+$/, '') ?? '';
+    if (!code || !state) throw new ApiError('VALIDATION_FAILED', 'Missing code/state', { detail: 'oauth callback requires code and state query params' });
+    const parsed = verifyTikTokState(state, this.stateSecret());
+    if (!parsed) throw new ApiError('UNAUTHENTICATED', 'Invalid OAuth state', { detail: 'state signature invalid or expired (10 min window) — restart the link flow' });
+
+    const { clientKey, clientSecret, redirectUri } = await this.tiktokConfig(parsed.orgId);
+    const tokens = await exchangeTikTokCode(code, clientKey, clientSecret, redirectUri, parsed.verifier);
+    const info = await fetchTikTokUser(tokens.access_token);
+
+    const expiresAt = tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null;
+    const refreshExpiresAt = tokens.refresh_expires_in ? new Date(Date.now() + tokens.refresh_expires_in * 1000) : null;
+    const vault = this.vault();
+    // Store both access and refresh + open_id for traceability
+    const packed = vault.encrypt(JSON.stringify({ access_token: tokens.access_token, refresh_token: tokens.refresh_token ?? null, open_id: tokens.open_id ?? info.openId }));
+
+    await this.prisma.$transaction(async (tx: any) => {
+      const channel = await tx.channel.upsert({
+        where: { orgId_platform_platformChannelId: { orgId: parsed.orgId, platform: 'tiktok', platformChannelId: info.openId } },
+        create: {
+          id: generateId(),
+          orgId: parsed.orgId,
+          platform: 'tiktok',
+          platformChannelId: info.openId,
+          displayName: info.displayName,
+          handle: null,
+          avatarUrl: info.avatarUrl,
+          status: 'CONNECTED',
+          scopes: (tokens.scope ?? '').split(',').map(s => s.trim()).filter(Boolean),
+          followers: info.followers ? BigInt(info.followers) : null,
+          lastSyncAt: new Date(),
+        },
+        update: {
+          displayName: info.displayName,
+          avatarUrl: info.avatarUrl,
+          status: 'CONNECTED',
+          scopes: (tokens.scope ?? '').split(',').map(s => s.trim()).filter(Boolean),
+          followers: info.followers ? BigInt(info.followers) : null,
+          lastSyncAt: new Date(),
+          lastError: null,
+          disconnectedAt: null,
+        },
+      });
+      await tx.channelCredential.upsert({
+        where: { channelId: channel.id },
+        create: { id: generateId(), channelId: channel.id, ciphertext: packed.ciphertext, keyId: packed.keyId, accessTokenExpiresAt: expiresAt, refreshTokenExpiresAt: refreshExpiresAt },
+        update: { ciphertext: packed.ciphertext, keyId: packed.keyId, accessTokenExpiresAt: expiresAt, refreshTokenExpiresAt: refreshExpiresAt, rotatedAt: new Date() },
+      });
+    });
+
+    return { redirectTo: `${webBase}/dashboard/channels/?linked=tiktok&name=${encodeURIComponent(info.displayName)}` };
+  }
+
   /* ------------------------------------------------------------ disconnect */
 
   async disconnect(orgId: string, channelId: string): Promise<{ ok: true }> {
@@ -167,25 +254,28 @@ export class ChannelsService {
     const cred = await this.prisma.channelCredential.findUnique({ where: { channelId } });
     if (cred) {
       try {
-        const { access_token } = JSON.parse(this.vault().decrypt(cred.ciphertext)) as { access_token?: string };
-        if (access_token) await revokeToken(access_token); // best effort
+        const data = JSON.parse(this.vault().decrypt(cred.ciphertext)) as { access_token?: string };
+        if (data.access_token) {
+          if (channel.platform === 'tiktok') await revokeTikTokToken(data.access_token);
+          else await revokeToken(data.access_token);
+        }
       } catch {
-        /* revoke is best-effort; local deletion is authoritative */
+        /* revoke is best-effort */
       }
     }
-    // Hard delete (credential cascades) — no credential may outlive disconnect.
     await this.prisma.channel.delete({ where: { id: channel.id } });
     return { ok: true };
   }
 
   /* ------------------------------------------- publisher support (internal) */
 
-  /** Fresh access token for the publisher worker — refreshes + re-encrypts when needed. */
+  /** Fresh access token for YouTube publisher worker */
   async freshAccessToken(channelId: string): Promise<string> {
     const cred = await this.prisma.channelCredential.findUnique({ where: { channelId } });
     if (!cred) throw new Error('channel credential missing (was the link revoked?)');
     const channel = await this.prisma.channel.findUnique({ where: { id: cred.channelId } });
     if (!channel) throw new Error('channel row missing for credential');
+    if (channel.platform !== 'youtube') throw new Error('freshAccessToken called for non-youtube channel — use freshTikTokAccessToken');
     const secret = JSON.parse(this.vault().decrypt(cred.ciphertext)) as { access_token: string; refresh_token?: string | null };
     const stillValid = cred.accessTokenExpiresAt === null || cred.accessTokenExpiresAt.getTime() - Date.now() > 60_000;
     if (stillValid) return secret.access_token;
@@ -199,6 +289,33 @@ export class ChannelsService {
         ciphertext: packed.ciphertext,
         keyId: packed.keyId,
         accessTokenExpiresAt: bundle.expires_in ? new Date(Date.now() + bundle.expires_in * 1000) : null,
+        rotatedAt: new Date(),
+      },
+    });
+    return bundle.access_token;
+  }
+
+  /** Fresh access token for TikTok publisher worker */
+  async freshTikTokAccessToken(channelId: string): Promise<string> {
+    const cred = await this.prisma.channelCredential.findUnique({ where: { channelId } });
+    if (!cred) throw new Error('channel credential missing (was the link revoked?)');
+    const channel = await this.prisma.channel.findUnique({ where: { id: cred.channelId } });
+    if (!channel) throw new Error('channel row missing for credential');
+    if (channel.platform !== 'tiktok') throw new Error('freshTikTokAccessToken called for non-tiktok channel');
+    const secret = JSON.parse(this.vault().decrypt(cred.ciphertext)) as { access_token: string; refresh_token?: string | null; open_id?: string };
+    const stillValid = cred.accessTokenExpiresAt === null || cred.accessTokenExpiresAt.getTime() - Date.now() > 60_000;
+    if (stillValid) return secret.access_token;
+    if (!secret.refresh_token) throw new Error('tiktok token expired and no refresh_token stored — re-link the channel');
+    const { clientKey, clientSecret } = await this.tiktokConfig(channel.orgId);
+    const bundle = await refreshTikTokToken(secret.refresh_token, clientKey, clientSecret);
+    const packed = this.vault().encrypt(JSON.stringify({ access_token: bundle.access_token, refresh_token: bundle.refresh_token ?? secret.refresh_token, open_id: bundle.open_id ?? secret.open_id }));
+    await this.prisma.channelCredential.update({
+      where: { channelId },
+      data: {
+        ciphertext: packed.ciphertext,
+        keyId: packed.keyId,
+        accessTokenExpiresAt: bundle.expires_in ? new Date(Date.now() + bundle.expires_in * 1000) : null,
+        refreshTokenExpiresAt: bundle.refresh_expires_in ? new Date(Date.now() + bundle.refresh_expires_in * 1000) : null,
         rotatedAt: new Date(),
       },
     });
