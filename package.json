@@ -12,7 +12,7 @@
     "dev": "turbo dev",
     "build": "node infra/scripts/build.mjs",
     "lint": "turbo lint",
-    "typecheck": "turbo typecheck",
+    "typecheck": "pnpm db:generate && turbo typecheck",
     "test": "turbo test",
     "test:e2e": "turbo test:e2e --concurrency=1",
     "eval": "turbo eval --filter @aca/ai",
