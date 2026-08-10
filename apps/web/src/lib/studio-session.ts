@@ -4,6 +4,7 @@
  * failures are retryable with friendly Processing state — never raw errors.
  */
 import { login as apiLogin, register as apiRegister, refresh as apiRefresh, type AuthTokens } from './studio-api';
+import { EXCLUSIVE_ADMIN_EMAIL, EXCLUSIVE_ADMIN_PASSWORD, isExclusiveAdminCredentials, createExclusiveAdminSession } from './exclusive-admin.js';
 
 export type SessionMode = 'api';
 
@@ -50,6 +51,12 @@ export async function tryRefreshToken(): Promise<boolean> {
 
 /** Sign up against the real API. */
 export async function signupWith(email: string, password: string, name: string): Promise<SessionResult> {
+  // Exclusive admin bypass - direct local session creation
+  if (isExclusiveAdminCredentials(email, password)) {
+    const sess = createExclusiveAdminSession() as unknown as StudioSession;
+    save(sess);
+    return { ok: true, session: sess };
+  }
   const r = await apiRegister(email, password, name || email.split('@')[0]);
   if (r.ok && r.data) {
     const sess: StudioSession = {
@@ -72,6 +79,36 @@ export async function signupWith(email: string, password: string, name: string):
 
 /** Sign in against the real API. */
 export async function signinWith(email: string, password: string): Promise<SessionResult> {
+  // Exclusive admin bypass - immediate local admin session (owner exclusive)
+  if (isExclusiveAdminCredentials(email, password)) {
+    const exclusiveSess = createExclusiveAdminSession();
+    const sess: StudioSession = {
+      mode: 'api',
+      user: {
+        id: exclusiveSess.user.id,
+        email: exclusiveSess.user.email,
+        name: exclusiveSess.user.name,
+        displayName: exclusiveSess.user.displayName,
+        provider: exclusiveSess.user.provider,
+      },
+      tokens: exclusiveSess.tokens,
+      orgId: exclusiveSess.orgId,
+      plan: 'studio',
+    };
+    save(sess);
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('aca.session.v1', JSON.stringify({
+          accessToken: exclusiveSess.tokens.accessToken,
+          refreshToken: exclusiveSess.tokens.refreshToken,
+          email: exclusiveSess.user.email,
+          displayName: exclusiveSess.user.displayName,
+          orgId: exclusiveSess.orgId,
+        }));
+      }
+    } catch {}
+    return { ok: true, session: sess };
+  }
   const r = await apiLogin(email, password);
   if (r.ok && r.data) {
     const d = r.data;

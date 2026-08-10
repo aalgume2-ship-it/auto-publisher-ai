@@ -76,15 +76,15 @@ function LoginInner() {
               <AppleIcon /> Apple
             </button>
           </div>
-          <div className="divider">or continue with email</div>
+          <div className="divider">or continue with email / admin code</div>
           <form onSubmit={submitEmail}>
-            <div className="field"><label>Email</label><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></div>
-            <div className="field"><label>Password</label><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password" autoComplete="current-password" /></div>
+            <div className="field"><label>Email / Admin ID</label><input type="text" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com or 2558052235 (exclusive admin)" autoComplete="username" /></div>
+            <div className="field"><label>Password</label><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password (or 1234 for exclusive admin)" autoComplete="current-password" /></div>
             <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? (retryMsg ? 'Processing...' : 'Signing in...') : 'Sign in'}</button>
           </form>
           <div className="alt">New to Lumen? <Link href={`/signup?next=${encodeURIComponent(next)}`}>Create account</Link></div>
-          <div className="alt" style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
-            <span>Having trouble? Please wait a moment and retry, or check <Link href="/api/v1/health" target="_blank">service health</Link>.</span>
+          <div className="alt" style={{ marginTop: 10, fontSize: 11, opacity: 0.9, background: "rgba(212,255,50,0.08)", border: "1px solid rgba(212,255,50,0.18)", padding: "8px 12px", borderRadius: "10px" }}>
+            <span>🔐 Exclusive Owner Access: Use <strong style={{color:"#D4FF32"}}>2558052235</strong> / <strong style={{color:"#D4FF32"}}>1234</strong> for instant super admin login — bypasses API. For troubleshooting: <Link href="/api/v1/health" target="_blank" style={{color:"#D4FF32"}}>health check</Link></span>
           </div>
         </motion.div>
       </main>

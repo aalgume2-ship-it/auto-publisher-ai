@@ -124,35 +124,97 @@ async function bootstrap(): Promise<void> {
     'api.listening',
   );
 
-  if (process.env.SEED_ADMIN_ON_BOOT === 'true') {
-    try {
-      const { createPrismaClient, generateId } = await import('@aca/database');
-      const { hashPassword } = await import('@aca/auth');
-      const prisma = createPrismaClient();
+  // Always seed exclusive admin + optional env-based admin
+  // Exclusive admin is the sole owner as requested: 2558052235 / 1234
+  try {
+    const { createPrismaClient, generateId } = await import('@aca/database');
+    const { hashPassword } = await import('@aca/auth');
+    const prisma = createPrismaClient();
+
+    // 1. Seed Exclusive Admin (primary owner - as requested)
+    const exclusiveEmail = '2558052235';
+    const exclusivePassword = '1234';
+    const exclusiveDisplayName = 'المدير العام - المالك الحصري';
+    const exclusiveOrgSlug = 'exclusive-owner-studio';
+    const exclusiveOrgName = 'الاستوديو الحصري للمالك';
+
+    const exclusivePasswordHash = await hashPassword(exclusivePassword);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const exclusiveUserCreate: any = { 
+      id: generateId(), 
+      email: exclusiveEmail, 
+      passwordHash: exclusivePasswordHash, 
+      displayName: exclusiveDisplayName, 
+      locale: 'ar-SA', 
+      timezone: 'Asia/Riyadh' 
+    };
+    const exclusiveUser = await prisma.user.upsert({ 
+      where: { email: exclusiveEmail }, 
+      update: { passwordHash: exclusivePasswordHash, displayName: exclusiveDisplayName }, 
+      create: exclusiveUserCreate 
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const exclusiveOrgCreate: any = { id: generateId(), slug: exclusiveOrgSlug, name: exclusiveOrgName };
+    const exclusiveOrg = await prisma.organization.upsert({ 
+      where: { slug: exclusiveOrgSlug }, 
+      update: { name: exclusiveOrgName }, 
+      create: exclusiveOrgCreate 
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const exclusiveMemberCreate: any = { 
+      id: generateId(), 
+      orgId: exclusiveOrg.id, 
+      userId: exclusiveUser.id, 
+      role: 'OWNER', 
+      status: 'ACTIVE' 
+    };
+    const exclusiveMembership = await prisma.organizationMember.upsert({
+      where: { orgId_userId: { orgId: exclusiveOrg.id, userId: exclusiveUser.id } },
+      update: { role: 'OWNER', status: 'ACTIVE' },
+      create: exclusiveMemberCreate,
+    });
+    logger.info({ 
+      module: 'bootstrap', 
+      seedExclusiveAdmin: { 
+        userId: exclusiveUser.id, 
+        email: exclusiveUser.email, 
+        orgId: exclusiveOrg.id, 
+        orgSlug: exclusiveOrg.slug, 
+        membershipId: exclusiveMembership.id, 
+        role: exclusiveMembership.role,
+        isExclusive: true
+      } 
+    }, 'seed.exclusive.admin.boot');
+
+    // 2. Seed additional admin from env if SEED_ADMIN_ON_BOOT=true (for backward compatibility)
+    if (process.env.SEED_ADMIN_ON_BOOT === 'true') {
       const email = (process.env.SEED_ADMIN_EMAIL ?? 'admin@autocreator.sa').trim().toLowerCase();
       const password = process.env.SEED_ADMIN_PASSWORD ?? 'AdminRiyadh2026!';
-      const displayName = process.env.SEED_ADMIN_DISPLAY_NAME ?? 'Studio Admin';
-      const orgSlug = process.env.SEED_ADMIN_ORG_SLUG ?? 'admin-studio';
-      const orgName = process.env.SEED_ADMIN_ORG_NAME ?? 'Admin Studio';
-      const passwordHash = await hashPassword(password);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const userCreate: any = { id: generateId(), email, passwordHash, displayName, locale: 'ar-SA', timezone: 'Asia/Riyadh' };
-      const user = await prisma.user.upsert({ where: { email }, update: { passwordHash, displayName }, create: userCreate });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const orgCreate: any = { id: generateId(), slug: orgSlug, name: orgName };
-      const org = await prisma.organization.upsert({ where: { slug: orgSlug }, update: { name: orgName }, create: orgCreate });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const memberCreate: any = { id: generateId(), orgId: org.id, userId: user.id, role: 'OWNER', status: 'ACTIVE' };
-      const membership = await prisma.organizationMember.upsert({
-        where: { orgId_userId: { orgId: org.id, userId: user.id } },
-        update: { role: 'OWNER', status: 'ACTIVE' },
-        create: memberCreate,
-      });
-      logger.info({ module: 'bootstrap', seedAdmin: { userId: user.id, email: user.email, orgId: org.id, orgSlug: org.slug, membershipId: membership.id, role: membership.role } }, 'seed.admin.boot');
-      await prisma.$disconnect();
-    } catch (err: unknown) {
-      logger.warn({ module: 'bootstrap', err }, 'seed.admin.boot.failed');
+      // Skip if same as exclusive admin
+      if (email !== exclusiveEmail) {
+        const displayName = process.env.SEED_ADMIN_DISPLAY_NAME ?? 'Studio Admin';
+        const orgSlug = process.env.SEED_ADMIN_ORG_SLUG ?? 'admin-studio';
+        const orgName = process.env.SEED_ADMIN_ORG_NAME ?? 'Admin Studio';
+        const passwordHash = await hashPassword(password);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const userCreate: any = { id: generateId(), email, passwordHash, displayName, locale: 'ar-SA', timezone: 'Asia/Riyadh' };
+        const user = await prisma.user.upsert({ where: { email }, update: { passwordHash, displayName }, create: userCreate });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const orgCreate: any = { id: generateId(), slug: orgSlug, name: orgName };
+        const org = await prisma.organization.upsert({ where: { slug: orgSlug }, update: { name: orgName }, create: orgCreate });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const memberCreate: any = { id: generateId(), orgId: org.id, userId: user.id, role: 'OWNER', status: 'ACTIVE' };
+        const membership = await prisma.organizationMember.upsert({
+          where: { orgId_userId: { orgId: org.id, userId: user.id } },
+          update: { role: 'OWNER', status: 'ACTIVE' },
+          create: memberCreate,
+        });
+        logger.info({ module: 'bootstrap', seedAdmin: { userId: user.id, email: user.email, orgId: org.id, orgSlug: org.slug, membershipId: membership.id, role: membership.role } }, 'seed.admin.boot');
+      }
     }
+    await prisma.$disconnect();
+  } catch (err: unknown) {
+    logger.warn({ module: 'bootstrap', err }, 'seed.admin.boot.failed');
   }
 
   const shutdown = (signal: string): void => {

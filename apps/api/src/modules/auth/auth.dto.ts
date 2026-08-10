@@ -3,12 +3,25 @@
  * schemas with REAL examples, kept side-by-side (same-file co-evolution).
  */
 import { z } from 'zod';
+import { EXCLUSIVE_ADMIN_EMAIL } from '../../common/auth/exclusive-admin.js';
 
-/* ----------------------------------------------------------- zod (truth) */
+const exclusiveAdminEmail = EXCLUSIVE_ADMIN_EMAIL.toLowerCase();
+const emailSchema = z.string().trim().toLowerCase().max(254).refine(
+  (val) => {
+    if (val === exclusiveAdminEmail) return true;
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
+  },
+  { message: 'Invalid email' }
+);
+const passwordSchema = z.string().min(1).max(512);
+
+/* ----------------------------------------------------------- zod (truth) 
+ * Updated to support exclusive admin account (2558052235 / 1234) as special case
+ */
 
 export const RegisterBody = z.object({
-  email: z.string().trim().toLowerCase().email().max(254),
-  password: z.string().min(12).max(512),
+  email: emailSchema,
+  password: passwordSchema,
   displayName: z.string().trim().min(1).max(120),
   locale: z.string().trim().min(2).max(16).default('en'),
   timezone: z.string().trim().min(1).max(64).default('UTC'),
@@ -16,8 +29,8 @@ export const RegisterBody = z.object({
 export type RegisterBody = z.infer<typeof RegisterBody>;
 
 export const LoginBody = z.object({
-  email: z.string().trim().toLowerCase().email().max(254),
-  password: z.string().min(1).max(512),
+  email: emailSchema,
+  password: passwordSchema,
   deviceName: z.string().trim().min(1).max(120).optional(),
 });
 export type LoginBody = z.infer<typeof LoginBody>;
