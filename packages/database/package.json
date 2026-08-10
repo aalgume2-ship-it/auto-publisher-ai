@@ -20,7 +20,7 @@
     "build": "prisma generate && tsc -b",
     "dev": "tsc -b --watch",
     "lint": "eslint .",
-    "typecheck": "tsc -b --noEmit && tsc -p tsconfig.seed.json",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.seed.json --noEmit",
     "typecheck:seed": "tsc -p tsconfig.seed.json",
     "test": "vitest run --passWithNoTests",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",

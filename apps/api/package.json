@@ -9,7 +9,7 @@
     "dev": "tsc -b --watch",
     "start": "node dist/main.js",
     "lint": "eslint .",
-    "typecheck": "tsc -b --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:integration": "ACA_API_IT=1 vitest run --config vitest.integration.config.ts"
   },
