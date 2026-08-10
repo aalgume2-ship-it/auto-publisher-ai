@@ -176,22 +176,6 @@ importers:
       '@aca/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      framer-motion:
-        specifier: ^12.43.0
-        version: 12.43.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      lucide-react:
-        specifier: ^1.28.0
-        version: 1.30.0(react@19.2.8)
-      next:
-        specifier: 15.5.22
-        version: 15.5.22(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      react:
-        specifier: 19.2.8
-        version: 19.2.8
-      react-dom:
-        specifier: 19.2.8
-        version: 19.2.8(react@19.2.8)
-    devDependencies:
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.1
@@ -204,9 +188,24 @@ importers:
       autoprefixer:
         specifier: ^10.4.20
         version: 10.5.4(postcss@8.5.26)
+      framer-motion:
+        specifier: ^12.43.0
+        version: 12.43.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      lucide-react:
+        specifier: ^1.28.0
+        version: 1.30.0(react@19.2.8)
+      next:
+        specifier: 15.5.22
+        version: 15.5.22(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       postcss:
         specifier: '>=8.5.12'
         version: 8.5.26
+      react:
+        specifier: 19.2.8
+        version: 19.2.8
+      react-dom:
+        specifier: 19.2.8
+        version: 19.2.8(react@19.2.8)
       tailwindcss:
         specifier: ^3.4.17
         version: 3.4.19(tsx@4.23.11)(yaml@2.9.0)
