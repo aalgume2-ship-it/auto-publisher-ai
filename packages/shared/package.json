@@ -40,20 +40,20 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -b",
-    "dev": "tsc -b --watch",
+    "build": "npx tsc -b",
+    "dev": "npx tsc -b --watch",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "fingerprint:update": "node ./scripts/update-fingerprint.mjs"
   },
   "dependencies": {
+    "typescript": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@aca/typescript-config": "workspace:*",
     "@types/node": "catalog:",
-    "typescript": "catalog:",
     "vitest": "catalog:"
   }
 }

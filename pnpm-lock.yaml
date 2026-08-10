@@ -435,6 +435,9 @@ importers:
 
   packages/shared:
     dependencies:
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
       zod:
         specifier: ^3.23.8
         version: 3.25.76
@@ -445,9 +448,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.1
-      typescript:
-        specifier: 'catalog:'
-        version: 5.9.3
       vitest:
         specifier: 'catalog:'
         version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.23.11)(yaml@2.9.0)
@@ -748,12 +748,10 @@ packages:
 
   '@ffmpeg-installer/linux-x64@4.1.0':
     resolution: {integrity: sha512-Y5BWhGLU/WpQjOArNIgXD3z5mxxdV8c41C+U15nsE5yF8tVcdCGet5zPs5Zy3Ta6bU7haGpIzryutqCGQA/W8A==}
-    cpu: [x64]
     os: [linux]
 
   '@ffprobe-installer/linux-x64@5.2.0':
     resolution: {integrity: sha512-D3UeqTLYPNs7pBWPLUYGehPdRVqU8eACox4OZy3pZUZatxye2YKlvBwEfaLdL1v2Z4FOAlLUhms0kY8m8kqSRA==}
-    cpu: [x64]
     os: [linux]
 
   '@grpc/grpc-js@1.14.4':
