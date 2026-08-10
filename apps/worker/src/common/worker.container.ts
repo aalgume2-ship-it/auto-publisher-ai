@@ -6,7 +6,7 @@
 import type { DbClient } from '@aca/database';
 import type { AppConfig } from '@aca/config';
 import type { Logger } from '@aca/logger';
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 
 export class WorkerContainer {
   private redis: Redis;
