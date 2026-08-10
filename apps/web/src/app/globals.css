@@ -7,6 +7,10 @@
    progress, badges, links, and interactive highlights.
    ============================================================================= */
 
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   color-scheme: dark;
   /* — surfaces — */
@@ -57,6 +61,30 @@
   --radius-md: 18px;
   --radius-sm: 14px;
   --container: 1240px;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   HIGGSFIELD-INSPIRED LANDING PALETTE  (new palette — used by the pixel-perfect
+   marketing landing built in Tailwind: page.tsx)
+   Exposed as CSS variables AND mirrored in tailwind.config.mjs
+   (colors: volt / night / ash / ink / card / cardline) and design-tokens.ts.
+   ──────────────────────────────────────────────────────────────────────────── */
+:root {
+  /* absolute black background */
+  --hf-black: #070708;
+  /* bright lime — primary CTA + glow + icons */
+  --hf-lime: #d4ff32;
+  --hf-lime-bright: #e4ff66;
+  --hf-lime-deep: #a9d300;
+  --hf-lime-glow: rgba(212, 255, 50, 0.32);
+  --hf-lime-soft: rgba(212, 255, 50, 0.10);
+  /* neutral gray — navbar links */
+  --hf-gray: #a1a1aa;
+  /* near-white text */
+  --hf-ink: #f4f4f5;
+  /* feature-card surfaces + hairline borders */
+  --hf-card: #141416;
+  --hf-card-line: #232323;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }

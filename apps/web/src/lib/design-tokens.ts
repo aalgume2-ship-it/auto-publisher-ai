@@ -74,6 +74,19 @@ export const tokens = {
     ease: 'cubic-bezier(0.16,1,0.3,1)',
     duration: '0.28s',
   },
+  // Higgsfield-inspired landing palette (new palette) — mirrors globals.css + tailwind.config.mjs
+  landing: {
+    black: '#070708',
+    lime: '#d4ff32',
+    limeBright: '#e4ff66',
+    limeDeep: '#a9d300',
+    limeGlow: 'rgba(212,255,50,0.32)',
+    limeSoft: 'rgba(212,255,50,0.10)',
+    gray: '#a1a1aa',
+    ink: '#f4f4f5',
+    card: '#141416',
+    cardLine: '#232323',
+  },
 } as const;
 
 export type DesignTokens = typeof tokens;
