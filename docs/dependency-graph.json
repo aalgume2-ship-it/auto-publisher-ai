@@ -11,7 +11,7 @@
     "@aca/email": 2,
     "@aca/storage": 2,
     "@aca/workflows": 2,
-    "@aca/video-engine": 2,
+    "@aca/video-engine": 3,
     "@aca/plugin-kit": 2,
     "@aca/events": 3,
     "@aca/feature-flags": 4,
@@ -49,6 +49,7 @@
       "@aca/shared"
     ],
     "@aca/video-engine": [
+      "@aca/logger",
       "@aca/shared"
     ],
     "@aca/plugin-kit": [
@@ -110,8 +111,8 @@
       "@aca/plugin-kit"
     ]
   },
-  "deepImportPolicy": "Consumers import package ROOT only (@aca/x). Folders named adapters|providers|sandbox may only be imported from inside their own package (composition root) — enforced by @aca/eslint-config boundaries preset in CI.",
-  "vendorSdkPolicy": "Third-party vendor SDKs are importable only inside **/adapters/** or **/providers/** (zero-lock-in guardrail, docs/Architecture.md §16); see VENDOR_SDK_PATTERNS in packages/eslint-config/index.js.",
+  "deepImportPolicy": "Consumers import package ROOT only (@aca/x). Folders named adapters|providers|sandbox may only be imported from inside their own package (composition root) \u2014 enforced by @aca/eslint-config boundaries preset in CI.",
+  "vendorSdkPolicy": "Third-party vendor SDKs are importable only inside **/adapters/** or **/providers/** (zero-lock-in guardrail, docs/Architecture.md \u00a716); see VENDOR_SDK_PATTERNS in packages/eslint-config/index.js.",
   "devOnlyTooling": [
     "@aca/typescript-config",
     "@aca/eslint-config"

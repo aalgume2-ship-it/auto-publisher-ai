@@ -3,8 +3,8 @@
  * Manages lifecycle of all queue consumers and orchestrators.
  */
 
-import type { PrismaClient } from '@aca/database';
-import type { Config } from '@aca/config';
+import type { DbClient } from '@aca/database';
+import type { AppConfig } from '@aca/config';
 import type { Logger } from '@aca/logger';
 import Redis from 'ioredis';
 
@@ -12,8 +12,8 @@ export class WorkerContainer {
   private redis: Redis;
 
   constructor(
-    private config: Config,
-    private prisma: PrismaClient,
+    private config: AppConfig,
+    private prisma: DbClient,
     private logger: Logger,
   ) {
     this.redis = new Redis(this.config.redis.url);
