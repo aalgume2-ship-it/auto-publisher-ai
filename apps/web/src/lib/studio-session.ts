@@ -4,7 +4,7 @@
  * failures are retryable with friendly Processing state — never raw errors.
  */
 import { login as apiLogin, register as apiRegister, refresh as apiRefresh, type AuthTokens } from './studio-api';
-import { EXCLUSIVE_ADMIN_EMAIL, EXCLUSIVE_ADMIN_PASSWORD, isExclusiveAdminCredentials, createExclusiveAdminSession } from './exclusive-admin.js';
+import { EXCLUSIVE_ADMIN_EMAIL, EXCLUSIVE_ADMIN_PASSWORD, isExclusiveAdminCredentials, createExclusiveAdminSession } from './exclusive-admin';
 
 export type SessionMode = 'api';
 
