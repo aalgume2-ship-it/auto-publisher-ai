@@ -1,0 +1,38 @@
+{
+  "family": "autocreator-worker",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "2048",
+  "memory": "4096",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/autocreator-api-task",
+  "containerDefinitions": [
+    {
+      "name": "worker",
+      "image": "ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/autocreator-api:latest",
+      "essential": true,
+      "command": ["node", "apps/worker/dist/main.js"],
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" }
+      ],
+      "secrets": [
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/database-url" },
+        { "name": "REDIS_URL", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/redis-url" },
+        { "name": "S3_ACCESS_KEY_ID", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/s3-access-key-id" },
+        { "name": "S3_SECRET_ACCESS_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/s3-secret-access-key" },
+        { "name": "S3_BUCKET_RENDERS", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/s3-bucket-renders" },
+        { "name": "S3_REGION", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/s3-region" },
+        { "name": "FFMPEG_PATH", "value": "/usr/bin/ffmpeg" },
+        { "name": "FFPROBE_PATH", "value": "/usr/bin/ffprobe" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/autocreator-worker",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "worker"
+        }
+      }
+    }
+  ]
+}

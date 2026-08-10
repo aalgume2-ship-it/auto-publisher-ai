@@ -38,7 +38,7 @@ export type PollResult =
 const POLL_INTERVAL_MS = 3000;
 
 function getToken(session: StudioSession): string | null {
-  if (session.mode === 'guest') return null;
+  if (session.mode !== 'authenticated') return null;
   return session.tokens?.accessToken ?? null;
 }
 

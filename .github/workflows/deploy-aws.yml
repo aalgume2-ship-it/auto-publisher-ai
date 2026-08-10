@@ -1,0 +1,74 @@
+name: deploy-aws
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: autocreator-api
+  ECS_CLUSTER: autocreator
+  ECS_SERVICE_API: api
+  ECS_SERVICE_WORKER: worker
+  ECS_TASK_FAMILY_API: autocreator-api
+  ECS_TASK_FAMILY_WORKER: autocreator-worker
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push API image
+        id: build
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f Dockerfile .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Render task definitions
+        id: tasks
+        env:
+          ACCOUNT_ID: ${{ steps.ecr.outputs.account_id }}
+          IMAGE: ${{ steps.build.outputs.image }}
+        run: |
+          sed -e "s|ACCOUNT_ID|$ACCOUNT_ID|g" \
+              -e "s|autocreator-api:latest|$IMAGE|g" \
+              infra/aws/ecs-task-api.json > /tmp/api-task.json
+          sed -e "s|ACCOUNT_ID|$ACCOUNT_ID|g" \
+              -e "s|autocreator-api:latest|$IMAGE|g" \
+              infra/aws/ecs-task-worker.json > /tmp/worker-task.json
+
+      - name: Register ECS task definitions
+        run: |
+          aws ecs register-task-definition --cli-input-json file:///tmp/api-task.json
+          aws ecs register-task-definition --cli-input-json file:///tmp/worker-task.json
+
+      - name: Update ECS services
+        run: |
+          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE_API --force-new-deployment
+          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE_WORKER --force-new-deployment
+
+      - name: Wait for stable
+        run: |
+          aws ecs wait services-stable --cluster $ECS_CLUSTER --services $ECS_SERVICE_API
+          aws ecs wait services-stable --cluster $ECS_CLUSTER --services $ECS_SERVICE_WORKER

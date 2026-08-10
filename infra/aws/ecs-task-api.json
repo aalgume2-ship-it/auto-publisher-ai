@@ -1,0 +1,70 @@
+{
+  "family": "autocreator-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/autocreator-api-task",
+  "containerDefinitions": [
+    {
+      "name": "api",
+      "image": "ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/autocreator-api:latest",
+      "essential": true,
+      "portMappings": [
+        { "containerPort": 3000, "protocol": "tcp" }
+      ],
+      "command": ["node", "apps/api/dist/main.js"],
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "PORT", "value": "3000" }
+      ],
+      "secrets": [
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/database-url" },
+        { "name": "REDIS_URL", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/redis-url" },
+        { "name": "AUTH_JWT_SECRET", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/jwt-secret" },
+        { "name": "AUTH_JWT_ISSUER", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/jwt-issuer" },
+        { "name": "AUTH_JWT_AUDIENCE", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/jwt-audience" },
+        { "name": "RUNWAY_API_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/runway-api-key" },
+        { "name": "LUMA_API_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/luma-api-key" },
+        { "name": "FAL_API_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/fal-api-key" },
+        { "name": "REPLICATE_API_TOKEN", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/replicate-api-token" },
+        { "name": "OPENAI_API_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/openai-api-key" },
+        { "name": "GROQ_API_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/groq-api-key" },
+        { "name": "GEMINI_API_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/gemini-api-key" },
+        { "name": "ELEVENLABS_API_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/elevenlabs-api-key" },
+        { "name": "STABILITY_API_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/stability-api-key" },
+        { "name": "STRIPE_SECRET_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/stripe-secret-key" },
+        { "name": "STRIPE_WEBHOOK_SECRET", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/stripe-webhook-secret" },
+        { "name": "GOOGLE_CLIENT_ID", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/google-client-id" },
+        { "name": "GOOGLE_CLIENT_SECRET", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/google-client-secret" },
+        { "name": "TIKTOK_CLIENT_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/tiktok-client-key" },
+        { "name": "TIKTOK_CLIENT_SECRET", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/tiktok-client-secret" },
+        { "name": "META_APP_ID", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/meta-app-id" },
+        { "name": "META_APP_SECRET", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/meta-app-secret" },
+        { "name": "S3_ACCESS_KEY_ID", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/s3-access-key-id" },
+        { "name": "S3_SECRET_ACCESS_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/s3-secret-access-key" },
+        { "name": "S3_BUCKET_ASSETS", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/s3-bucket-assets" },
+        { "name": "S3_BUCKET_RENDERS", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/s3-bucket-renders" },
+        { "name": "S3_REGION", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/s3-region" },
+        { "name": "CDN_PUBLIC_DOMAIN", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/cdn-public-domain" },
+        { "name": "WEB_APP_URL", "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:autocreator/web-app-url" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/autocreator-api",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "api"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -fsS http://localhost:3000/health/live || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 30
+      }
+    }
+  ]
+}

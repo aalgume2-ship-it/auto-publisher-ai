@@ -37,15 +37,25 @@ export default function AppShell({ session, title, subtitle, actions, children }
   const { unreadCount } = useNotifications(session);
 
   function logout() {
-    // Preview/demos: logout just clears the local guest session and
-    // returns the user to the landing page. Real logout is restored
-    // when the auth flow comes back.
-    try {
+    // Real sign-out: revoke the refresh token server-side, then clear
+    // the local session. The /api/v1/auth/logout endpoint exists in
+    // the API (NestJS) and accepts the refresh token.
+    void (async () => {
+      try {
+        const { refreshToken } = session;
+        if (refreshToken) {
+          await fetch('/api/v1/auth/logout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken }),
+          }).catch(() => undefined);
+        }
+      } catch {
+        /* ignore network errors */
+      }
       clearSession();
-    } catch {
-      /* ignore */
-    }
-    router.replace('/');
+      router.replace('/login/');
+    })();
   }
 
   return (

@@ -48,7 +48,7 @@ export default function UploadPage() {
   const [voice, setVoice] = useState('female-warm');
   const [subtitle, setSubtitle] = useState(true);
   const session = typeof window !== 'undefined' ? loadStudioSession() : null;
-  const isGuest = session?.mode === 'guest';
+  const isGuest = !session;
   const voiceProviders = byCategory(listBrowserProviders(), 'voice').filter((p) => p.status === 'configured');
   const videoProviders = byCategory(listBrowserProviders(), 'video').filter((p) => p.status === 'configured');
 

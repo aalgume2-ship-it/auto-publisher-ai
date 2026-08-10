@@ -28,7 +28,7 @@ function ResultInner() {
   const [toast, setToast] = useState<string | null>(null);
 
   const session = loadStudioSession();
-  const isGuest = session?.mode === 'guest';
+  const isGuest = !session;
   const token = session?.tokens?.accessToken ?? '';
 
   // 1) Poll the real backend for status + signed stream URL.

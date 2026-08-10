@@ -1,0 +1,21 @@
+{
+  "Comment": "ECS service definition for the worker. Run as a long-lived\nservice (desired-count 1+ for HA) so heavy CPU-bound renders do not\nstarve the API. Auto-scales on SQS/CloudWatch metric\n(Queue depth in Redis via a sidecar or a small monitor).",
+  "serviceName": "worker",
+  "cluster": "autocreator",
+  "taskDefinition": "autocreator-worker",
+  "desiredCount": 1,
+  "launchType": "FARGATE",
+  "platformVersion": "LATEST",
+  "deploymentConfiguration": {
+    "maximumPercent": 200,
+    "minimumHealthyPercent": 0,
+    "deploymentCircuitBreaker": { "enable": true, "rollback": true }
+  },
+  "networkConfiguration": {
+    "awsvpcConfiguration": {
+      "subnets": ["subnet-XXXXX", "subnet-YYYYY"],
+      "securityGroups": ["sg-XXXXX"],
+      "assignPublicIp": false
+    }
+  }
+}

@@ -33,8 +33,8 @@ export default function BillingPage() {
       );
       return;
     }
-    if (session?.mode === 'guest' || !session?.tokens?.accessToken || !session.orgId) {
-      setError('Sign in to subscribe. Guest mode does not create real Stripe customers.');
+    if (!session || !session.tokens?.accessToken || !session.orgId) {
+      setError('Sign in to subscribe.');
       return;
     }
     setBusy(planCode);

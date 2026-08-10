@@ -1,0 +1,29 @@
+{
+  "Comment": "ECS service definition for the API. Apply with:\n  aws ecs update-service --cluster autocreator --service api \\\n    --task-definition autocreator-api:REVISION \\\n    --desired-count 2 \\\n    --load-balancers targetGroupArn=...,\n                  containerName=api,containerPort=3000\n",
+  "serviceName": "api",
+  "cluster": "autocreator",
+  "taskDefinition": "autocreator-api",
+  "desiredCount": 2,
+  "launchType": "FARGATE",
+  "platformVersion": "LATEST",
+  "deploymentConfiguration": {
+    "maximumPercent": 200,
+    "minimumHealthyPercent": 100,
+    "deploymentCircuitBreaker": { "enable": true, "rollback": true }
+  },
+  "networkConfiguration": {
+    "awsvpcConfiguration": {
+      "subnets": ["subnet-XXXXX", "subnet-YYYYY"],
+      "securityGroups": ["sg-XXXXX"],
+      "assignPublicIp": false
+    }
+  },
+  "loadBalancers": [
+    {
+      "targetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:ACCOUNT_ID:targetgroup/autocreator-api-tg/XXXX",
+      "containerName": "api",
+      "containerPort": 3000
+    }
+  ],
+  "healthCheckGracePeriodSeconds": 60
+}

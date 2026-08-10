@@ -25,7 +25,7 @@ const STATUS_LABEL: Record<string, string> = {
 function DashboardInner() {
   const session = useMemo(() => loadStudioSession(), []);
   const [videos, setVideos] = useState<VideoDto[] | null>(null);
-  const isGuest = session?.mode === 'guest';
+  const isGuest = !session;
 
   useEffect(() => {
     if (isGuest) {

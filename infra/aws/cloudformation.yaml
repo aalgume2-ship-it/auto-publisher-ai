@@ -1,0 +1,250 @@
+# CloudFormation skeleton for AutoCreator AI on AWS.
+# Creates: VPC, public subnets, security groups, ECR repo, ECS cluster,
+# two ECS services (api + worker), an ALB in front of the API, and the
+# CloudWatch log groups.
+#
+# This is intentionally minimal so you can adapt it to your existing
+# VPC / account structure. Replace every placeholder (ACCOUNT_ID,
+# HostedZoneId, DomainName) with real values before deploying.
+#
+# Apply:
+#   aws cloudformation deploy \
+#     --template-file infra/aws/cloudformation.yaml \
+#     --stack-name autocreator \
+#     --capabilities CAPABILITY_IAM \
+#     --parameter-overrides \
+#         DomainName=api.example.com \
+#         HostedZoneId=ZXXXXXX
+#
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AutoCreator AI — AWS infrastructure (ECS Fargate, ALB, ECR, S3, CloudWatch).
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: Public domain the ALB will respond on (e.g. api.example.com)
+  HostedZoneId:
+    Type: String
+    Description: Route 53 hosted zone ID for the parent domain
+  ContainerImage:
+    Type: String
+    Default: "ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/autocreator-api:latest"
+    Description: Initial container image URI
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.40.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: autocreator-vpc }]
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.40.1.0/24
+      AvailabilityZone: us-east-1a
+      MapPublicIpOnLaunch: true
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.40.2.0/24
+      AvailabilityZone: us-east-1b
+      MapPublicIpOnLaunch: true
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.40.10.0/24
+      AvailabilityZone: us-east-1a
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.40.11.0/24
+      AvailabilityZone: us-east-1b
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  SubnetRouteAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+  SubnetRouteAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB ingress
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  EcsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ECS tasks
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+
+  Alb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: autocreator-alb
+      Type: application
+      Scheme: internet-facing
+      IpAddressType: ipv4
+      Subnets: [!Ref PublicSubnet1, !Ref PublicSubnet2]
+      SecurityGroups: [!Ref AlbSecurityGroup]
+
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Sub "arn:aws:acm:${AWS::Region}:${AWS::AccountId}:certificate/CERTIFICATE_ID"
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ApiTargetGroup
+
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: 443
+            StatusCode: HTTP_301
+
+  ApiTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: autocreator-api-tg
+      Port: 3000
+      Protocol: HTTP
+      VpcId: !Ref Vpc
+      TargetType: ip
+      HealthCheckPath: /health/live
+      HealthCheckIntervalSeconds: 30
+      Matcher:
+        HttpCode: 200-299
+
+  DnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt Alb.DNSName
+        HostedZoneId: !GetAtt Alb.CanonicalHostedZoneID
+
+  EcrRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: autocreator-api
+      ImageScanningConfiguration: { ScanOnPush: true }
+
+  AssetsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "autocreator-assets-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireTempUploads
+            Prefix: tmp/
+            Status: Enabled
+            ExpirationInDays: 1
+      VersioningConfiguration: { Status: Enabled }
+
+  RendersBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "autocreator-renders-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration: { Status: Enabled }
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: autocreator
+      CapacityProviders: [FARGATE, FARGATE_SPOT]
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE
+          Weight: 1
+        - CapacityProvider: FARGATE_SPOT
+          Weight: 4
+
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/autocreator-api
+      RetentionInDays: 30
+  WorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/autocreator-worker
+      RetentionInDays: 30
+
+Outputs:
+  AlbDnsName:
+    Value: !GetAtt Alb.DNSName
+  EcrRepositoryUri:
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/autocreator-api"
+  AssetsBucketName:
+    Value: !Ref AssetsBucket
+  RendersBucketName:
+    Value: !Ref RendersBucket
+  ClusterName:
+    Value: !Ref Cluster

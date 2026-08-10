@@ -13,7 +13,7 @@ function CompaniesInner() {
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const session = typeof window !== 'undefined' ? loadStudioSession() : null;
-  const isGuest = session?.mode === 'guest';
+  const isGuest = !session;
 
   useEffect(() => {
     if (isGuest || !session?.tokens?.accessToken) {

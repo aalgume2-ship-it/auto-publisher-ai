@@ -22,7 +22,7 @@ function LibraryInner() {
   const [videos, setVideos] = useState<VideoDto[] | null>(null);
   const [uploads, setUploads] = useState<Array<{ id: string; name: string; size: number; createdAt: string }>>([]);
   const session = useMemo(() => loadStudioSession(), []);
-  const isGuest = session?.mode === 'guest';
+  const isGuest = !session;
 
   useEffect(() => {
     if (isGuest || !session?.tokens?.accessToken || !session.orgId) {
