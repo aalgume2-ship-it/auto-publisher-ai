@@ -48,12 +48,12 @@
     "fingerprint:update": "node ./scripts/update-fingerprint.mjs"
   },
   "dependencies": {
+    "@types/node": "catalog:",
     "typescript": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@aca/typescript-config": "workspace:*",
-    "@types/node": "catalog:",
     "vitest": "catalog:"
   }
 }
