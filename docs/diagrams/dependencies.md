@@ -26,10 +26,10 @@ flowchart BT
     email["@aca/email<br/>packages/email"]
     storage["@aca/storage<br/>packages/storage"]
     workflows["@aca/workflows<br/>packages/workflows"]
-    video_engine["@aca/video-engine<br/>packages/video-engine"]
     plugin_kit["@aca/plugin-kit<br/>packages/plugin-kit"]
   end
   subgraph L3["Layer 3"]
+    video_engine["@aca/video-engine<br/>packages/video-engine"]
     events["@aca/events<br/>packages/events"]
   end
   subgraph L4["Layer 4"]
@@ -41,7 +41,7 @@ flowchart BT
   subgraph L5["Layer 5"]
     web["@aca/web<br/>apps/web"]
     api["@aca/api<br/>apps/api"]
-    worker["@aca/worker<br/>packages/worker"]
+    worker["@aca/worker<br/>apps/worker"]
     worker_plugins["@aca/worker-plugins<br/>packages/worker-plugins"]
   end
   ai --> database
@@ -69,6 +69,7 @@ flowchart BT
   search --> shared
   storage --> shared
   ui --> shared
+  video_engine --> logger
   video_engine --> shared
   web --> shared
   worker --> ai
@@ -105,27 +106,27 @@ flowchart BT
   class logger built
   class database built
   class auth built
+  class video_engine built
   class events built
   class web built
   class api built
+  class worker built
   class search planned
   class email planned
   class storage planned
   class workflows planned
-  class video_engine planned
   class plugin_kit planned
   class feature_flags planned
   class billing planned
   class ai planned
   class ui planned
-  class worker planned
   class worker_plugins planned
 ```
 
 ## Status at generation time
 
-- **Built (8):** `@aca/shared`, `@aca/config`, `@aca/logger`, `@aca/database`, `@aca/auth`, `@aca/events`, `@aca/web`, `@aca/api`
-- **Planned (12):** `@aca/search`, `@aca/email`, `@aca/storage`, `@aca/workflows`, `@aca/video-engine`, `@aca/plugin-kit`, `@aca/feature-flags`, `@aca/billing`, `@aca/ai`, `@aca/ui`, `@aca/worker`, `@aca/worker-plugins`
+- **Built (10):** `@aca/shared`, `@aca/config`, `@aca/logger`, `@aca/database`, `@aca/auth`, `@aca/video-engine`, `@aca/events`, `@aca/web`, `@aca/api`, `@aca/worker`
+- **Planned (10):** `@aca/search`, `@aca/email`, `@aca/storage`, `@aca/workflows`, `@aca/plugin-kit`, `@aca/feature-flags`, `@aca/billing`, `@aca/ai`, `@aca/ui`, `@aca/worker-plugins`
 
 ## Layer rules (recap, see docs/Dependency-Audit.md)
 
