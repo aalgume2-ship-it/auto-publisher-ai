@@ -207,6 +207,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@aca/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@aca/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -732,12 +735,10 @@ packages:
 
   '@ffmpeg-installer/linux-x64@4.1.0':
     resolution: {integrity: sha512-Y5BWhGLU/WpQjOArNIgXD3z5mxxdV8c41C+U15nsE5yF8tVcdCGet5zPs5Zy3Ta6bU7haGpIzryutqCGQA/W8A==}
-    cpu: [x64]
     os: [linux]
 
   '@ffprobe-installer/linux-x64@5.2.0':
     resolution: {integrity: sha512-D3UeqTLYPNs7pBWPLUYGehPdRVqU8eACox4OZy3pZUZatxye2YKlvBwEfaLdL1v2Z4FOAlLUhms0kY8m8kqSRA==}
-    cpu: [x64]
     os: [linux]
 
   '@grpc/grpc-js@1.14.4':
