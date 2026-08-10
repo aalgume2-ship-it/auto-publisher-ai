@@ -1,12 +1,16 @@
 /**
- * Production session — real backend only (no mock).
- * Every session is created by the real API (/v1/auth). Transient network
- * failures are retryable with friendly Processing state — never raw errors.
+ * Preview/Demo mode — guest session, no auth required.
+ *
+ * During preview/demos, we don't require login. Every visitor gets a
+ * local "guest" session so the rest of the studio (drafts, generate,
+ * result pages) keeps working without redirects to /login.
+ *
+ * When the real auth/subscription flow is re-enabled, this file is
+ * the only one that needs to revert.
  */
-import { login as apiLogin, register as apiRegister, refresh as apiRefresh, type AuthTokens } from './studio-api';
-import { EXCLUSIVE_ADMIN_EMAIL, EXCLUSIVE_ADMIN_PASSWORD, isExclusiveAdminCredentials, createExclusiveAdminSession } from './exclusive-admin';
+import type { AuthTokens } from './studio-api';
 
-export type SessionMode = 'api';
+export type SessionMode = 'guest';
 
 export interface StudioSession {
   mode: SessionMode;
@@ -16,131 +20,79 @@ export interface StudioSession {
   plan: 'trial' | 'pro' | 'studio' | 'free' | null;
 }
 
-export type SessionResult = { ok: true; session: StudioSession } | { ok: false; retryable: boolean; message: string };
-
 const KEY = 'lumen.session.api.v1';
+const GUEST_KEY = 'lumen.session.guest.v1';
+
+function randomId(): string {
+  // Lightweight unique id (not crypto — preview only).
+  return 'g_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
+
+function makeGuestSession(): StudioSession {
+  return {
+    mode: 'guest',
+    user: {
+      id: 'guest',
+      email: 'guest@local',
+      name: 'Guest',
+      displayName: 'Guest',
+      provider: 'guest',
+    },
+    orgId: 'guest',
+    plan: 'studio',
+  };
+}
 
 export function loadStudioSession(): StudioSession | null {
   if (typeof window === 'undefined') return null;
   try {
-    const raw = window.localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as StudioSession) : null;
+    const raw = window.localStorage.getItem(KEY) ?? window.localStorage.getItem(GUEST_KEY);
+    if (raw) return JSON.parse(raw) as StudioSession;
   } catch {
-    return null;
+    // fallthrough
   }
+  // Auto-create a guest session so the rest of the app never has to redirect.
+  const g = makeGuestSession();
+  try {
+    window.localStorage.setItem(GUEST_KEY, JSON.stringify(g));
+  } catch {
+    /* ignore */
+  }
+  return g;
 }
-function save(s: StudioSession): void { window.localStorage.setItem(KEY, JSON.stringify(s)); }
-export function persistStudioSession(s: StudioSession): void { save(s); }
-export function clearStudioSession(): void { window.localStorage.removeItem(KEY); }
 
-/** True when a live API session exists (real tokens). */
+export function persistStudioSession(s: StudioSession): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(KEY, JSON.stringify(s));
+}
+
+export function clearStudioSession(): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(KEY);
+  window.localStorage.removeItem(GUEST_KEY);
+}
+
+/** True when a live API session exists (real tokens). Always true in guest mode. */
 export function isApiSession(): boolean {
-  const s = loadStudioSession();
-  return !!s && s.mode === 'api' && !!s.tokens?.accessToken;
+  return !!loadStudioSession();
 }
 
-/** Best-effort token refresh so the API session stays valid. */
+/**
+ * Best-effort token refresh. In guest mode there is nothing to refresh —
+ * the function still returns true so the rest of the app doesn't redirect.
+ */
 export async function tryRefreshToken(): Promise<boolean> {
-  const s = loadStudioSession();
-  if (!s || !s.tokens?.refreshToken) return false;
-  const r = await apiRefresh(s.tokens.refreshToken);
-  if (r.ok && r.data) { save({ ...s, tokens: r.data.tokens }); return true; }
-  if (r.reachable === false) return true; // backend down now — keep existing tokens
-  return false;
+  return true;
 }
 
-/** Sign up against the real API. */
-export async function signupWith(email: string, password: string, name: string): Promise<SessionResult> {
-  // Exclusive admin bypass - direct local session creation
-  if (isExclusiveAdminCredentials(email, password)) {
-    const sess = createExclusiveAdminSession() as unknown as StudioSession;
-    save(sess);
-    return { ok: true, session: sess };
-  }
-  const r = await apiRegister(email, password, name || email.split('@')[0]);
-  if (r.ok && r.data) {
-    const sess: StudioSession = {
-      mode: 'api',
-      user: { id: r.data.user.id, email: r.data.user.email, name: r.data.user.displayName, displayName: r.data.user.displayName, provider: 'email' },
-      tokens: r.data.tokens,
-      orgId: r.data.workspace?.id,
-      plan: null,
-    };
-    save(sess);
-    return { ok: true, session: sess };
-  }
-  if (r.reachable === false) return { ok: false, retryable: true, message: 'Processing — جاري المعالجة, نعيد المحاولة تلقائياً خلال ثوانٍ' };
-  if (r.error?.code === 'EMAIL_TAKEN' || r.error?.code === 'CONFLICT') return { ok: false, retryable: false, message: 'An account with this email already exists.' };
-  if (r.error?.status === 502 || r.error?.status === 503 || r.error?.code === 'COLD_START' || r.error?.code === 'UPSTREAM_UNREACHABLE') {
-    return { ok: false, retryable: true, message: 'Processing — جاري المعالجة, نعيد المحاولة تلقائياً' };
-  }
-  return { ok: false, retryable: true, message: r.error?.detail || 'Unable to create your account right now. Please try again.' };
+/** Sign in — disabled in guest mode. Kept as a no-op for type compatibility. */
+export async function signinWith(_email: string, _password: string): Promise<{ ok: true; session: StudioSession } | { ok: false; retryable: boolean; message: string }> {
+  return { ok: true, session: loadStudioSession() as StudioSession };
 }
 
-/** Sign in against the real API. */
-export async function signinWith(email: string, password: string): Promise<SessionResult> {
-  // Exclusive admin bypass - immediate local admin session (owner exclusive)
-  if (isExclusiveAdminCredentials(email, password)) {
-    const exclusiveSess = createExclusiveAdminSession();
-    const sess: StudioSession = {
-      mode: 'api',
-      user: {
-        id: exclusiveSess.user.id,
-        email: exclusiveSess.user.email,
-        name: exclusiveSess.user.name,
-        displayName: exclusiveSess.user.displayName,
-        provider: exclusiveSess.user.provider,
-      },
-      tokens: exclusiveSess.tokens,
-      orgId: exclusiveSess.orgId,
-      plan: 'studio',
-    };
-    save(sess);
-    try {
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('aca.session.v1', JSON.stringify({
-          accessToken: exclusiveSess.tokens.accessToken,
-          refreshToken: exclusiveSess.tokens.refreshToken,
-          email: exclusiveSess.user.email,
-          displayName: exclusiveSess.user.displayName,
-          orgId: exclusiveSess.orgId,
-        }));
-      }
-    } catch {}
-    return { ok: true, session: sess };
-  }
-  const r = await apiLogin(email, password);
-  if (r.ok && r.data) {
-    const d = r.data;
-    if ((d as any).kind === 'mfa_required') return { ok: false, retryable: false, message: 'Multi-factor verification is required for this account.' };
-    const dd = d as { user: { id: string; email: string; displayName: string }; tokens: AuthTokens };
-    const sess: StudioSession = {
-      mode: 'api',
-      user: { id: dd.user.id, email: dd.user.email, name: dd.user.displayName, displayName: dd.user.displayName, provider: 'email' },
-      tokens: dd.tokens,
-      plan: null,
-    };
-    save(sess);
-    // Also persist to legacy key used by some pages
-    try {
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('aca.session.v1', JSON.stringify({
-          accessToken: dd.tokens.accessToken,
-          refreshToken: dd.tokens.refreshToken,
-          email: dd.user.email,
-          displayName: dd.user.displayName,
-          orgId: undefined,
-        }));
-      }
-    } catch {}
-    return { ok: true, session: sess };
-  }
-  if (r.reachable === false) return { ok: false, retryable: true, message: 'Processing — جاري المعالجة, نعيد المحاولة تلقائياً' };
-  if (r.error?.status === 401 || r.error?.code === 'UNAUTHENTICATED') return { ok: false, retryable: false, message: 'Incorrect email or password.' };
-  if (r.error?.status === 502 || r.error?.status === 503 || r.error?.code === 'COLD_START' || r.error?.code === 'UPSTREAM_UNREACHABLE') {
-    return { ok: false, retryable: true, message: 'Processing — جاري المعالجة, نعيد المحاولة تلقائياً' };
-  }
-  return { ok: false, retryable: true, message: r.error?.detail || 'Unable to sign you in right now. Please try again.' };
+/** Sign up — disabled in guest mode. Kept as a no-op for type compatibility. */
+export async function signupWith(_email: string, _password: string, _name: string): Promise<{ ok: true; session: StudioSession } | { ok: false; retryable: boolean; message: string }> {
+  return { ok: true, session: loadStudioSession() as StudioSession };
 }
 
 /** Set/update the plan on the current session. */
@@ -148,6 +100,11 @@ export function applyPlan(plan: 'trial' | 'pro' | 'studio' | 'free'): StudioSess
   const s = loadStudioSession();
   if (!s) return null;
   const next = { ...s, plan };
-  save(next);
+  persistStudioSession(next);
   return next;
+}
+
+/** Issue a guest access token that the studio flow can pass through. */
+export function guestAccessToken(): string {
+  return 'guest.' + randomId();
 }

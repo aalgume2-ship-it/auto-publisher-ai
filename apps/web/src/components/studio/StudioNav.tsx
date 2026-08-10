@@ -2,8 +2,7 @@
 
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { LayoutDashboard, LogOut, Sparkles } from 'lucide-react';
-import { loadStudioSession, clearStudioSession } from '../../lib/studio-session';
+import { Sparkles } from 'lucide-react';
 
 export function Logo() {
   return (
@@ -28,14 +27,6 @@ export function Logo() {
 }
 
 export default function StudioNav({ minimal = false }: { minimal?: boolean }) {
-  const apiUser = loadStudioSession();
-  const user = apiUser ? { name: apiUser.user.email.split('@')[0], plan: apiUser.plan } : null;
-
-  function logout() {
-    clearStudioSession();
-    window.location.href = '/';
-  }
-
   return (
     <motion.nav
       initial={{ y: -24, opacity: 0 }}
@@ -49,25 +40,10 @@ export default function StudioNav({ minimal = false }: { minimal?: boolean }) {
           <Link className="navlink" href="/#studio">Create</Link>
           <Link className="navlink" href="/#models">Models</Link>
           <Link className="navlink" href="/#pricing">Pricing</Link>
-          {user && <Link className="navlink" href="/dashboard">Dashboard</Link>}
         </div>
       )}
       <div className="cta-row">
-        {user ? (
-          <>
-            <Link className="chip" href="/dashboard" style={{ textDecoration: 'none' }}>
-              <LayoutDashboard size={13} /> {user.name}
-              {user.plan ? ` · ${user.plan}` : ''}
-            </Link>
-            <button className="chip" onClick={logout} title="Sign out"><LogOut size={13} /></button>
-            <Link className="btn btn-primary" href="/create">New video</Link>
-          </>
-        ) : (
-          <>
-            <Link className="btn btn-ghost" href="/login">Sign in</Link>
-            <Link className="btn btn-primary" href="/create">Try — no account needed</Link>
-          </>
-        )}
+        <Link className="btn btn-primary" href="/create">New video</Link>
       </div>
     </motion.nav>
   );

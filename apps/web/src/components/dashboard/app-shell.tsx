@@ -37,23 +37,15 @@ export default function AppShell({ session, title, subtitle, actions, children }
   const { unreadCount } = useNotifications(session);
 
   function logout() {
-    void (async () => {
-      // Best-effort server-side session revocation (refresh token)
-      try {
-        const { refreshToken } = session;
-        if (refreshToken) {
-          await fetch('/api/v1/auth/logout', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ refreshToken }),
-          });
-        }
-      } catch {
-        // Ignore network errors — clear local session regardless
-      }
+    // Preview/demos: logout just clears the local guest session and
+    // returns the user to the landing page. Real logout is restored
+    // when the auth flow comes back.
+    try {
       clearSession();
-      router.replace('/login/');
-    })();
+    } catch {
+      /* ignore */
+    }
+    router.replace('/');
   }
 
   return (

@@ -55,14 +55,8 @@ export default function Navbar() {
           ))}
         </div>
 
-        {/* CTAs */}
+        {/* CTAs — auth-free during preview */}
         <div className="flex items-center gap-2.5">
-          <Link
-            href="/login"
-            className="rounded-full px-4 py-2 text-sm font-medium text-[#A1A1AA] transition-colors hover:text-[#D4FF32]"
-          >
-            Sign in
-          </Link>
           <Link
             href="/create"
             className="rounded-full bg-[#D4FF32] px-5 py-2.5 text-sm font-bold text-[#0b0d0a] shadow-[0_10px_34px_rgba(212,255,50,0.28)] transition-all duration-200 hover:bg-[#E4FF66] hover:shadow-[0_14px_44px_rgba(212,255,50,0.42)] hover:-translate-y-0.5"

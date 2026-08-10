@@ -59,14 +59,14 @@ export default function Pricing() {
               ))}
             </ul>
             <Link
-              href="/subscribe"
+              href="/create"
               className={`group mt-8 inline-flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-sm font-bold transition-all duration-200 ${
                 p.featured
                   ? 'bg-[#D4FF32] text-[#0b0d0a] shadow-[0_12px_38px_rgba(212,255,50,0.3)] hover:bg-[#E4FF66] hover:-translate-y-0.5'
                   : 'border border-[#2b2b2e] bg-transparent text-white hover:border-[#D4FF32]/40 hover:text-[#D4FF32]'
               }`}
             >
-              {p.name === 'Free' ? 'Start free' : `Get ${p.name}`}
+              Start creating
               <ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" />
             </Link>
           </motion.div>

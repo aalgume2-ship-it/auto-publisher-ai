@@ -19,7 +19,6 @@ export default function Footer() {
           <Link href="/#models" className="text-sm text-[#A1A1AA] transition-colors hover:text-[#D4FF32]">Models</Link>
           <Link href="/#features" className="text-sm text-[#A1A1AA] transition-colors hover:text-[#D4FF32]">Features</Link>
           <Link href="/#pricing" className="text-sm text-[#A1A1AA] transition-colors hover:text-[#D4FF32]">Pricing</Link>
-          <Link href="/login" className="text-sm text-[#A1A1AA] transition-colors hover:text-[#D4FF32]">Sign in</Link>
         </nav>
       </div>
     </footer>

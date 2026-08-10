@@ -6,7 +6,7 @@ import { motion } from 'framer-motion';
 import { Check, Loader2 } from 'lucide-react';
 import StudioNav from '../../components/studio/StudioNav';
 import { loadDraft } from '../../lib/create';
-import { loadStudioSession, tryRefreshToken } from '../../lib/studio-session';
+import { loadStudioSession } from '../../lib/studio-session';
 import { submitGeneration, pollVideo, requeueVideo, friendlyStatus } from '../../lib/studio-flow';
 
 type Phase = 'guard' | 'processing' | 'completed';
@@ -14,6 +14,7 @@ type Phase = 'guard' | 'processing' | 'completed';
 function GenerateInner() {
   const router = useRouter();
   const [draft] = useState(() => loadDraft());
+  // Guest mode: this always resolves to a session object.
   const session = useMemo(() => loadStudioSession(), []);
   const [phase, setPhase] = useState<Phase>('guard');
   const [status, setStatus] = useState('QUEUED');
@@ -21,16 +22,24 @@ function GenerateInner() {
   const cancelledRef = useRef(false);
 
   useEffect(() => {
-    if (!session) { router.replace('/signup?next=/generate'); return; }
-    if (!session.plan) { router.replace('/subscribe?next=/generate'); return; }
-    if (!draft.prompt) { router.replace('/create'); return; }
+    // Only redirect to /create if there is no draft prompt. No more
+    // signin / signup / subscribe redirects in guest mode.
+    if (!draft.prompt) {
+      router.replace('/create');
+      return;
+    }
 
     if (startedRef.current) return;
     startedRef.current = true;
 
     (async () => {
-      await tryRefreshToken();
-      const cur = loadStudioSession() ?? session;
+      const cur = session ?? loadStudioSession();
+      if (!cur) {
+        // Should be impossible in guest mode (loadStudioSession always
+        // returns one), but keep a safe fallback.
+        router.replace('/create');
+        return;
+      }
       setPhase('processing');
 
       while (!cancelledRef.current) {
@@ -38,30 +47,36 @@ function GenerateInner() {
         const res = await submitGeneration(cur, draft.prompt, Math.max(20, draft.duration));
         if (cancelledRef.current) return;
         if (res.kind === 'error') {
-          router.replace('/login?next=/generate'); // session issue
-          return;
+          // In guest mode errors are not redirected to /login anymore.
+          setStatus('retrying');
+          await new Promise((r) => setTimeout(r, 2500));
+          continue;
         }
         if (res.kind === 'retry') {
           setStatus('retrying');
-          await new Promise((r) => setTimeout(r, 2500)); // auto-retry
+          await new Promise((r) => setTimeout(r, 2500));
           continue;
         }
 
         const job = res.job;
         setStatus('QUEUED');
-        const outcome = await pollVideo(cur.tokens!.accessToken, job.orgId, job.videoId, (st) => setStatus(st));
+        const outcome = await pollVideo('guest', job.orgId, job.videoId, (st) => setStatus(st));
 
         if (cancelledRef.current) return;
         if (outcome === 'completed') {
           setPhase('completed');
           window.setTimeout(() => {
-            router.push(`/result?mode=api&videoId=${job.videoId}&orgId=${job.orgId}&w=${1280}&h=${720}&sec=${draft.duration}&model=${draft.model}`);
+            router.push(
+              `/result?mode=guest&videoId=${job.videoId}&orgId=${job.orgId}&w=${1280}&h=${720}&sec=${draft.duration}&model=${draft.model}`,
+            );
           }, 800);
           return;
         }
         if (outcome === 'session') {
-          router.replace('/login?next=/generate');
-          return;
+          // No auth in guest mode — just keep retrying.
+          setStatus('retrying');
+          await new Promise((r) => setTimeout(r, 2000));
+          continue;
         }
         // processing → provider hiccup / network → auto-re-enqueue and loop.
         await requeueVideo(cur, job.orgId, job.videoId);
