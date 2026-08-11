@@ -195,7 +195,7 @@ function fileToBase64(file: File): Promise<string> {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('file-read-failed'));
     reader.onload = () => {
-      const result = String(reader.result ?? '');
+      const result = typeof reader.result === 'string' ? reader.result : '';
       const base64 = result.includes(',') ? result.split(',')[1] : result;
       resolve(base64 ?? '');
     };

@@ -6,7 +6,7 @@ export async function GET() {
     API_UPSTREAM_set: !!upstream,
     API_UPSTREAM_hint: hint,
     API_UPSTREAM_len: upstream.length,
-    isRailway: upstream.includes('railway.app'),
+    isAws: upstream.includes('amazonaws.com') || /^https:\/\/api\./.test(upstream),
     isRender: upstream.includes('onrender.com'),
     timestamp: new Date().toISOString(),
   });

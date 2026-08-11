@@ -19,7 +19,7 @@ import { RequiresCapabilities } from '../../common/guards/rbac.guard.js';
 import { UseZod } from '../../common/validation/zod-validation.pipe.js';
 import { requestContext } from '../../common/context/request-context.js';
 import { ApiError } from '../../common/errors/api-error.js';
-import { ChannelDoc, ChannelListDoc, ChannelParamsSchema, OauthCallbackQuerySchema, OrgParamsSchema, YoutubeLinkDoc } from './channels.dto.js';
+import { ChannelListDoc, ChannelParamsSchema, OauthCallbackQuerySchema, OrgParamsSchema, YoutubeLinkDoc } from './channels.dto.js';
 import { ChannelsService } from './channels.service.js';
 
 @ApiTags('channels')

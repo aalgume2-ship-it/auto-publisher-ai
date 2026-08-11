@@ -203,7 +203,7 @@ export function listVideos(token: string, orgId: string) {
 export function getVideo(token: string, orgId: string, videoId: string) {
   return call<VideoDto>('GET', `/organizations/${orgId}/videos/${videoId}`, undefined, token);
 }
-export function videoStreamUrl(orgId: string, videoId: string, token: string) {
+export function videoStreamUrl(orgId: string, videoId: string, _token: string) {
   return `/api/v1/organizations/${orgId}/videos/${videoId}/stream`;
 }
 export function regenerateVideo(token: string, orgId: string, videoId: string) {

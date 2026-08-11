@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { BadgeCheck, FolderCog, Settings2, ShieldCheck, SwatchBook, UsersRound } from 'lucide-react';
+import { BadgeCheck, FolderCog, Settings2, ShieldCheck, UsersRound } from 'lucide-react';
 import AppShell from '../../../components/dashboard/app-shell';
 import { EmptyState, GlassCard, SectionHeader, StatTile } from '../../../components/ui/chrome';
 import { HoverLift, Reveal } from '../../../components/ui/reveal';
@@ -34,7 +34,6 @@ interface Brand {
 export default function AdminPage() {
   const { session, ready } = useAuthenticatedSession();
   const [org, setOrg] = useState<OrgDetail | null>(null);
-  const [settings, setSettings] = useState<Settings | null>(null);
   const [brand, setBrand] = useState<Brand | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -49,7 +48,6 @@ export default function AdminPage() {
       api.get<Brand>(`/v1/organizations/${session.orgId}/brand`, session.accessToken),
     ]);
     setOrg(o);
-    setSettings(s);
     setBrand(b);
     setForm({
       timezone: s.timezone,

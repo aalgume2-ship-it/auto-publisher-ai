@@ -92,7 +92,6 @@ function ChannelsInner() {
   }
 
   const tiktokConnected = items?.some(c => c.platform === 'tiktok') ?? false;
-  const youtubeConnected = items?.some(c => c.platform === 'youtube') ?? false;
 
   if (!ready || !session) return <div className="auth-shell"><div className="glass-card" style={{ padding: 28 }}>Checking session…</div></div>;
 

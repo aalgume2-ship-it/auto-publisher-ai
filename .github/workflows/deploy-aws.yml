@@ -1,0 +1,89 @@
+name: deploy-aws
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - 'apps/worker/**'
+      - 'packages/**'
+      - 'Dockerfile.api'
+      - 'Dockerfile.worker'
+      - 'infra/aws/**'
+
+env:
+  AWS_REGION: eu-central-1
+  ECR_REPO_API: autocreator/api
+  ECR_REPO_WORKER: autocreator/worker
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with: { version: 9.15.9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build & push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.api
+          push: true
+          tags: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO_API }}:${{ github.sha }},${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO_API }}:latest
+
+      - name: Build & push Worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.worker
+          push: true
+          tags: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO_WORKER }}:${{ github.sha }},${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO_WORKER }}:latest
+
+      - name: Deploy CloudFormation
+        run: |
+          aws cloudformation deploy \
+            --stack-name autocreator-prod \
+            --template-file infra/aws/cloudformation.yml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --region ${{ env.AWS_REGION }} \
+            --parameter-overrides \
+              ApiImage=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO_API }}:${{ github.sha }} \
+              WorkerImage=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO_WORKER }}:${{ github.sha }} \
+              ApiDomain=${{ secrets.API_DOMAIN }} \
+              CertificateArn=${{ secrets.CERT_ARN }}
+
+      - name: Wait for services stable
+        run: |
+          aws ecs wait services-stable \
+            --cluster autocreator-prod \
+            --services autocreator-prod-api autocreator-prod-worker \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Smoke-test health
+        run: |
+          URL="https://${{ secrets.API_DOMAIN }}/health/ready"
+          for i in $(seq 1 12); do
+            BODY=$(curl -sf "$URL" 2>/dev/null || true)
+            if echo "$BODY" | grep -q '"status":"ready"'; then
+              echo "API ready: $BODY"; exit 0
+            fi
+            sleep 10
+          done
+          echo "API not ready after 120s"; exit 1

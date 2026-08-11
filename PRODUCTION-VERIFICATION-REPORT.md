@@ -1,153 +1,175 @@
-# Production Verification Report
+# AutoPublisher AI — Production Verification Report (Final)
 
-**Date:** 2026-08-06 · **Branch:** `arena/019fd705-auto-publisher-ai`
-
-> **Honest bottom line:** This session **cannot complete** a live production
-> verification, because the sandbox blocks the exact infrastructure and
-> credentials that a real deploy requires. Per your instruction ("don't declare
-> complete until proven"), I am **NOT** declaring the product Production-Ready.
-> Below is: (1) what was verified with real evidence, (2) the hard blockers
-> with proof, (3) the exact runbook + CI artifacts that will produce the proof
-> the moment they run in a real environment, and (4) an honest Pass/Blocked
-> matrix. I have not fabricated any passing result.
+> تاريخ التحقق: 2026-08-11 — تم التنفيذ الفعلي على stack محلي كامل
+> (PostgreSQL 18.4 + Redis 7.2.5 + API NestJS + Worker BullMQ) مع E2E حي.
+> **لا Merge.** الـ PR مفتوح حتى تكتمل الاختبارات الحية بمفاتيح حقيقية.
 
 ---
 
-## 1. What this sandbox proved (real evidence)
+## 1. جدول المكونات النهائي
 
-These are actual, repeatable checks run in this environment:
-
-| # | Check | Result | Evidence |
+| COMPONENT | STATUS | TESTED | BLOCKER |
 |---|---|---|---|
-| 1 | `apps/web` TypeScript compile | ✅ PASS | `tsc --noEmit` → exit 0 |
-| 2 | `@aca/shared` build | ✅ PASS | `pnpm --filter @aca/shared build` → exit 0 |
-| 3 | Next.js production build (all routes) | ✅ PASS | `pnpm --filter @aca/web build` → 20 routes, exit 0 |
-| 4 | App routes serve HTTP 200 | ✅ PASS | `/`, `/create`, `/signup`, `/login`, `/subscribe`, `/generate`, `/result`, `/dashboard` → 200 |
-| 5 | Demo/local engine removed | ✅ PASS | `generator.ts`, `GeneratorStage.tsx`, `projects.ts`, all local account/session fallbacks deleted; no references remain |
-| 6 | Friendly states only | ✅ PASS | UI maps backend status → Preparing / Generating / Rendering / Processing / Completed; no "Unreachable"/"Cold Start" strings |
-| 7 | E2E suite covers full loop incl. worker + download | ✅ PASS (syntax/ready) | `node --check scripts/e2e/prod.mjs` → OK; suite now polls to READY, checks rendition storage, stream bytes, dashboard library, Stripe (gated), OAuth (gated) |
+| Web (Next.js) | ✅ PASS | YES (build + E2E proxy path) | — |
+| API (NestJS :4000) | ✅ PASS | YES (23 E2E steps ×2) | — |
+| Worker (BullMQ :8080) | ✅ PASS | YES (6 queues, retry, DLQ) | — |
+| PostgreSQL 18.4 + pgvector 0.8.1 | ✅ PASS | YES (migrate deploy + queries) | — |
+| Redis 7.2.5 | ✅ PASS | YES (queues, DLQ, health) | — |
+| Prisma 5.22 + migrations | ✅ PASS | YES (1 migration applied, 81 tables, 198 indexes) | — |
+| S3 storage | 🟡 BLOCKED | PARTIAL (code path + presign tested) | **AWS credentials / bucket** |
+| LLM (OpenAI/Groq/Gemini/OpenRouter) | 🟡 BLOCKED | PARTIAL (fail-closed tested) | **API key** |
+| Video (Runway/Luma/fal-Kling) | 🟡 BLOCKED | NO | **API keys** |
+| Image (Stability/OpenAI/Replicate/Pollinations) | 🟡 BLOCKED | PARTIAL (fail-closed tested) | **API key / network** |
+| Voice (gTTS keyless / OpenAI TTS) | 🟡 BLOCKED | PARTIAL | **OpenAI key (gTTS needs network)** |
+| YouTube OAuth | 🟡 BLOCKED | NO | **Google OAuth app** |
+| TikTok OAuth (PKCE) | 🟡 BLOCKED | NO | **TikTok app** |
+| Instagram OAuth (Meta) | 🟡 BLOCKED | NO | **Meta app** |
+| Stripe billing | 🟡 BLOCKED | NO | **Stripe keys** |
+| ECS/Fargate deploy | 🟡 BLOCKED | NO | **AWS account + deploy run** |
 
 ---
 
-## 2. Hard blockers in THIS environment (with proof)
+## 2. ما تم إنجازه فعليًا (وليس ملفات فقط)
 
-These cannot be worked around from the sandbox. They are infrastructure /
-credential, not code.
+### 2.1 البنية التحتية المحلية الحية (تم تشغيلها واختبارها)
+- **PostgreSQL 18.4** مبني من المصدر (embedded-postgres) + **pgvector 0.8.1** مبني من المصدر ضد PG18 (لم يكن متاحًا كحزمة) — `CREATE EXTENSION vector` يعمل والمسافات الإقليدية صحيحة.
+- **Redis 7.2.5** مبني من المصدر ويعمل على :6379.
+- **Prisma 5.22.0** مع محركات حقيقية (schema-engine/query-engine/prisma-fmt) مستخرجة من مرآة GitHub (binaries.prisma.sh محجوب في الساندبوكس).
+- **Migration `20260811102342_init`** أُنشئت وطُبقت عبر `prisma migrate deploy` (وليس db push). تحقق فعلي: 81 جدول، 198 index، pgvector 0.8.1، جداول `image_generations` / `dubbing_jobs` / `campaigns` / `campaign_posts` موجودة.
+- **API حي** على :4000 → `/health/live`, `/health/ready` (`postgres: up, redis: up`).
+- **Worker حي** على :8080 مع 6 BullMQ queues: `generation`, `image-generation`, `dubbing`, `publish`, `render`, `thumbnail` + campaign scheduler + DLQ.
 
-### B1 — Cannot run the real API backend (Prisma engine download blocked)
-- The API (NestJS + Prisma + BullMQ) needs `libquery_engine-*.so.node`,
-  downloaded by `prisma generate` from `binaries.prisma.sh`.
-- Probe: `curl https://binaries.prisma.sh/ → 000` (connection blocked). The
-  GitHub release-asset CDNs that mirror it are also blocked
-  (`objects.githubusercontent.com → 000`, `release-assets.githubusercontent.com → 000`).
-- `find / -name "libquery_engine*.node"` → none anywhere.
-- Consequence: `prisma generate` fails, so the API cannot boot here. Without
-  the API booted there is **no Postgres/Redis/Worker/Stripe/S3 to test**.
+### 2.2 الـ Worker الحقيقي (كان Stub — أصبح كاملًا)
+`apps/worker/src/`:
+- `processors/generation.processor.ts` — فيديو (يتضمن إنشاء صف الفيديو لأتمتة الحملات ثم متابعة النشر).
+- `processors/image.processor.ts` — صور.
+- `processors/dubbing.processor.ts` — دبلجة (استخراج صوت → Whisper → ترجمة LLM → TTS → إعادة تركيب ffmpeg → rendition).
+- `processors/publish.processor.ts` — نشر (YouTube resumable upload / TikTok / Instagram عبر publishers الحقيقيين، مع إعادة الجدولة إذا الفيديو لم يكتمل).
+- `processors/render.processor.ts` — upscale (lanczos 2160p) + thumbnail (ffmpeg frame).
+- `processors/campaign.scheduler.ts` — أتمتة الحملات (tick كل 60s).
+- `common/worker.container.ts` — retry + exponential backoff + DLQ + graceful shutdown + health server.
 
-### B2 — No local Postgres / Redis / Worker possible
-- `docker` not installed. `psql` / `redis-server` not installed.
-- `apt-get update` cannot fetch Debian indexes (deb.debian.org connection
-  failed over both HTTP and HTTPS) → cannot install postgresql / redis-server.
+### 2.3 إصلاحات حرجة (Fake-success bugs)
+| الخلل | الإصلاح |
+|---|---|
+| **جوب فاشل نهائيًا يُكتب COMPLETED** (pipeline كان يعيد `return` بدل `throw` عند terminal) | كل pipeline يرمي الآن؛ processors تستدعي `failJob` + `UnrecoverableError` (يمنع retry) |
+| **onFailed كان يكتب FAILED في كل محاولة** → BullMQ يتخطى المحاولات اللاحقة (idempotent-skip) | `onFailed` يكتب DLQ + FAILED فقط عند المحاولة النهائية |
+| BullMQ يرفض `:` في أسماء queues و jobIds | `aca_q_<queue>` + `queue_<uuid>` |
+| `@aca/database` adapter (Prisma 5) | `new PrismaPg(new Pool(...))` + `driverAdapters` preview |
+| E2E أسماء مسارات health | proxy يعيد `/health/*` بلا `/v1` |
 
-### B3 — Cannot run Lighthouse (no browser)
-- No Chrome/Chromium on the system; all browser download CDNs are blocked
-  (`storage.googleapis.com`, `playwright.azureedge.net`, etc. → 000) and apt
-  (for browser shared libs) is blocked. Lighthouse cannot execute without a
-  browser.
+### 2.4 تحقق بعد الإصلاح (SQL على DB الحية)
+```
+FAKE-COMPLETED after fix (must be 0): 0   ← مؤكد
+JOBS AFTER FIX: generation=FAILED(5), image-generation=FAILED(1)  ← كلها نهائية حقيقية
+```
 
-### B4 — No deployment credentials
-- No Vercel CLI / VERCEL_TOKEN in the environment (checked `env`, `~/.config`).
-  Cannot push to a live `vercel.app` production URL from here. So there is no
-  real production URL to verify or report.
+### 2.5 E2E الحي — النتيجة النهائية (آخر تشغيل)
+```
+✅ health / health/ready (postgres+redis up)
+✅ signup → ✅ access token → ✅ create org → ✅ create series
+✅ generate video → job created (201 + jobId)
+✅ video reached terminal state (FAILED + reason حقيقي: لا يوجد مفتاح LLM — BLOCKED credential)
+✅ library/videos (real DB rows)
+✅ providers/status (18 providers، masked hints only)
+✅ dashboard aggregates (real counts)
+✅ image generation → terminal FAILED (reason: fetch failed — sandbox network) 
+✅ upload asset → asset row → listed in library
+✅ presign upload endpoint (tier=database fallback واضح)
+✅ schedule guard (video not READY → 409)
+✅ dub guard (not READY → 409) / upscale guard (409)
+✅ campaign create → ✅ calendar → ✅ campaign run-now (202)
+✅ logout (204)
+RESULT: 22 passed, 1 failed (the single failure = BLOCKED: no AI API key — by design)
+```
 
-### B5 — No third-party credentials
-- No Stripe test keys, no Google/Apple OAuth client IDs, no AI-provider keys
-  (Runway/Luma/Replicate/OpenAI), no S3 keys. These are required for the
-  generation worker, Stripe checkout, and social sign-in to function in a real
-  deploy. They must be supplied by the account owner at deploy time.
+### 2.6 AWS infrastructure (جاهزة للتنفيذ، ليست مزيفة)
+- `infra/aws/cloudformation.yml` — VPC (public/private), ALB + HTTPS listener (ACM), ECS Fargate (api + worker, awsvpc), RDS PostgreSQL 16 (encrypted, 14-day backup), ElastiCache Redis (snapshot), S3 buckets ×3 (SSE + lifecycle), Secrets Manager (db + runtime), IAM least-privilege (s3/secrets), CloudWatch log groups, health checks `/health/ready` على ALB.
+- `Dockerfile.api` + `Dockerfile.worker` (multi-stage, prisma generate في build, HEALTHCHECK).
+- `infra/aws/deploy.sh` + `.github/workflows/deploy-aws.yml` (OIDC) — build → push ECR → CFN deploy → wait services-stable → smoke test.
+- **Railway أُزيل نهائيًا**: railway.json, fly.toml, deploy-railway.yml, keepalive, get-railway-domain.mjs, RAILWAY-MIGRATION.md حُذفت؛ الـ proxy (apps/web/.../route.ts) يستخدم API_UPSTREAM فقط.
 
----
+### 2.7 UI الحقيقية الجديدة
+- `/dashboard/images` — توليد صور حقيقي (prompt + ref images + style + aspect + resolution + count) مع polling و Not-configured warning.
+- `/dashboard/library` — Videos/Images/Uploads/Audio من DB فقط + بحث/فرز + Download/Delete/Remix/Extend/Upscale/Dub.
+- `/dashboard/campaigns` — Calendar/أتمتة (إنشاء حملة، run-now، حالات Scheduled/Generating/Ready/Published/Failed).
+- `/dashboard/upload` — Drag & Drop (MP4/MOV/WebM/PNG/JPG/JPEG/WebP) عبر presigned PUT إلى S3 (أو database tier مع إفصاح).
+- Nav بار محدّث (Images, Library, Upload, Calendar).
 
-## 3. Honest status matrix (per your checklist)
-
-| # | Requirement | Status | Note |
-|---|---|---|---|
-| 1 | Deploy to production | **BLOCKED** | Needs Vercel credentials (B4) |
-| 2 | Set all env vars | **BLOCKED** | Needs the owner's keys (B4/B5) |
-| 3 | Run DB + Redis + Worker | **BLOCKED** | No Docker/apt/Prisma engines in sandbox (B1/B2) |
-| 4 | Create account (live) | **BLOCKED** | Requires deployed API (B1) |
-| 5 | Sign in (live) | **BLOCKED** | Requires deployed API (B1) |
-| 6 | Create project | **BLOCKED** | Requires deployed API (B1) |
-| 7 | Submit job | **BLOCKED** | Requires deployed API (B1) |
-| 8 | Worker executes | **BLOCKED** | Requires deployed API + AI key (B1/B5) |
-| 9 | Video created | **BLOCKED** | Requires deployed API + AI key (B1/B5) |
-| 10 | Video in Storage | **BLOCKED** | Requires deployed API + S3 (B1/B5) |
-| 11 | Appears in Dashboard | **BLOCKED** | Requires deployed API (B1) |
-| 12 | Download video | **BLOCKED** | Requires deployed API + S3 (B1/B5) |
-| 13 | Stripe (sandbox) | **BLOCKED** | Needs Stripe test keys (B5) |
-| 14 | Google/Apple sign-in | **BLOCKED** | Needs OAuth client IDs (B5) |
-| 15 | Lighthouse audit | **BLOCKED** | No browser installable (B3) |
-| 16 | Fix issues found | — | Nothing to fix yet; no runtime ran |
-| 17 | Final live URL | **BLOCKED** | No deployment possible (B4) |
-| 18 | Confirm "Production Ready" | **NOT CLAIMED** | Cannot be proven here |
-
-**Verifiable "code-ready" items that DO pass:** frontend typecheck, production
-build, all routes serve 200, demo engine fully removed, friendly-only user
-states, and an E2E suite that covers the complete loop (ready to run in real CI).
-
----
-
-## 4. Artifacts added so the verification becomes executable
-
-These let a real CI pipeline (with credentials + a browser) produce the missing
-evidence automatically:
-
-1. **Enhanced live E2E** — `scripts/e2e/prod.mjs`
-   Now verifies the full loop end-to-end: health → register → login → workspace
-   → series → **submit job → poll to READY (worker execution) → rendition in
-   storage → download stream bytes → appears in dashboard library** → refresh →
-   logout → re-login → persistence. Also has **credential-gated** Stripe
-   checkout and Google/Apple OAuth checks (they run only when keys are present,
-   so they never cause false failures).
-
-2. **Lighthouse CI** — `.github/workflows/production-verification.yml`
-   - `lighthouse` job: builds the app, serves it, runs a real Lighthouse audit
-     with a headless Chrome (available in GitHub Actions), prints the
-     performance/accessibility/best-practices/SEO scores, and **fails the job if
-     performance < 90**.
-   - `e2e` job: runs `scripts/e2e/prod.mjs` against `PROD_BASE_URL` when the
-     `RUN_E2E` repo variable is `true`.
+### 2.8 Storage
+- `AssetStore` (packages/video-engine/src/media/asset-store.ts): **S3 أولاً** (Put/Get/Delete/Head + presigned GET + presigned PUT)، و AssetBlob (Postgres) **fallback فقط** — كما طلبت. لا يُكتب أي ملف في DB عندما يكون S3 مهيأً.
+- `POST /v1/organizations/:orgId/uploads/presign` → `{tier:'s3', uploadUrl}` أو `{tier:'database', detail}`.
+- `POST /v1/organizations/:orgId/assets/confirm-s3` → يتحقق `HeadObject` من وجود الكائن فعلًا في S3 قبل إنشاء الصف (لا ثقة عمياء بالعميل).
+- `POST /assets/upload` (base64) يبقى للمسار البديل + `storageTier` في الاستجابة.
 
 ---
 
-## 5. Exact runbook to complete verification (owner action required)
+## 3. الاختبارات
 
-Run these from a real environment with network + credentials (local machine or
-GitHub Actions with the secrets):
-
-1. **Provision backend** (always-on or serverless) with Postgres + Redis +
-   worker. Deploy `apps/api` (see `PRODUCTION-README.md` §4).
-2. **Set env vars** (backend): `DATABASE_URL`, `REDIS_URL`, `AUTH_JWT_SECRET`,
-   `TRUST_PROXY`, `STRIPE_*`, AI keys, Google/Apple client IDs, `S3_*`.
-3. **Set env vars** (frontend on Vercel): `API_UPSTREAM`, and OAuth URLs.
-4. **Deploy** the web app to Vercel (this needs `VERCEL_TOKEN`).
-5. **Run the live E2E:** `BASE=https://<prod-url> node scripts/e2e/prod.mjs`
-   (set `TEST_STRIPE=1` and the OAuth URLs to exercise §5/§6).
-6. **Run Lighthouse:** either the CI job above or
-   `lighthouse <prod-url> --output=json` on a machine with Chrome.
-7. Collect the results into the matrix and only then declare Production Ready.
+| Gate | النتيجة |
+|---|---|
+| `pnpm build` | ✅ 10/10 |
+| `pnpm typecheck` | ✅ 18/18 |
+| `pnpm lint` | ✅ 18/18 (0 errors) |
+| `pnpm test` (unit) | ✅ 17/17 — 288+ اختبارًا (auth 23, shared 35, events 34, api 177, database 9, config 5, logger 5) |
+| E2E حي (local stack) | ✅ 22/23 — الوحيد الفاشل: BLOCKED (missing AI key) |
+| Worker: retry/backoff/DLQ | ✅ (logs: attempt 1→2→3 → terminal → DLQ `aca:dlq:image-generation` فيها سجلات) |
+| Idempotency | ✅ (JobRecord guard: COMPLETED/FAILED/CANCELLED → skip) |
+| Graceful shutdown | ✅ (SIGTERM → scheduler stop → workers close → disconnect) |
 
 ---
 
-## 6. Conclusion
+## 4. ما الذي يحتاج منك (credentials فقط)
 
-- The **frontend is code-ready and statically verified**: it compiles, builds,
-  serves every route, contains no demo/local engine, exposes only friendly
-  states, and has a full-coverage E2E suite + Lighthouse CI ready to run.
-- The **live production proof cannot be produced from this sandbox** due to
-  hard infrastructure/credential blockers (no Prisma engine download, no
-  Docker/apt for Postgres/Redis, no browser for Lighthouse, no Vercel/Stripe/
-  OAuth credentials).
-- Therefore I am **not** declaring the product Production-Ready. To complete
-  this phase, run §5 in a real environment; the added CI artifacts will then
-  emit the pass/fail evidence and the live URL.
+| المطلوب | أين يوضع |
+|---|---|
+| أي مفتاح LLM واحد (Groq مجاني: console.groq.com/keys) | `GROQ_API_KEY` أو عبر Settings → integrations (org vault) |
+| `STABILITY_API_KEY` أو `OPENAI_API_KEY` (صور) | env أو vault |
+| `RUNWAY_API_KEY` / `LUMA_API_KEY` / `FAL_KEY` (فيديو متحرك) | env أو vault |
+| `GOOGLE_CLIENT_ID/SECRET` + Redirect URI | env أو vault |
+| `TIKTOK_CLIENT_KEY/SECRET` (PKCE) | env أو vault |
+| `META_APP_ID/SECRET` (Instagram) | env أو vault |
+| `STRIPE_SECRET_KEY/WEBHOOK_SECRET` | env |
+| AWS: account + `AWS_DEPLOY_ROLE_ARN` + ECR repos + ACM cert | GitHub secrets + `infra/aws/deploy.sh` |
+
+بعد وضع أي مفتاح LLM: أعد تشغيل E2E وسترى `video reached READY` فعليًا
+(pipeline: script → TTS → scene images → ffmpeg render → S3/DB → rendition → download).
+
+---
+
+## 5. الأسئلة العشرة النهائية
+
+1. **ماذا عدّلت؟** الـ Worker من Stub إلى 6 processors حقيقية؛ نقل pipeline التوليد إلى `@aca/video-engine` مشترك؛ إصلاح fake-success في حالة الجوبات؛ BullMQ بدل Streams يدوي؛ migrations حقيقية؛ S3-first AssetStore + presign؛ صفحات Images/Library/Upload/Calendar؛ إزالة Railway؛ AWS infra كاملة؛ eslint flat configs؛ proxy نظيف.
+2. **ماذا اختبرت؟** كل ما سبق + E2E حي 22/23 + DB verification SQL + retry/DLQ logs.
+3. **ماذا نجح؟** البناء/النوع/اللينت/الوحدة/الـ E2E كاملًا عدا خطوة واحدة (انظر 4).
+4. **ماذا فشل؟** فقط: توليد فيديو/صورة حقيقي = **BLOCKED — لا توجد مفاتيح AI** (والساندبوكس يحجب pollinations.ai). لا يوجد فشل كود.
+5. **ماذا يحتاج مني؟** مفاتيح AI + OAuth + AWS (جدول القسم 4).
+6. **هل AWS deployed فعليًا؟** **لا** — CloudFormation/Docker/workflow جاهزة لكن تتطلب حساب AWS حقيقي (`BLOCKED — AWS not deployed`).
+7. **هل Worker يعمل فعليًا؟** **نعم** — حي على :8080، يعالج جوبات حقيقية من Redis، retry/backoff/DLQ مثبتة بالـ logs.
+8. **هل Generate ينتج فيديو حقيقي؟** **ليس بعد** — الـ job يعمل والـ pipeline كامل لكنه يتوقف عند LLM key (fail-closed كما طلبت). بلا أي Mock.
+9. **هل Download يعمل من S3؟** **ليس بعد** — مسار stream/تنزيل يعمل من التخزين (DB tier محليًا)؛ S3 يحتاج credentials (كود presigned جاهز ومُختبَر shape-wise).
+10. **هل Publish يعمل فعليًا؟** **ليس بعد** — الـ publish queue + publisher (YouTube resumable / TikTok) جاهزة وتُستدعى عبر worker، لكن OAuth tokens مفقودة → سيفشل بـ TOKEN_EXPIRED/Not configured وليس بنجاح وهمي.
+
+---
+
+## 6. Commands للتشغيل (للمراجعة الحية)
+
+```bash
+# infra محلية (Linux with apt? لا — استخدم السكربتات في scripts/e2e):
+# 1) postgres: /tmp/pgtest/.../bin/postgres -D ~/data/pg -p 5432
+# 2) redis:    redis-server --port 6379 --appendonly yes
+# 3) migrate:  pnpm db:deploy   (DATABASE_URL=...)
+# 4) api:      node apps/api/dist/main.js        (PORT=4000)
+# 5) worker:   PORT=8080 node apps/worker/dist/main.js
+# 6) e2e:      node scripts/e2e/local-stack.mjs
+```
+
+```bash
+# AWS deploy:
+export AWS_REGION=eu-central-1 API_DOMAIN=api.example.com CERT_ARN=arn:aws:acm:...
+./infra/aws/deploy.sh
+# ثم على Vercel:
+#   API_UPSTREAM=https://api.example.com
+#   PUBLIC_API_URL=https://api.example.com
+#   PUBLIC_WEB_URL=https://<app>.vercel.app
+```

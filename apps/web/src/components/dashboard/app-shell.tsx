@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { Bell, CreditCard, FolderKanban, LayoutDashboard, LogOut, MenuSquare, RadioTower, Settings2, Sparkles, UserCircle2 } from 'lucide-react';
+import { Bell, CalendarDays, CreditCard, FolderKanban, ImageIcon, LayoutDashboard, LogOut, MenuSquare, RadioTower, Settings2, Sparkles, UploadCloud, UserCircle2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { clearSession, readClaims, type StoredSession } from '../../lib/session';
 import CommandPalette, { useCommandPalette } from '../CommandPalette';
@@ -12,7 +12,10 @@ import { useNotifications } from '../../lib/use-notifications';
 const NAV_ITEMS = [
   { href: '/dashboard/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/dashboard/series/', label: 'Studio', icon: Sparkles },
-  { href: '/dashboard/assets/', label: 'Assets', icon: FolderKanban },
+  { href: '/dashboard/images/', label: 'Images', icon: ImageIcon },
+  { href: '/dashboard/library/', label: 'Library', icon: FolderKanban },
+  { href: '/dashboard/upload/', label: 'Upload', icon: UploadCloud },
+  { href: '/dashboard/campaigns/', label: 'Calendar', icon: CalendarDays },
   { href: '/dashboard/channels/', label: 'Channels', icon: RadioTower },
   { href: '/dashboard/posts/', label: 'Publishing', icon: MenuSquare },
   { href: '/dashboard/billing/', label: 'Billing', icon: CreditCard },

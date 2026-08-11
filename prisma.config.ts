@@ -6,15 +6,20 @@
  * must receive the connection here. Runtime connections use the driver adapter
  * (@aca/database → @prisma/adapter-pg), see packages/database/src/index.ts.
  */
-import 'dotenv/config';
 import { defineConfig } from 'prisma/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 
+import('dotenv/config').catch(() => {
+  /* dotenv optional — env comes from the shell / secret manager */
+});
+
+const url = process.env.DATABASE_URL ?? '';
+
 export default defineConfig({
   datasource: {
-    url: process.env.DATABASE_URL ?? '',
+    url,
   },
   migrate: {
-    adapter: () => new PrismaPg({ connectionString: process.env.DATABASE_URL ?? '' }),
+    adapter: () => new PrismaPg({ connectionString: url }),
   },
 });

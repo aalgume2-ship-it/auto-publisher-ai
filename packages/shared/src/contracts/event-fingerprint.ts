@@ -10,7 +10,7 @@
  * + a deterministic non-cryptographic hash (stability is the requirement, not
  * secrecy).
  */
-import { z, ZodFirstPartyTypeKind, type ZodTypeAny } from 'zod';
+import { ZodFirstPartyTypeKind, type ZodTypeAny } from 'zod';
 import { EventCatalog, EventPayloadSchemas } from './event-catalog.js';
 
 type Json = string | number | boolean | null | Json[] | { [k: string]: Json };
@@ -147,8 +147,19 @@ export function describeSchema(schema: ZodTypeAny, depth = 0): Json {
       return { t: 'undefined' };
     case ZodFirstPartyTypeKind.ZodNever:
       return { t: 'never' };
+    case ZodFirstPartyTypeKind.ZodNaN:
+    case ZodFirstPartyTypeKind.ZodSymbol:
+    case ZodFirstPartyTypeKind.ZodIntersection:
+    case ZodFirstPartyTypeKind.ZodMap:
+    case ZodFirstPartyTypeKind.ZodSet:
+    case ZodFirstPartyTypeKind.ZodFunction:
+    case ZodFirstPartyTypeKind.ZodLazy:
+    case ZodFirstPartyTypeKind.ZodCatch:
+    case ZodFirstPartyTypeKind.ZodPromise:
+    case ZodFirstPartyTypeKind.ZodNever:
+      return { t: 'never' };
     default:
-      return { t: 'unhandled', typeName: String(def.typeName) };
+      return { t: 'unhandled', typeName: def.typeName as unknown as string };
   }
 }
 

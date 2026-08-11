@@ -22,7 +22,8 @@
  */
 import { PrismaClient, Prisma } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { generateId, idTimestamp } from './id.js';
+import { Pool } from 'pg';
+import { generateId } from './id.js';
 import { tenantFieldFor } from '@aca/shared/constants/tenancy.js';
 
 export { generateId, idTimestamp } from './id.js';
@@ -31,8 +32,6 @@ export interface TenantContext {
   organizationId: string;
 }
 
-const WRITE_OPS = new Set(['create', 'createMany', 'update', 'updateMany', 'upsert', 'delete', 'deleteMany']);
-const READ_OPS = new Set(['findMany', 'findFirst', 'findFirstOrThrow', 'count', 'aggregate', 'groupBy']);
 const UNIQUE_OPS = new Set(['findUnique', 'findUniqueOrThrow', 'update', 'delete']);
 
 interface AnyArgs {
@@ -64,14 +63,15 @@ export class TenantViolationError extends Error {
 }
 
 /**
- * Prisma 7 uses driver adapters for the connection (the datasource `url` no
- * longer lives in the schema). The adapter is created here from the standard
- * DATABASE_URL env (or an explicit override) so every caller keeps working.
+ * Prisma driver adapter for the connection. The adapter is created here from
+ * the standard DATABASE_URL env (or an explicit override) so every caller
+ * keeps working — on Postgres via the pg Pool.
  */
 export function createPrismaClient(options?: { log?: Array<'query' | 'info' | 'warn' | 'error'>; url?: string }): PrismaClient {
   const url = options?.url ?? process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is required to create the Prisma client');
-  const adapter = new PrismaPg({ connectionString: url });
+  const pool = new Pool({ connectionString: url });
+  const adapter = new PrismaPg(pool);
   return new PrismaClient({
     adapter,
     log: options?.log ?? (process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error']),
@@ -102,7 +102,7 @@ async function executeTenantScoped(
 
   const a = args ?? {};
 
-  if (READ_OPS.has(operation) || operation === 'updateMany' || operation === 'deleteMany') {
+  if (['findMany', 'findFirst', 'findFirstOrThrow', 'count', 'aggregate', 'groupBy'].includes(operation) || operation === 'updateMany' || operation === 'deleteMany') {
     return run(withOrgPredicate(a, field, orgId));
   }
 
@@ -178,7 +178,7 @@ function wrapInteractiveTransaction(tx: Prisma.TransactionClient, orgId: string)
  * no new typed members. Returning PrismaClient keeps delegate types intact
  * for feature code (callbacks receive Prisma.TransactionClient).
  */
-export function forOrganization<T extends PrismaClient>(client: T, ctx: TenantContext): PrismaClient {
+export function forOrganization(client: PrismaClient, ctx: TenantContext): PrismaClient {
   const orgId = ctx.organizationId;
   const extended = client.$extends({
     name: 'tenant-scope',
@@ -248,7 +248,7 @@ async function assertExistingRowIsTenantOwned(
 ): Promise<void> {
   const id = where.id as string | undefined;
   if (id === undefined) return; // non-id unique lookups are covered by caller-side org filters
-  const delegate = (underlying as unknown as Record<string, { findFirst: Function }>)[uncapitalize(model)];
+  const delegate = (underlying as unknown as Record<string, { findFirst: (a: unknown) => Promise<unknown> }>)[uncapitalize(model)];
   const existing = (await delegate?.findFirst({ where: { id }, select: { [field]: true } })) as
     | Record<string, unknown>
     | null;

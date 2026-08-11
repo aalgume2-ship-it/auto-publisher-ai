@@ -8,7 +8,7 @@
  */
 
 import { createLogger, type Logger } from '@aca/logger';
-import type { RenderJobSpec, RenderJobResult, RenderError } from '../types/render.types.js';
+import type { RenderJobSpec, RenderJobResult } from '../types/render.types.js';
 
 export class FFmpegEngine {
   private logger: Logger;
