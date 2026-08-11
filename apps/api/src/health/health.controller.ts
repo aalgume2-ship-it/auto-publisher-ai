@@ -102,4 +102,35 @@ export class HealthController {
     }
     return { status: 'ready', checks };
   }
+
+  @Public()
+  @Get('providers')
+  @HttpCode(200)
+  @ApiOperation({ operationId: 'healthProviders', summary: 'Provider configuration status (env-level, NO secrets) — configured / not_configured' })
+  @ApiResponse({
+    status: 200,
+    description: 'Per-provider configured flag',
+    schema: { example: { openai: { configured: true }, runway: { configured: false } } },
+  })
+  providers(): Record<string, { configured: boolean; requiredEnv: string }> {
+    const ai = this.config.ai;
+    const has = (v: string | undefined): boolean => typeof v === 'string' && v.length > 0;
+    return {
+      openai: { configured: has(ai.openaiApiKey), requiredEnv: 'OPENAI_API_KEY' },
+      groq: { configured: has(ai.groqApiKey), requiredEnv: 'GROQ_API_KEY' },
+      gemini: { configured: has(ai.geminiApiKey), requiredEnv: 'GEMINI_API_KEY' },
+      openrouter: { configured: has(ai.openrouterApiKey), requiredEnv: 'OPENROUTER_API_KEY' },
+      pollinations: { configured: has(ai.pollinationsApiKey), requiredEnv: 'POLLINATIONS_API_KEY' },
+      runway: { configured: has(ai.runwayApiKey), requiredEnv: 'RUNWAY_API_KEY' },
+      luma: { configured: has(ai.lumaApiKey), requiredEnv: 'LUMA_API_KEY' },
+      'fal-kling': { configured: has(ai.falKey), requiredEnv: 'FAL_KEY' },
+      stability: { configured: has(ai.stabilityApiKey), requiredEnv: 'STABILITY_API_KEY' },
+      replicate: { configured: has(ai.replicateApiToken), requiredEnv: 'REPLICATE_API_TOKEN' },
+      elevenlabs: { configured: has(ai.elevenlabsApiKey), requiredEnv: 'ELEVENLABS_API_KEY' },
+      youtube: { configured: has(this.config.platforms.googleClientId) && has(this.config.platforms.googleClientSecret), requiredEnv: 'GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET' },
+      tiktok: { configured: has(this.config.platforms.tiktokClientKey) && has(this.config.platforms.tiktokClientSecret), requiredEnv: 'TIKTOK_CLIENT_KEY,TIKTOK_CLIENT_SECRET' },
+      instagram: { configured: has(this.config.platforms.metaAppId) && has(this.config.platforms.metaAppSecret), requiredEnv: 'META_APP_ID,META_APP_SECRET' },
+      stripe: { configured: has(this.config.billing.stripeSecretKey), requiredEnv: 'STRIPE_SECRET_KEY' },
+    };
+  }
 }

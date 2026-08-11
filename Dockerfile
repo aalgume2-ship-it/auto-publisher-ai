@@ -1,4 +1,4 @@
-# Railway Dockerfile - optimized for monorepo
+# AutoCreator AI — monorepo build (legacy single-image Dockerfile; production uses Dockerfile.api / Dockerfile.worker for AWS ECS)
 FROM node:22-bookworm-slim AS builder
 WORKDIR /app
 

@@ -6,6 +6,19 @@
 
 ---
 
+## 0. تحديث هذا الجولة (2026-08-11 — جولة التنفيذ الثانية)
+
+| الإضافة | الحالة |
+|---|---|
+| `GET /health/providers` — عام، بدون أسرار، per-provider `{configured, requiredEnv}` | ✅ مُختبر حي |
+| **Instagram OAuth كامل** — `meta-oauth.ts` (authorize/code exchange/long-lived token/account discovery/revoke) + `instagram.publisher.ts` (Graph API container→publish) + endpoints `/channels/instagram/link` + callback | ✅ 503 Not-configured مُختبر |
+| **Tenancy E2E** — `scripts/e2e/tenancy.mjs`: مستخدمان/شركتان، B يحاول قراءة كل موارد A | ✅ 14/14 (كلها 404 masked) |
+| **Worker unit tests** — `apps/worker/test/job-record.spec.ts` (guards, DLQ, idempotency, queue naming) | ✅ 8/8 |
+| Railway refs حُذفت من الكود/المستندات (`Dockerfile`, `README`, `DEPLOYMENT.md`, `DEPLOY-VERCEL.md`, `docs/Deployment.md`, `seed-admin.mjs`, `deploy-vercel.yml`) | ✅ |
+| Mobile CSS — media queries للشاشات الصغيرة (560px) في `globals.css` + `studio.css` | ✅ |
+| Billing بدون مفاتيح → 503 "Stripe test mode is not configured yet" | ✅ مُختبر |
+| إعادة بناء كاملة للبيئة (PG 18 + pgvector + Redis 7.2 + Prisma engines) بعد reset الساندبوكس | ✅ |
+
 ## 1. جدول المكونات النهائي
 
 | COMPONENT | STATUS | TESTED | BLOCKER |

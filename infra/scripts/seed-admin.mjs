@@ -10,7 +10,7 @@
  * then redirects to /register, which now 409s). This script skips the
  * whole chicken-and-egg loop by inserting through Prisma directly.
  *
- * Usage (Railway shell / local with DATABASE_URL set):
+ * Usage (AWS ECS task override / local with DATABASE_URL set):
  *   node infra/scripts/seed-admin.mjs --email admin@autocreator.sa \
  *       --password 'AdminRiyadh2026!' --displayName 'Studio Admin'
  */

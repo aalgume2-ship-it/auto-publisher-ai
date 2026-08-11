@@ -9,6 +9,7 @@
 import type { DbClient } from '@aca/database';
 import type { Logger } from '@aca/logger';
 import type { Job } from 'bullmq';
+import type { PublishInput } from '@aca/api/publish';
 import type { AppConfig } from '@aca/config';
 import { AssetStore } from '@aca/video-engine';
 // Reuse the API's channel vault + publisher implementations (single source of truth).
@@ -73,7 +74,7 @@ export function createPublishProcessor(config: AppConfig, prisma: DbClient, logg
         }
 
         logger.info({ jobId, taskId, platform, bytes: bytes.byteLength, module: 'publish' }, 'publish.start');
-        const result = await publisher.publish({
+        const input: PublishInput = {
           channelId: task.channelId,
           orgId: task.orgId,
           videoId: task.videoId,
@@ -83,7 +84,11 @@ export function createPublishProcessor(config: AppConfig, prisma: DbClient, logg
           privacy: task.video.visibilityDefault ?? 'public',
           videoBytes: bytes,
           caption: task.titleOverride ?? task.video.title,
-        });
+        };
+        if (task.video.renditions[0]?.storageKey) {
+          input.mediaUrl = `/v1/media/raw?key=${encodeURIComponent(task.video.renditions[0].storageKey)}`;
+        }
+        const result = await publisher.publish(input);
 
         await prisma.$transaction([
           prisma.publishingTask.update({

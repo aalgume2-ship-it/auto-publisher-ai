@@ -92,6 +92,36 @@ export class ChannelsController {
     return { url: redirectTo };
   }
 
+  @Post('organizations/:orgId/channels/instagram/link')
+  @HttpCode(201)
+  @TenantRequired()
+  @RequiresCapabilities('channel.connect')
+  @UseZod({ params: OrgParamsSchema })
+  @ApiOperation({
+    operationId: 'startInstagramLink',
+    summary: 'Start Instagram OAuth linking (Meta) — returns the consent URL',
+    description: '503 until META_APP_ID/SECRET are provisioned on the API (exact keys named in the error detail).',
+  })
+  @ApiServiceUnavailableResponse({ description: 'Meta app not configured', content: { 'application/problem+json': { schema: PROBLEM } } })
+  startInstagramLink(@Param() params: { orgId: string }) {
+    const ctx = requestContext();
+    return this.channels.startInstagramLink(params.orgId, ctx.userId ?? '');
+  }
+
+  @Get('channels/oauth/instagram/callback')
+  @Public()
+  @UseZod({ query: OauthCallbackQuerySchema })
+  @ApiOperation({ operationId: 'completeInstagramCallback', summary: 'Instagram OAuth callback — exchange code, store encrypted token, redirect to dashboard' })
+  @ApiResponse({ status: 302, description: 'Redirect to /dashboard/channels/?linked=instagram' })
+  @Redirect()
+  async completeInstagramCallback(@Query() query: { code?: string; state?: string; error?: string }) {
+    if (query.error) {
+      throw new ApiError('FORBIDDEN', 'Meta consent denied', { detail: `meta returned error=${query.error} — grant the instagram scopes to link` });
+    }
+    const { redirectTo } = await this.channels.completeInstagramCallback(query.code, query.state);
+    return { url: redirectTo, statusCode: 302 };
+  }
+
   @Get('channels/oauth/tiktok/callback')
   @Public()
   @UseZod({ query: OauthCallbackQuerySchema })

@@ -17,7 +17,7 @@
 #
 # The web app needs these env vars on the Vercel project (dashboard → Settings →
 # Environment Variables, or via this workflow's `env`): API_UPSTREAM must point
-# at the API host (Railway/Fly). NEXT_PUBLIC_API_BASE stays default (/api).
+# at the AWS API host. NEXT_PUBLIC_API_BASE stays default (/api).
 
 name: Deploy Web → Vercel
 

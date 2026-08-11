@@ -518,3 +518,15 @@ button:focus-visible, a:focus-visible { outline:2px solid var(--accent); outline
   .hero-copy h1 { font-size:clamp(40px,14vw,72px); }
   .kv { grid-template-columns:1fr; }
 }
+/* small phones: full-width controls, wrapping action rows */
+@media (max-width:560px) {
+  .row { flex-wrap:wrap; }
+  .btn { white-space:nowrap; }
+  .input, select.input, textarea.input { width:100% !important; max-width:100%; }
+  .dashboard-sidebar { padding:12px; }
+  .glass-card, .glass-panel { padding:14px !important; }
+  .section-grid.three, .section-grid.two, .grid-2 { gap:10px; }
+  .chip { font-size:11px; }
+  .sidebar-nav { flex-direction:row; overflow-x:auto; }
+  .sidebar-link { padding:8px 12px; }
+}
