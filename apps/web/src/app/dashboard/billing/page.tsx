@@ -190,7 +190,7 @@ export default function BillingPage() {
         <GlassCard>
           <SectionHeader eyebrow="Plan Catalog" title="Choose a commercial path." body="A premium pricing deck embedded inside the operator shell. These actions create Stripe Checkout sessions when the backend deployment is configured." />
           <div className="section-grid three">
-            {plans.map((plan, index) => (
+            {plans.map((plan, _index) => (
               <HoverLift key={plan.code}>
                 <div className="glass-card plan-card">
                   <p className="eyebrow subtle">{plan.code}</p>

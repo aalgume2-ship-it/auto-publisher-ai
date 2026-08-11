@@ -101,9 +101,9 @@ in Business-Model §5 unchanged (absorbed in infra line at 1k-org scale).
 
 ---
 
-## 2. Vercel-first architecture (current — Render removed)
+## 2. AWS-first architecture (current — Railway removed)
 
-The platform no longer depends on Render. The deployment topology is:
+The platform no longer depends on Railway. The deployment topology is:
 
 ```
 ┌─────────────────────────────┐
@@ -112,52 +112,47 @@ The platform no longer depends on Render. The deployment topology is:
 └──────────────┬──────────────┘
                │ HTTPS
 ┌──────────────▼──────────────┐
-│  API host: Railway (or Fly) │   long-lived NestJS + queue workers + ffmpeg
-│  node apps/api/dist/main.js │   (cannot run on serverless — see §2.2)
+│  AWS ALB (HTTPS, ACM cert)  │
+└──────────────┬──────────────┘
+┌──────────────▼──────────────┐
+│  ECS Fargate — apps/api     │   long-lived NestJS (port 3000)
+│  ECS Fargate — apps/worker  │   BullMQ consumers (port 8080) + ffmpeg
 └──────┬──────────────┬───────┘
        │              │
-   Neon Postgres   Upstash Redis
-   (DATABASE_URL)  (REDIS_URL, Streams)
+   RDS PostgreSQL   ElastiCache Redis
+   (DATABASE_URL)  (REDIS_URL, BullMQ)
        │
-   Vercel Blob / S3 (optional, for media offload)
+   S3 (assets/renders/logs — private, presigned URLs)
 ```
 
 ### 2.1 Why the API is not a Vercel Function
 
-The API is NestJS + **Redis Streams queue workers** (generation/publish) +
-**ffmpeg renders** (~30–40 s of CPU per video). Serverless functions have
-hard duration limits and no persistent process, so queue workers and
-renders cannot survive there. The division of labor is therefore:
+The API is NestJS + **BullMQ queue workers** (generation/image-generation/
+dubbing/publish/render/thumbnail) + **ffmpeg renders** (~30–40 s of CPU per
+video). Serverless functions have hard duration limits and no persistent
+process, so queue workers and renders cannot survive there. The division of
+labor is therefore:
 
 - **Vercel** → the Next.js web app + the same-origin `/api/v1/*` proxy
   (Route Handlers, `apps/web/src/app/api/v1/[...path]/route.ts`).
-- **Railway (or Fly.io)** → the API, reading `railway.json` / `fly.toml`.
-- **Neon** → Postgres 16 + pgvector (the schema's `vector` extension).
-- **Upstash Redis** → `REDIS_URL` (Streams + rate limits + idempotency).
+- **AWS (ECS Fargate)** → the API + the Worker (6 BullMQ queues).
+- **AWS RDS** → Postgres 16 + pgvector (the schema's `vector` extension).
+- **AWS ElastiCache** → Redis (BullMQ + rate limits + idempotency).
+- **AWS S3** → private media buckets (presigned upload/download).
 
-### 2.2 One-click deploy
+### 2.2 One-click deploy (AWS)
 
-1. **Neon:** console.neon.tech → create project → copy `DATABASE_URL`.
-2. **Upstash:** console.upstash.com → Redis database → copy `REDIS_URL`.
-3. **API (Railway):** railway.app → **New Project → Deploy from GitHub repo**
-   → select this repo → `railway.json` is auto-detected (Nixpacks).
-   Set env vars: `DATABASE_URL`, `REDIS_URL`, `AUTH_JWT_SECRET`,
-   `AI_PROVIDER_MODE=demo` (until real keys), `SEED_ADMIN_ON_BOOT=true`,
-   `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `NODE_ENV=production`.
-   Railway runs `prisma db push` + seed via the included GitHub Action
-   (`.github/workflows/deploy-railway.yml`) or the service's start command.
+1. **AWS:** `./infra/aws/deploy.sh` — ينشئ VPC/ALB/ECS/RDS/ElastiCache/S3/Secrets
+   (تفاصيل كاملة في `DEPLOYMENT.md`). أو GitHub Action `deploy-aws.yml` (OIDC).
+2. **Secrets Manager `autocreator/prod/runtime`:** ضع كل المتغيرات (لا شيء في git).
+3. **DB migrations:** `pnpm db:migrate` (`prisma migrate deploy`) — أبدًا db push.
 4. **Web (Vercel):** vercel.com → **New Project** → import this repo →
    `vercel.json` auto-configures the build. Add env `API_UPSTREAM=https://
-   <your-railway-service>.up.railway.app`. (Or use the included GitHub
-   Action `.github/workflows/deploy-vercel.yml` with `VERCEL_TOKEN` +
+   api.yourdomain.com` (+ `PUBLIC_API_URL`, `PUBLIC_WEB_URL`). (أو GitHub
+   Action `.github/workflows/deploy-vercel.yml` مع `VERCEL_TOKEN` +
    `VERCEL_ORG_ID` + `VERCEL_PROJECT_ID`.)
 5. Open the Vercel URL → register → the full flow works end-to-end
-   (workspace/channel/asset/series/video + demo render).
-
-Free-plan realities: Railway services sleep after ~5 min idle (cold start on
-next request), Neon free tier pauses after 7 days idle (the GitHub Action's
-`prisma db push` wakes it), Upstash free tier is 10k commands/day — plenty
-for a preview. `AUTH_JWT_SECRET` must be set manually (never committed).
+   (workspace/channel/asset/series/video + real generation when AI keys set).
 
 ---
 

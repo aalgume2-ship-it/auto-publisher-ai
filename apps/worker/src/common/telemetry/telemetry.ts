@@ -5,7 +5,7 @@
 
 import type { AppConfig } from '@aca/config';
 
-export function initTelemetry(config: AppConfig) {
+export function initTelemetry(_config: AppConfig) {
   // STUB: Full OTel setup mirrors apps/api
   // For now, return a no-op object
   return {

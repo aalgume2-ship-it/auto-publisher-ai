@@ -28,7 +28,8 @@
     "bullmq": "^5.15.0",
     "ioredis": "^5.4.2",
     "reflect-metadata": "^0.2.2",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "@aca/api": "workspace:*"
   },
   "devDependencies": {
     "@aca/typescript-config": "workspace:*",

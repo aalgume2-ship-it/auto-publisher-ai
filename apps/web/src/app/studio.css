@@ -290,3 +290,9 @@
   .studio-root .hero { padding:40px 0 24px; }
   .studio-root .grid-2 { grid-template-columns:1fr; }
 }
+@media (max-width:560px) {
+  .studio-root .panel-grid { grid-template-columns:1fr; }
+  .studio-root .btn, .studio-root .chip { font-size:12px; }
+  .studio-root .input { width:100% !important; }
+  .studio-root .shell { padding:12px; }
+}

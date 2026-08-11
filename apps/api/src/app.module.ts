@@ -30,9 +30,18 @@ import { ChannelsModule } from './modules/channels/channels.module.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
 import { VideosModule } from './modules/videos/videos.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
+import { ImagesModule } from './modules/images/images.module.js';
+import { DubbingModule } from './modules/dubbing/dubbing.module.js';
+import { LibraryModule } from './modules/library/library.module.js';
+import { DashboardModule } from './modules/dashboard/dashboard.module.js';
+import { CampaignsModule } from './modules/campaigns/campaigns.module.js';
+import { ProvidersModule } from './modules/providers/providers.module.js';
 
 @Module({
-  imports: [CommonModule, AuthModule, OrganizationsModule, ChannelsModule, VideosModule, SettingsModule, NotificationsModule],
+  imports: [
+    CommonModule, AuthModule, OrganizationsModule, ChannelsModule, VideosModule, SettingsModule, NotificationsModule,
+    ImagesModule, DubbingModule, LibraryModule, DashboardModule, CampaignsModule, ProvidersModule,
+  ],
   controllers: [HealthController, MetricsController],
   providers: [
     Reflector,

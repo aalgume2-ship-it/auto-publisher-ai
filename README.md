@@ -56,11 +56,11 @@ or `pnpm demo` for the fully-scripted tour. Full, honest instructions (incl.
 what does **not** run yet): [`docs/DEVELOPER-GUIDE.md`](./docs/DEVELOPER-GUIDE.md).
 
 **Hosted deployment (Vercel-first, no Render):** web runs on **Vercel**,
-the API runs on **Railway** (or Fly.io), **Neon** hosts Postgres and
+the API + Worker run on **AWS** (ECS Fargate), **RDS** hosts Postgres and
 **Upstash Redis** backs queues/rate-limits. See
 [`docs/Deployment.md` §Vercel-first architecture](./docs/Deployment.md) —
 deploy in ~10 minutes with the included GitHub Actions
-(`.github/workflows/deploy-vercel.yml`, `deploy-railway.yml`).
+(`.github/workflows/deploy-vercel.yml`, `infra/aws/deploy.sh`).
 
 Convenience: Jaeger UI `:16686` · MinIO console `:9001` · Mailpit `:8025` · Bull Board `:3030`.
 

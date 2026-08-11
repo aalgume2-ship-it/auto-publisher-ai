@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { RadioTower, Sparkles, Unplug, Video, Music2 } from 'lucide-react';
+import { RadioTower, Sparkles, Unplug, Video, Music2, Camera } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import AppShell from '../../../components/dashboard/app-shell';
 import { EmptyState, GlassCard, SectionHeader } from '../../../components/ui/chrome';
@@ -63,6 +63,21 @@ function ChannelsInner() {
     }
   }
 
+  async function linkInstagram() {
+    if (!session?.orgId) return;
+    setBusy('ig');
+    setError(null);
+    setConfigDetail(null);
+    try {
+      const res = await api.post<{ authorizeUrl: string }>(`/v1/organizations/${session.orgId}/channels/instagram/link`, {}, session.accessToken);
+      window.location.href = res.authorizeUrl;
+    } catch (e) {
+      if (e instanceof ApiProblem && e.status === 503) setConfigDetail(e.body.detail ?? 'Meta app is not configured on this server yet.');
+      else setError(e instanceof ApiProblem ? arabicMessage(e) : 'تعذّر بدء ربط Instagram');
+      setBusy(null);
+    }
+  }
+
   async function linkTikTok() {
     if (!session?.orgId) return;
     setBusy('tt');
@@ -92,7 +107,7 @@ function ChannelsInner() {
   }
 
   const tiktokConnected = items?.some(c => c.platform === 'tiktok') ?? false;
-  const youtubeConnected = items?.some(c => c.platform === 'youtube') ?? false;
+  const instagramConnected = items?.some(c => c.platform === 'instagram') ?? false;
 
   if (!ready || !session) return <div className="auth-shell"><div className="glass-card" style={{ padding: 28 }}>Checking session…</div></div>;
 
@@ -103,6 +118,7 @@ function ChannelsInner() {
       subtitle="Connect YouTube & TikTok — real OAuth, encrypted vault, publishing-ready in seconds."
       actions={
         <div className="row">
+          <button className="btn btn-ghost" onClick={linkInstagram} disabled={busy === 'ig'}><Camera size={18} /> {busy === 'ig' ? 'Opening…' : instagramConnected ? 'Connect Instagram +' : 'Connect Instagram'}</button>
           <button className="btn btn-ghost" onClick={linkTikTok} disabled={busy === 'tt'}><Music2 size={18} /> {busy === 'tt' ? 'Opening…' : tiktokConnected ? 'Connect TikTok +' : 'Connect TikTok'}</button>
           <button className="btn btn-primary" onClick={linkYouTube} disabled={busy === 'yt'}><RadioTower size={18} /> {busy === 'yt' ? 'Opening…' : 'Connect YouTube'}</button>
         </div>

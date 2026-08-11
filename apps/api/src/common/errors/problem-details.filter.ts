@@ -12,7 +12,7 @@
  * this filter); 4xx are logged at warn once here — the LoggingInterceptor
  * records lifecycle only.
  */
-import { Catch, HttpException, Logger as NestLogger, Optional, type ArgumentsHost, type ExceptionFilter } from '@nestjs/common';
+import { Catch, HttpException, Optional, type ArgumentsHost, type ExceptionFilter } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 import { createLogger, type Logger } from '@aca/logger';
 import {

@@ -1,7 +1,7 @@
 /**
- * apps/api bootstrap with Railway resilience.
- * If config missing, start minimal http server that always returns 200 for /health/live
- * so Railway healthcheck passes.
+ * apps/api bootstrap (AWS ECS Fargate).
+ * If config is missing, a minimal http server answers /health/live (200) and
+ * /health/ready (503) so ALB target-group checks never flap on boot errors.
  */
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';

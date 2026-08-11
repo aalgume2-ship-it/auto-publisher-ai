@@ -36,8 +36,19 @@ import {
   signTikTokState,
   verifyTikTokState,
 } from './tiktok-oauth.js';
+import {
+  buildMetaAuthorizeUrl,
+  exchangeMetaCode,
+  exchangeLongLivedToken,
+  fetchInstagramAccount,
+  newMetaState,
+  revokeMetaToken,
+  signMetaState,
+  verifyMetaState,
+} from './meta-oauth.js';
 
 const notFound = (what: string) => new ApiError('NOT_FOUND', 'Not Found', { detail: what });
+const IG_SCOPES_ARR = ['instagram_business_basic', 'instagram_business_content_publish', 'instagram_business_manage_comments'];
 
 @Injectable()
 export class ChannelsService {
@@ -73,6 +84,22 @@ export class ChannelsService {
       });
     }
     return { clientId: resolved.clientId, clientSecret: resolved.clientSecret, redirectUri };
+  }
+
+  private async metaConfig(orgId: string): Promise<{ appId: string; appSecret: string; redirectUri: string }> {
+    const base = this.config.urls.publicApi;
+    const redirectUri = base ? `${base.replace(/\/+$/, '')}/v1/channels/oauth/instagram/callback` : undefined;
+    const resolved = await this.creds.resolveMetaOAuth(orgId);
+    if (!resolved || !redirectUri) {
+      throw new ApiError('PLATFORM_ERROR', 'Service Unavailable', {
+        status: 503,
+        detail:
+          'ربط إنستغرام يحتاج تطبيق Meta for Developers (~5 دقائق): أنشئ تطبيقاً على developers.facebook.com مع منتج Instagram API، ثم ألصق App ID و App Secret من لوحة التحكم ← الإعدادات ← «عميل Meta». سجّل Redirect URI التالي: ' +
+          (redirectUri ?? 'https://<api-host>/v1/channels/oauth/instagram/callback') +
+          ' — أو اضبط META_APP_ID و META_APP_SECRET في بيئة الـ API.',
+      });
+    }
+    return { appId: resolved.appId, appSecret: resolved.appSecret, redirectUri };
   }
 
   private async tiktokConfig(orgId: string): Promise<{ clientKey: string; clientSecret: string; redirectUri: string }> {
@@ -257,6 +284,7 @@ export class ChannelsService {
         const data = JSON.parse(this.vault().decrypt(cred.ciphertext)) as { access_token?: string };
         if (data.access_token) {
           if (channel.platform === 'tiktok') await revokeTikTokToken(data.access_token);
+          else if (channel.platform === 'instagram') await revokeMetaToken(data.access_token);
           else await revokeToken(data.access_token);
         }
       } catch {
@@ -316,6 +344,92 @@ export class ChannelsService {
         keyId: packed.keyId,
         accessTokenExpiresAt: bundle.expires_in ? new Date(Date.now() + bundle.expires_in * 1000) : null,
         refreshTokenExpiresAt: bundle.refresh_expires_in ? new Date(Date.now() + bundle.refresh_expires_in * 1000) : null,
+        rotatedAt: new Date(),
+      },
+    });
+    return bundle.access_token;
+  }
+
+  async startInstagramLink(orgId: string, userId: string) {
+    const { appId, redirectUri } = await this.metaConfig(orgId);
+    this.vault();
+    const state = signMetaState(newMetaState(orgId, userId), this.stateSecret());
+    const authorizeUrl = buildMetaAuthorizeUrl(appId, redirectUri, state);
+    return { authorizeUrl, expiresInSec: 600 };
+  }
+
+  async completeInstagramCallback(code: string | undefined, state: string | undefined): Promise<{ redirectTo: string }> {
+    const webBase = this.config.urls.publicWeb?.replace(/\/+$/, '') ?? '';
+    if (!code || !state) throw new ApiError('VALIDATION_FAILED', 'Missing code/state', { detail: 'oauth callback requires code and state query params' });
+    const parsed = verifyMetaState(state, this.stateSecret());
+    if (!parsed) throw new ApiError('UNAUTHENTICATED', 'Invalid OAuth state', { detail: 'state signature invalid or expired (10 min window) — restart the link flow' });
+
+    const { appId, appSecret, redirectUri } = await this.metaConfig(parsed.orgId);
+    const short = await exchangeMetaCode(appId, appSecret, redirectUri, code);
+    const long = await exchangeLongLivedToken(appId, appSecret, short.access_token);
+    const info = await fetchInstagramAccount(long.access_token);
+
+    const expiresAt = long.expires_in ? new Date(Date.now() + long.expires_in * 1000) : null;
+    const vault = this.vault();
+    const packed = vault.encrypt(JSON.stringify({ access_token: long.access_token, refresh_token: null, ig_account_id: info.instagramBusinessAccountId }));
+
+    await this.prisma.$transaction(async (tx: any) => {
+      const channel = await tx.channel.upsert({
+        where: { orgId_platform_platformChannelId: { orgId: parsed.orgId, platform: 'instagram', platformChannelId: info.instagramBusinessAccountId } },
+        create: {
+          id: generateId(),
+          orgId: parsed.orgId,
+          platform: 'instagram',
+          platformChannelId: info.instagramBusinessAccountId,
+          displayName: info.name ?? info.username ?? 'Instagram account',
+          handle: info.username,
+          avatarUrl: info.profilePictureUrl,
+          status: 'CONNECTED',
+          scopes: IG_SCOPES_ARR,
+          followers: info.followers ? BigInt(info.followers) : null,
+          lastSyncAt: new Date(),
+        },
+        update: {
+          displayName: info.name ?? info.username ?? 'Instagram account',
+          handle: info.username,
+          avatarUrl: info.profilePictureUrl,
+          status: 'CONNECTED',
+          scopes: IG_SCOPES_ARR,
+          followers: info.followers ? BigInt(info.followers) : null,
+          lastSyncAt: new Date(),
+          lastError: null,
+          disconnectedAt: null,
+        },
+      });
+      await tx.channelCredential.upsert({
+        where: { channelId: channel.id },
+        create: { id: generateId(), channelId: channel.id, ciphertext: packed.ciphertext, keyId: packed.keyId, accessTokenExpiresAt: expiresAt, refreshTokenExpiresAt: null },
+        update: { ciphertext: packed.ciphertext, keyId: packed.keyId, accessTokenExpiresAt: expiresAt, rotatedAt: new Date() },
+      });
+    });
+
+    return { redirectTo: `${webBase}/dashboard/channels/?linked=instagram&name=${encodeURIComponent(info.name ?? info.username ?? 'Instagram')}` };
+  }
+
+  /** Fresh access token for the Instagram publisher worker. */
+  async freshInstagramAccessToken(channelId: string): Promise<string> {
+    const cred = await this.prisma.channelCredential.findUnique({ where: { channelId } });
+    if (!cred) throw new Error('channel credential missing (was the link revoked?)');
+    const channel = await this.prisma.channel.findUnique({ where: { id: cred.channelId } });
+    if (!channel || channel.platform !== 'instagram') throw new Error('freshInstagramAccessToken called for non-instagram channel');
+    const secret = JSON.parse(this.vault().decrypt(cred.ciphertext)) as { access_token: string; ig_account_id?: string };
+    const stillValid = cred.accessTokenExpiresAt === null || cred.accessTokenExpiresAt.getTime() - Date.now() > 60_000;
+    if (stillValid) return secret.access_token;
+    // Long-lived tokens can be refreshed via the same exchange endpoint when expired.
+    const { appId, appSecret } = await this.metaConfig(channel.orgId);
+    const bundle = await exchangeLongLivedToken(appId, appSecret, secret.access_token);
+    const packed = this.vault().encrypt(JSON.stringify({ access_token: bundle.access_token, refresh_token: null, ig_account_id: secret.ig_account_id }));
+    await this.prisma.channelCredential.update({
+      where: { channelId },
+      data: {
+        ciphertext: packed.ciphertext,
+        keyId: packed.keyId,
+        accessTokenExpiresAt: bundle.expires_in ? new Date(Date.now() + bundle.expires_in * 1000) : null,
         rotatedAt: new Date(),
       },
     });

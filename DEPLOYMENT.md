@@ -1,167 +1,103 @@
-# AutoCreator AI — Production Deployment Guide
+# Deploy — AutoPublisher AI (AWS + Vercel)
 
-## Quick Start
+> البنية المعتمدة: **Vercel (web) ← AWS (API + Worker + PostgreSQL + Redis + S3)**.
+> لا يُستخدم Railway في أي جزء من النظام.
 
-هذا الدليل يشرح كيفية نشر AutoCreator AI على Vercel (web) و Railway (API).
-
-### المتطلبات
-
-- **Neon** — قاعدة بيانات PostgreSQL مجانية (console.neon.tech)
-- **Upstash** — Redis مجاني (console.upstash.com)
-- **Railway** — API hosting (railway.app)
-- **Vercel** — Web hosting (vercel.com)
-- **GitHub Secrets** — لتخزين بيانات الاعتماد
-
----
-
-## الخطوة 1: إنشاء قاعدة البيانات (Neon)
-
-```bash
-# 1. اذهب إلى https://console.neon.tech
-# 2. سجل دخول أو أنشئ حساب
-# 3. اضغط "Create Project"
-# 4. اختر "PostgreSQL 16"
-# 5. انسخ DATABASE_URL (يبدأ بـ postgresql://)
-# مثال:
-# postgresql://neon_user:password@ep-xxx.us-east-1.neon.tech/autocreator
+```
+User
+  ↓
+Vercel (apps/web)
+  ↓  /api/v1/* proxy (API_UPSTREAM)
+AWS ALB (HTTPS)
+  ↓
+ECS Fargate — apps/api  (port 3000)
+  ↓
+PostgreSQL (RDS) · Redis (ElastiCache) · S3 (assets/renders/logs)
+  ↓
+ECS Fargate — apps/worker (BullMQ: generation, image-generation, dubbing,
+                           publish, render, thumbnail + campaign scheduler)
 ```
 
----
-
-## الخطوة 2: إنشاء Redis (Upstash)
+## 1) البنية التحتية على AWS
 
 ```bash
-# 1. اذهب إلى https://console.upstash.com
-# 2. اضغط "Create Database"
-# 3. اختر "Redis"
-# 4. اختر region قريب
-# 5. انسخ REDIS_URL (يبدأ بـ rediss://)
-# مثال:
-# rediss://default:password@us1-xxx.upstash.io:xxxxx
+# المتطلبات: aws cli، Docker، ACM certificate، domain
+export AWS_REGION=eu-central-1
+export API_DOMAIN=api.autocreator.ai
+export CERT_ARN=arn:aws:acm:eu-central-1:...
+
+# يبني الصور (ECR)، يدفعها، وينشر CloudFormation
+./infra/aws/deploy.sh
 ```
 
----
+المكوّنات (infra/aws/cloudformation.yml):
+- VPC (public/private subnets ×2، NAT، Internet Gateway)
+- ALB مع HTTPS (ACM) + target group على `/health/ready`
+- ECS Fargate: خدمة `api` (3000) وخدمة `worker` (8080) — awsvpc، CloudWatch Logs
+- RDS PostgreSQL 16 (encrypted، backups 14 يوم)
+- ElastiCache Redis (snapshots 7 أيام)
+- S3 buckets: `*-assets` / `*-renders` (expire 90d) / `*-logs` (expire 30d) — كلها private + SSE
+- Secrets Manager: `autocreator/prod/db` + `autocreator/prod/runtime` (كل الأسرار)
+- IAM: least-privilege (S3 + Secrets Manager فقط)
 
-## الخطوة 3: إعداد Railway
+## 2) المتغيرات على AWS Secrets Manager (`autocreator/prod/runtime`)
 
-```bash
-# 1. اذهب إلى https://railway.app
-# 2. اضغط "New Project"
-# 3. اختر "Deploy from GitHub repo"
-# 4. اختر aalgume2-ship-it/auto-publisher-ai
-# 5. Railway سيكتشف railway.json تلقائياً
-# 6. أضف Environment Variables:
+```json
+{
+  "AUTH_JWT_SECRET": "<openssl rand -hex 32>",
+  "SECRETS_MASTER_KEY": "<openssl rand -hex 32>",
+  "OPENAI_API_KEY": "", "GROQ_API_KEY": "", "GEMINI_API_KEY": "",
+  "RUNWAY_API_KEY": "", "LUMA_API_KEY": "", "FAL_KEY": "",
+  "STABILITY_API_KEY": "", "REPLICATE_API_TOKEN": "", "ELEVENLABS_API_KEY": "",
+  "GOOGLE_CLIENT_ID": "", "GOOGLE_CLIENT_SECRET": "",
+  "TIKTOK_CLIENT_KEY": "", "TIKTOK_CLIENT_SECRET": "",
+  "META_APP_ID": "", "META_APP_SECRET": "",
+  "STRIPE_SECRET_KEY": "", "STRIPE_WEBHOOK_SECRET": "",
+  "PUBLIC_API_URL": "https://api.autocreator.ai",
+  "S3_ACCESS_KEY_ID": "", "S3_SECRET_ACCESS_KEY": "",
+  "S3_BUCKET": "autocreator-<account>-assets"
+}
+```
 
-DATABASE_URL=postgresql://...
-REDIS_URL=rediss://...
-AUTH_JWT_SECRET=your-secret-key-here (generate: openssl rand -hex 32)
-AI_PROVIDER_MODE=demo
-SEED_ADMIN_ON_BOOT=true
-SEED_ADMIN_EMAIL=admin@autocreator.sa
-SEED_ADMIN_PASSWORD=AdminRiyadh2026!
+## 3) Vercel (web)
+
+في Vercel project env:
+
+```
+API_UPSTREAM=https://api.autocreator.ai
+PUBLIC_API_URL=https://api.autocreator.ai
+PUBLIC_WEB_URL=https://<your-app>.vercel.app
 NODE_ENV=production
-WEB_APP_URL=https://your-vercel-domain.vercel.app
 ```
 
----
+الـ proxy في `apps/web/src/app/api/v1/[...path]/route.ts` يمرر `/api/v1/*` و `/health/*`
+إلى `API_UPSTREAM` فقط — لا fallback إلى أي مزود آخر.
 
-## الخطوة 4: إعداد Vercel
+## 4) قاعدة البيانات (Prisma)
 
 ```bash
-# 1. اذهب إلى https://vercel.com
-# 2. اضغط "Add New" → "Project"
-# 3. اختر "Import Git Repository"
-# 4. اختر aalgume2-ship-it/auto-publisher-ai
-# 5. في "Build and Output settings":
-#    - Build Command: pnpm build
-#    - Output Directory: apps/web/.next
-# 6. أضف Environment Variables:
+# Development
+pnpm db:generate
+pnpm db:dev          # prisma migrate dev
 
-API_UPSTREAM=https://your-railway-service.up.railway.app
-
-# 7. اضغط "Deploy"
+# Production (AWS ECS init/start أو GitHub Actions)
+pnpm db:generate
+pnpm db:migrate      # prisma migrate deploy — أبدًا db push في production
 ```
 
----
+- migration: `packages/database/prisma/migrations/20260811102342_init`
+- pgvector extension مُثبتة على RDS (`CREATE EXTENSION vector`) — مطلوبة للأعمدة `Unsupported("vector")`
 
-## الخطوة 5: تفعيل GitHub Actions (اختياري)
-
-إذا أردت deployment تلقائي عند كل push إلى main:
+## 5) التحقق
 
 ```bash
-# أضف هذه Secrets إلى GitHub:
-# Settings → Secrets and variables → Actions
-
-RAILWAY_TOKEN=xxx (من railway.app/account)
-RAILWAY_PROJECT_ID=xxx
-RAILWAY_ENVIRONMENT_ID=xxx
-RAILWAY_API_URL=https://your-railway-service.up.railway.app
-
-VERCEL_TOKEN=xxx (من vercel.com/account/tokens)
-VERCEL_ORG_ID=xxx
-VERCEL_PROJECT_ID=xxx
+curl https://api.autocreator.ai/health/live    # {"status":"alive"}
+curl https://api.autocreator.ai/health/ready   # {"status":"ready","checks":{"postgres":"up","redis":"up"}}
+curl https://api.autocreator.ai/health/providers  # per-provider configured flag (بدون أسرار)
 ```
 
----
+## 6) GitHub Actions
 
-## الخطوة 6: التحقق من الصحة
-
-```bash
-# تحقق من صحة API:
-curl https://your-railway-service.up.railway.app/v1/health/ready
-
-# يجب أن تحصل على:
-# {"status":"ok"}
-
-# تسجيل الدخول:
-curl -X POST https://your-railway-service.up.railway.app/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"admin@autocreator.sa","password":"AdminRiyadh2026!"}'
-```
-
----
-
-## استكشاف الأخطاء
-
-### لا يعمل API بعد النشر؟
-
-```bash
-# 1. تحقق من Logs في Railway
-# railway.app → Your Project → Logs
-
-# 2. تأكد من أن DATABASE_URL صحيح
-# 3. تأكد من أن REDIS_URL صحيح
-# 4. تأكد من AUTH_JWT_SECRET معرّف
-```
-
-### لا يعمل الويب بعد النشر؟
-
-```bash
-# 1. تحقق من Logs في Vercel
-# vercel.com → Your Project → Deployments
-
-# 2. تأكد من أن API_UPSTREAM صحيح
-# 3. تأكد من أن build command صحيح
-```
-
----
-
-## الخطوات التالية
-
-1. ✅ قاعدة البيانات جاهزة (Neon)
-2. ✅ Redis جاهز (Upstash)
-3. ✅ API مشغّل (Railway)
-4. ✅ الويب مشغّل (Vercel)
-5. 🔜 أنشئ workspace
-6. 🔜 ربط قناة YouTube
-7. 🔜 أنشئ فيديو
-8. 🔜 ابدأ rendering
-
----
-
-## الدعم
-
-إذا واجهت مشاكل، راجع:
-- `docs/Deployment.md` — شرح تفصيلي
-- `docs/DEVELOPER-GUIDE.md` — تطوير محلي
-- GitHub Issues — للإبلاغ عن مشاكل
+- `deploy-aws.yml` (يُضاف عبر GitHub UI — يحتاج صلاحية workflows): OIDC → ECR build/push → CloudFormation deploy → smoke test
+- `deploy-vercel.yml`: build web + `vercel deploy`
+- `ci.yml`: lint / typecheck / test / prisma validate

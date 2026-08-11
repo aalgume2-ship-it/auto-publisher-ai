@@ -2,7 +2,6 @@
  * Billing profile + subscription read — contracts + OpenAPI docs (API.md §4.5).
  */
 import { z } from 'zod';
-import { UuidV7Schema } from '@aca/shared';
 import { OrgParamsSchema } from './organizations.dto.js';
 
 export const BillingProfileBody = z

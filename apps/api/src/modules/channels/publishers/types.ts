@@ -17,6 +17,8 @@ export interface PublishInput {
   thumbnailBytes?: Buffer | null;
   /** TikTok caption etc. */
   caption?: string;
+  /** Public URL of the media (Instagram Graph API requires a URL) */
+  mediaUrl?: string;
 }
 
 export interface PublishResult {

@@ -13,8 +13,8 @@
  */
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
-import { SecretEnvelope } from './envelope.js';
-import { AuthError, authError } from './errors.js';
+import { type SecretEnvelope } from './envelope.js';
+import { authError } from './errors.js';
 import { hashPassword, needsRehash, verifyPassword } from './password.js';
 import type { AuthSession, AuthStore, AuthUser } from './store.js';
 import { buildAccessClaims, hashRefreshToken, mintRefreshToken, signJwt } from './tokens.js';
