@@ -1,188 +1,214 @@
-# AutoPublisher AI — Production Verification Report (Final)
+# AutoPublisher AI — Production Verification Report (AWS Readiness)
 
-> تاريخ التحقق: 2026-08-11 — تم التنفيذ الفعلي على stack محلي كامل
-> (PostgreSQL 18.4 + Redis 7.2.5 + API NestJS + Worker BullMQ) مع E2E حي.
-> **لا Merge.** الـ PR مفتوح حتى تكتمل الاختبارات الحية بمفاتيح حقيقية.
+> **التاريخ:** 2026-08-11 — الجولة الثالثة: AWS Verification
+> **الحالة:** AWS deployment **BLOCKED — CREDENTIALS** (لا توجد AWS credentials في بيئة التنفيذ).
+> كل ما عدا AWS تم اختباره فعليًا على stack محلي كامل (PostgreSQL 18 + Redis 7.2 + API + Worker + E2E).
+> **PR #22 مفتوح — لا Merge.**
 
 ---
 
-## 0. تحديث هذا الجولة (2026-08-11 — جولة التنفيذ الثانية)
+## 1) AUDIT (طلب صريح)
 
-| الإضافة | الحالة |
+| البند | النتيجة |
 |---|---|
-| `GET /health/providers` — عام، بدون أسرار، per-provider `{configured, requiredEnv}` | ✅ مُختبر حي |
-| **Instagram OAuth كامل** — `meta-oauth.ts` (authorize/code exchange/long-lived token/account discovery/revoke) + `instagram.publisher.ts` (Graph API container→publish) + endpoints `/channels/instagram/link` + callback | ✅ 503 Not-configured مُختبر |
-| **Tenancy E2E** — `scripts/e2e/tenancy.mjs`: مستخدمان/شركتان، B يحاول قراءة كل موارد A | ✅ 14/14 (كلها 404 masked) |
-| **Worker unit tests** — `apps/worker/test/job-record.spec.ts` (guards, DLQ, idempotency, queue naming) | ✅ 8/8 |
-| Railway refs حُذفت من الكود/المستندات (`Dockerfile`, `README`, `DEPLOYMENT.md`, `DEPLOY-VERCEL.md`, `docs/Deployment.md`, `seed-admin.mjs`, `deploy-vercel.yml`) | ✅ |
-| Mobile CSS — media queries للشاشات الصغيرة (560px) في `globals.css` + `studio.css` | ✅ |
-| Billing بدون مفاتيح → 503 "Stripe test mode is not configured yet" | ✅ مُختبر |
-| إعادة بناء كاملة للبيئة (PG 18 + pgvector + Redis 7.2 + Prisma engines) بعد reset الساندبوكس | ✅ |
+| git status | نظيف (بعد مزامنة HEAD مع remote) |
+| git log | `360cd3e` (آخر push) → `15735b5` → `39a71f2` → `b551965` → `05d9425` |
+| git remote | `origin → github.com/aalgume2-ship-it/auto-publisher-ai.git` |
+| branch الحالي | ✅ `arena/019ff045-auto-publisher-ai` |
+| PR #22 | ✅ **OPEN** + MERGEABLE — 6 commits، **لم يُدمج** |
+| git reset --hard / force push | لم يُستخدما |
 
-## 1. جدول المكونات النهائي
+## 2) ملفات AWS الموجودة (مُفحصة فعليًا)
 
-| COMPONENT | STATUS | TESTED | BLOCKER |
-|---|---|---|---|
-| Web (Next.js) | ✅ PASS | YES (build + E2E proxy path) | — |
-| API (NestJS :4000) | ✅ PASS | YES (23 E2E steps ×2) | — |
-| Worker (BullMQ :8080) | ✅ PASS | YES (6 queues, retry, DLQ) | — |
-| PostgreSQL 18.4 + pgvector 0.8.1 | ✅ PASS | YES (migrate deploy + queries) | — |
-| Redis 7.2.5 | ✅ PASS | YES (queues, DLQ, health) | — |
-| Prisma 5.22 + migrations | ✅ PASS | YES (1 migration applied, 81 tables, 198 indexes) | — |
-| S3 storage | 🟡 BLOCKED | PARTIAL (code path + presign tested) | **AWS credentials / bucket** |
-| LLM (OpenAI/Groq/Gemini/OpenRouter) | 🟡 BLOCKED | PARTIAL (fail-closed tested) | **API key** |
-| Video (Runway/Luma/fal-Kling) | 🟡 BLOCKED | NO | **API keys** |
-| Image (Stability/OpenAI/Replicate/Pollinations) | 🟡 BLOCKED | PARTIAL (fail-closed tested) | **API key / network** |
-| Voice (gTTS keyless / OpenAI TTS) | 🟡 BLOCKED | PARTIAL | **OpenAI key (gTTS needs network)** |
-| YouTube OAuth | 🟡 BLOCKED | NO | **Google OAuth app** |
-| TikTok OAuth (PKCE) | 🟡 BLOCKED | NO | **TikTok app** |
-| Instagram OAuth (Meta) | 🟡 BLOCKED | NO | **Meta app** |
-| Stripe billing | 🟡 BLOCKED | NO | **Stripe keys** |
-| ECS/Fargate deploy | 🟡 BLOCKED | NO | **AWS account + deploy run** |
-
----
-
-## 2. ما تم إنجازه فعليًا (وليس ملفات فقط)
-
-### 2.1 البنية التحتية المحلية الحية (تم تشغيلها واختبارها)
-- **PostgreSQL 18.4** مبني من المصدر (embedded-postgres) + **pgvector 0.8.1** مبني من المصدر ضد PG18 (لم يكن متاحًا كحزمة) — `CREATE EXTENSION vector` يعمل والمسافات الإقليدية صحيحة.
-- **Redis 7.2.5** مبني من المصدر ويعمل على :6379.
-- **Prisma 5.22.0** مع محركات حقيقية (schema-engine/query-engine/prisma-fmt) مستخرجة من مرآة GitHub (binaries.prisma.sh محجوب في الساندبوكس).
-- **Migration `20260811102342_init`** أُنشئت وطُبقت عبر `prisma migrate deploy` (وليس db push). تحقق فعلي: 81 جدول، 198 index، pgvector 0.8.1، جداول `image_generations` / `dubbing_jobs` / `campaigns` / `campaign_posts` موجودة.
-- **API حي** على :4000 → `/health/live`, `/health/ready` (`postgres: up, redis: up`).
-- **Worker حي** على :8080 مع 6 BullMQ queues: `generation`, `image-generation`, `dubbing`, `publish`, `render`, `thumbnail` + campaign scheduler + DLQ.
-
-### 2.2 الـ Worker الحقيقي (كان Stub — أصبح كاملًا)
-`apps/worker/src/`:
-- `processors/generation.processor.ts` — فيديو (يتضمن إنشاء صف الفيديو لأتمتة الحملات ثم متابعة النشر).
-- `processors/image.processor.ts` — صور.
-- `processors/dubbing.processor.ts` — دبلجة (استخراج صوت → Whisper → ترجمة LLM → TTS → إعادة تركيب ffmpeg → rendition).
-- `processors/publish.processor.ts` — نشر (YouTube resumable upload / TikTok / Instagram عبر publishers الحقيقيين، مع إعادة الجدولة إذا الفيديو لم يكتمل).
-- `processors/render.processor.ts` — upscale (lanczos 2160p) + thumbnail (ffmpeg frame).
-- `processors/campaign.scheduler.ts` — أتمتة الحملات (tick كل 60s).
-- `common/worker.container.ts` — retry + exponential backoff + DLQ + graceful shutdown + health server.
-
-### 2.3 إصلاحات حرجة (Fake-success bugs)
-| الخلل | الإصلاح |
+| الملف | الحالة |
 |---|---|
-| **جوب فاشل نهائيًا يُكتب COMPLETED** (pipeline كان يعيد `return` بدل `throw` عند terminal) | كل pipeline يرمي الآن؛ processors تستدعي `failJob` + `UnrecoverableError` (يمنع retry) |
-| **onFailed كان يكتب FAILED في كل محاولة** → BullMQ يتخطى المحاولات اللاحقة (idempotent-skip) | `onFailed` يكتب DLQ + FAILED فقط عند المحاولة النهائية |
-| BullMQ يرفض `:` في أسماء queues و jobIds | `aca_q_<queue>` + `queue_<uuid>` |
-| `@aca/database` adapter (Prisma 5) | `new PrismaPg(new Pool(...))` + `driverAdapters` preview |
-| E2E أسماء مسارات health | proxy يعيد `/health/*` بلا `/v1` |
+| `infra/aws/cloudformation.yml` | ✅ جاهز — **60 موردًا**: VPC (public/private×2, NAT, IGW), Security Groups ×5, S3 buckets ×3 (SSE + lifecycle), RDS PostgreSQL (subnet group, encrypted, 14-day backup), ElastiCache Redis (snapshots), Secrets Manager ×2, ECS Cluster + TaskRole (IAM least-privilege), ALB + target group `/health/ready` + HTTP→HTTPS, Task Definitions (API:3000 + Worker:8080, awslogs), Services (Fargate), Route53 |
+| `infra/aws/deploy.sh` | ✅ جاهز: ECR repos → docker build → push → `cloudformation deploy` → `secretsmanager put-secret-value` |
+| `Dockerfile.api` | ✅ multi-stage، prisma generate في build، HEALTHCHECK `/health/ready` |
+| `Dockerfile.worker` | ✅ multi-stage، FFmpeg من node_modules، HEALTHCHECK |
+| ECS task definitions | داخل cloudformation (API + Worker، awsvpc، CloudWatch logs) |
+| IAM | TaskRole: s3 Get/Put/Delete + secretsmanager:GetSecretValue (least privilege) |
+| ECR | يُنشأ تلقائيًا في deploy.sh (`autocreator/api`, `autocreator/worker`) |
+| Secrets Manager | `autocreator/prod/db` + `autocreator/prod/runtime` (كل المتغيرات) |
+| S3 config | private + SSE + presigned (AssetStore) |
+| **ناقص للتنفيذ** | AWS credentials، ACM certificate ARN، Vercel env vars |
 
-### 2.4 تحقق بعد الإصلاح (SQL على DB الحية)
-```
-FAKE-COMPLETED after fix (must be 0): 0   ← مؤكد
-JOBS AFTER FIX: generation=FAILED(5), image-generation=FAILED(1)  ← كلها نهائية حقيقية
-```
-
-### 2.5 E2E الحي — النتيجة النهائية (آخر تشغيل)
-```
-✅ health / health/ready (postgres+redis up)
-✅ signup → ✅ access token → ✅ create org → ✅ create series
-✅ generate video → job created (201 + jobId)
-✅ video reached terminal state (FAILED + reason حقيقي: لا يوجد مفتاح LLM — BLOCKED credential)
-✅ library/videos (real DB rows)
-✅ providers/status (18 providers، masked hints only)
-✅ dashboard aggregates (real counts)
-✅ image generation → terminal FAILED (reason: fetch failed — sandbox network) 
-✅ upload asset → asset row → listed in library
-✅ presign upload endpoint (tier=database fallback واضح)
-✅ schedule guard (video not READY → 409)
-✅ dub guard (not READY → 409) / upscale guard (409)
-✅ campaign create → ✅ calendar → ✅ campaign run-now (202)
-✅ logout (204)
-RESULT: 22 passed, 1 failed (the single failure = BLOCKED: no AI API key — by design)
-```
-
-### 2.6 AWS infrastructure (جاهزة للتنفيذ، ليست مزيفة)
-- `infra/aws/cloudformation.yml` — VPC (public/private), ALB + HTTPS listener (ACM), ECS Fargate (api + worker, awsvpc), RDS PostgreSQL 16 (encrypted, 14-day backup), ElastiCache Redis (snapshot), S3 buckets ×3 (SSE + lifecycle), Secrets Manager (db + runtime), IAM least-privilege (s3/secrets), CloudWatch log groups, health checks `/health/ready` على ALB.
-- `Dockerfile.api` + `Dockerfile.worker` (multi-stage, prisma generate في build, HEALTHCHECK).
-- `infra/aws/deploy.sh` + `.github/workflows/deploy-aws.yml` (OIDC) — build → push ECR → CFN deploy → wait services-stable → smoke test.
-- **Railway أُزيل نهائيًا**: railway.json, fly.toml, deploy-railway.yml, keepalive, get-railway-domain.mjs, RAILWAY-MIGRATION.md حُذفت؛ الـ proxy (apps/web/.../route.ts) يستخدم API_UPSTREAM فقط.
-
-### 2.7 UI الحقيقية الجديدة
-- `/dashboard/images` — توليد صور حقيقي (prompt + ref images + style + aspect + resolution + count) مع polling و Not-configured warning.
-- `/dashboard/library` — Videos/Images/Uploads/Audio من DB فقط + بحث/فرز + Download/Delete/Remix/Extend/Upscale/Dub.
-- `/dashboard/campaigns` — Calendar/أتمتة (إنشاء حملة، run-now، حالات Scheduled/Generating/Ready/Published/Failed).
-- `/dashboard/upload` — Drag & Drop (MP4/MOV/WebM/PNG/JPG/JPEG/WebP) عبر presigned PUT إلى S3 (أو database tier مع إفصاح).
-- Nav بار محدّث (Images, Library, Upload, Calendar).
-
-### 2.8 Storage
-- `AssetStore` (packages/video-engine/src/media/asset-store.ts): **S3 أولاً** (Put/Get/Delete/Head + presigned GET + presigned PUT)، و AssetBlob (Postgres) **fallback فقط** — كما طلبت. لا يُكتب أي ملف في DB عندما يكون S3 مهيأً.
-- `POST /v1/organizations/:orgId/uploads/presign` → `{tier:'s3', uploadUrl}` أو `{tier:'database', detail}`.
-- `POST /v1/organizations/:orgId/assets/confirm-s3` → يتحقق `HeadObject` من وجود الكائن فعلًا في S3 قبل إنشاء الصف (لا ثقة عمياء بالعميل).
-- `POST /assets/upload` (base64) يبقى للمسار البديل + `storageTier` في الاستجابة.
-
----
-
-## 3. الاختبارات
-
-| Gate | النتيجة |
-|---|---|
-| `pnpm build` | ✅ 10/10 |
-| `pnpm typecheck` | ✅ 18/18 |
-| `pnpm lint` | ✅ 18/18 (0 errors) |
-| `pnpm test` (unit) | ✅ 17/17 — 288+ اختبارًا (auth 23, shared 35, events 34, api 177, database 9, config 5, logger 5) |
-| E2E حي (local stack) | ✅ 22/23 — الوحيد الفاشل: BLOCKED (missing AI key) |
-| Worker: retry/backoff/DLQ | ✅ (logs: attempt 1→2→3 → terminal → DLQ `aca:dlq:image-generation` فيها سجلات) |
-| Idempotency | ✅ (JobRecord guard: COMPLETED/FAILED/CANCELLED → skip) |
-| Graceful shutdown | ✅ (SIGTERM → scheduler stop → workers close → disconnect) |
-
----
-
-## 4. ما الذي يحتاج منك (credentials فقط)
-
-| المطلوب | أين يوضع |
-|---|---|
-| أي مفتاح LLM واحد (Groq مجاني: console.groq.com/keys) | `GROQ_API_KEY` أو عبر Settings → integrations (org vault) |
-| `STABILITY_API_KEY` أو `OPENAI_API_KEY` (صور) | env أو vault |
-| `RUNWAY_API_KEY` / `LUMA_API_KEY` / `FAL_KEY` (فيديو متحرك) | env أو vault |
-| `GOOGLE_CLIENT_ID/SECRET` + Redirect URI | env أو vault |
-| `TIKTOK_CLIENT_KEY/SECRET` (PKCE) | env أو vault |
-| `META_APP_ID/SECRET` (Instagram) | env أو vault |
-| `STRIPE_SECRET_KEY/WEBHOOK_SECRET` | env |
-| AWS: account + `AWS_DEPLOY_ROLE_ARN` + ECR repos + ACM cert | GitHub secrets + `infra/aws/deploy.sh` |
-
-بعد وضع أي مفتاح LLM: أعد تشغيل E2E وسترى `video reached READY` فعليًا
-(pipeline: script → TTS → scene images → ffmpeg render → S3/DB → rendition → download).
-
----
-
-## 5. الأسئلة العشرة النهائية
-
-1. **ماذا عدّلت؟** الـ Worker من Stub إلى 6 processors حقيقية؛ نقل pipeline التوليد إلى `@aca/video-engine` مشترك؛ إصلاح fake-success في حالة الجوبات؛ BullMQ بدل Streams يدوي؛ migrations حقيقية؛ S3-first AssetStore + presign؛ صفحات Images/Library/Upload/Calendar؛ إزالة Railway؛ AWS infra كاملة؛ eslint flat configs؛ proxy نظيف.
-2. **ماذا اختبرت؟** كل ما سبق + E2E حي 22/23 + DB verification SQL + retry/DLQ logs.
-3. **ماذا نجح؟** البناء/النوع/اللينت/الوحدة/الـ E2E كاملًا عدا خطوة واحدة (انظر 4).
-4. **ماذا فشل؟** فقط: توليد فيديو/صورة حقيقي = **BLOCKED — لا توجد مفاتيح AI** (والساندبوكس يحجب pollinations.ai). لا يوجد فشل كود.
-5. **ماذا يحتاج مني؟** مفاتيح AI + OAuth + AWS (جدول القسم 4).
-6. **هل AWS deployed فعليًا؟** **لا** — CloudFormation/Docker/workflow جاهزة لكن تتطلب حساب AWS حقيقي (`BLOCKED — AWS not deployed`).
-7. **هل Worker يعمل فعليًا؟** **نعم** — حي على :8080، يعالج جوبات حقيقية من Redis، retry/backoff/DLQ مثبتة بالـ logs.
-8. **هل Generate ينتج فيديو حقيقي؟** **ليس بعد** — الـ job يعمل والـ pipeline كامل لكنه يتوقف عند LLM key (fail-closed كما طلبت). بلا أي Mock.
-9. **هل Download يعمل من S3؟** **ليس بعد** — مسار stream/تنزيل يعمل من التخزين (DB tier محليًا)؛ S3 يحتاج credentials (كود presigned جاهز ومُختبَر shape-wise).
-10. **هل Publish يعمل فعليًا؟** **ليس بعد** — الـ publish queue + publisher (YouTube resumable / TikTok) جاهزة وتُستدعى عبر worker، لكن OAuth tokens مفقودة → سيفشل بـ TOKEN_EXPIRED/Not configured وليس بنجاح وهمي.
-
----
-
-## 6. Commands للتشغيل (للمراجعة الحية)
+## 3) AWS CREDENTIALS — الفحص الحاسم
 
 ```bash
-# infra محلية (Linux with apt? لا — استخدم السكربتات في scripts/e2e):
-# 1) postgres: /tmp/pgtest/.../bin/postgres -D ~/data/pg -p 5432
-# 2) redis:    redis-server --port 6379 --appendonly yes
-# 3) migrate:  pnpm db:deploy   (DATABASE_URL=...)
-# 4) api:      node apps/api/dist/main.js        (PORT=4000)
-# 5) worker:   PORT=8080 node apps/worker/dist/main.js
-# 6) e2e:      node scripts/e2e/local-stack.mjs
+aws sts get-caller-identity
+→ Unable to locate credentials.
 ```
 
-```bash
-# AWS deploy:
-export AWS_REGION=eu-central-1 API_DOMAIN=api.example.com CERT_ARN=arn:aws:acm:...
-./infra/aws/deploy.sh
-# ثم على Vercel:
-#   API_UPSTREAM=https://api.example.com
-#   PUBLIC_API_URL=https://api.example.com
-#   PUBLIC_WEB_URL=https://<app>.vercel.app
+- `AWS_ACCESS_KEY_ID`: **not set**
+- `AWS_SECRET_ACCESS_KEY`: **not set**
+- `AWS_SESSION_TOKEN`: **not set**
+- `AWS_PROFILE`: **not set**
+- `~/.aws/`: **غير موجود**
+- AWS CLI v1.46: مثبت (pip) — جاهز للاستخدام فور توفير credentials
+
+**الخلاصة: لا توجد AWS credentials في هذه البيئة.**
+**AWS deployment: BLOCKED — CREDENTIALS.**
+
+### ما المطلوب منك بالضبط للـ deployment:
+1. **IAM credentials** (أو OIDC role ARN) لـ GitHub Actions:
+   - أو: `export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_REGION=eu-central-1` ثم `./infra/aws/deploy.sh`
+   - أو: ضع `AWS_DEPLOY_ROLE_ARN` في GitHub secrets (OIDC) — الـ workflow موجود في `.github/workflows/deploy-aws.yml` (يُضاف عبر GitHub UI لأن الـ bot token لا يملك صلاحية workflows)
+2. **ACM certificate** ARN للنطاق (أو استخدم ALB DNS فقط)
+3. **Vercel env**: `API_UPSTREAM=https://<aws-api-domain>`, `PUBLIC_API_URL`, `PUBLIC_WEB_URL`
+
+---
+
+## 4-13) الاختبارات الفعلية (كلها على stack محلي كامل)
+
+| الاختبار | النتيجة | ملاحظة |
+|---|---|---|
+| `prisma migrate deploy` | ✅ PASS | 1 migration applied، 81 جدول، 198 index، pgvector 0.8.1 |
+| `prisma generate` | ✅ PASS | client v5.22.0 |
+| build | ✅ **10/10** | turbo |
+| typecheck | ✅ **18/18** | |
+| lint | ✅ **18/18** | 0 errors |
+| unit tests | ✅ **17/17** | 296+ اختبارًا (api 177, shared 35, events 34, auth 23…) |
+| worker tests | ✅ **8/8** | job-record guards, DLQ, idempotency |
+| E2E local | ✅ **22/23** | الوحيد الفاشل = **BLOCKED — AI credentials missing** (fail-closed صحيح) |
+| Tenancy | ✅ **14/14** | B لا يقرأ/يكتب/يمسح موارد A — كلها 404 (TENANT_VIOLATION في logs) |
+| Worker live | ✅ PASS | 6 queues على :8080، retry 1→2→3، DLQ يكتب في `aca:dlq:*` |
+| Redis | ✅ PASS | PONG، queues، DLQ (2 entries) |
+| PostgreSQL | ✅ PASS | اتصال + vector extension + 81 جدول |
+| health/live | ✅ PASS | `{"status":"alive"}` |
+| health/ready | ✅ PASS | `{"postgres":"up","redis":"up"}` |
+| health/providers | ✅ PASS | 15 providers، configured=[] (لا مفاتيح) — بدون أسرار |
+| Worker health | ✅ PASS | `{"redis":"up","postgres":"up","queuesWaiting":[0,0,0,0,0,0]}` |
+| Billing (بدون Stripe) | ✅ PASS | 503 "Stripe test mode is not configured yet…" — Not configured صحيح |
+| OAuth (بدون creds) | ✅ PASS | YouTube/TikTok/Instagram → 503 مع تعليمات دقيقة |
+| Performance | ✅ PASS | health 18ms avg، signup 77ms، org 20ms، enqueue 17ms، upload 13ms، download 8ms |
+
+### E2E المسار الحقيقي (آخر تشغيل — 13:40 UTC)
 ```
+✅ health/ready → ✅ signup → ✅ create org → ✅ create series
+✅ generate video → job created (jobId generation_<uuid>)
+✅ video terminal state (FAILED + reason: LLM key missing — BLOCKED credential)
+✅ library/videos (real DB rows) → ✅ providers/status (18 masked)
+✅ dashboard aggregates → ✅ image generation terminal FAILED (fetch failed — network)
+✅ upload asset → ✅ asset listed → ✅ presign endpoint (tier=database)
+✅ schedule/dub/upscale guards (409 not-ready)
+✅ campaign create → ✅ calendar → ✅ run-now (202) → ✅ logout (204)
+```
+
+---
+
+## 14) TENANCY — نتيجة حية
+
+```
+✅ B cannot read A video → 404
+✅ B cannot list A series → 404
+✅ B cannot list A assets → 404
+✅ B cannot read A library → 404
+✅ B cannot read A campaigns → 404
+✅ B cannot read A dashboard → 404
+✅ B cannot act on A video → 404
+✅ A can read own video → 200
+RESULT: 14 passed, 0 failed
+```
+
+## 15) LOGS — فحص أخطاء
+
+- API: لا `ERROR`/`Unhandled`/`timeout`/`refused` في الجولة الحالية (فقط 404/400 client errors مقصودة + TENANT_VIOLATION)
+- Worker: `failed-retrying` → `failed-terminal` لـ image-generation (network)، ثم DLQ — السلوك الصحيح
+- Prisma: لا أخطاء بعد migrate
+- S3: لا أخطاء (غير مُهيأ → tier=database fallback مُعلن)
+- OAuth: 503s مقصودة مع تعليمات
+
+## 16) PERFORMANCE (قياسات حية)
+
+| العملية | الزمن |
+|---|---|
+| health/ready (avg 5×) | **18 ms** |
+| signup | 77 ms |
+| create org | 20 ms |
+| create series | 12 ms |
+| enqueue generation | 17 ms |
+| upload asset | 13 ms |
+| download asset | 8 ms |
+
+## 17) WEB
+
+- الـ proxy يستخدم `API_UPSTREAM` فقط (لا localhost/railway fallback) — فُحص الكود
+- CORS: `CORS_ORIGINS` تُضبط عبر env؛ إذا فارغة → CORS معطل تمامًا (آمن)
+- لا Vercel deploy فعلي (لا tokens) — **NOT VERIFIED** (يحتاج Vercel credentials)
+
+## 18) SECURITY — نتائج الفحص
+
+| الفحص | النتيجة |
+|---|---|
+| Secrets في git | ✅ نظيف — فقط test fixtures صريحة (`sk_test_x` في unit tests) |
+| API keys في source | ✅ نظيف |
+| localhost في prod code | ✅ أُصلح: OAuth probe redirects → fail-closed (`invalid.invalid` بدل `https://localhost/`) — commit `15735b5` |
+| Railway references | ✅ نظيف (سطر واحد "No Railway" توثيقي في تعليق) |
+| Mock providers | ✅ لا يوجد — كل provider fail-closed |
+| Disabled auth | ✅ لا يوجد — كل routes محمية بـ AuthGuard + TenantGuard + RBAC |
+| CORS | ✅ آمن (allowlist عبر env، فارغ = off) |
+| Public endpoints | ✅ فقط /health/* و /auth/* (المقصودة) |
+| إصلاح هذا الجولة | `settings.service.ts` fail-closed redirect + `events/types.ts` console.info |
+
+## 19) DATABASE
+
+- **لم تُعدّل أي بيانات** — DB جديدة (81 جدول) من migration واحدة
+- لا destructive operations
+- `prisma migrate deploy` فقط (لا db push)
+
+## 20) MERGE
+
+- **لم يتم** — PR #22 OPEN + MERGEABLE، 6 commits
+
+---
+
+## التقرير بالأرقام (الصيغة المطلوبة)
+
+**AWS:**
+- deployed: **NO** — BLOCKED — CREDENTIALS
+- account: **N/A** (لا credentials)
+- region: **N/A** (افتراضي eu-central-1 في deploy.sh)
+- ECR: **NOT VERIFIED** (يُحتاج حساب AWS)
+- ECS API: **NOT VERIFIED**
+- ECS Worker: **NOT VERIFIED**
+- PostgreSQL: **LOCAL ONLY** (RDS: NOT VERIFIED)
+- Redis: **LOCAL ONLY** (ElastiCache: NOT VERIFIED)
+- S3: **NOT VERIFIED** (كود presigned جاهز + مُختبَر shape-wise محليًا tier=database)
+- Secrets Manager: **NOT VERIFIED**
+
+**Tests:**
+- build: ✅ **10/10**
+- typecheck: ✅ **18/18**
+- lint: ✅ **18/18**
+- unit: ✅ **17/17** (296+)
+- worker: ✅ **8/8**
+- tenancy: ✅ **14/14**
+- E2E: ✅ **22/23** (الواحد = BLOCKED — AI credentials)
+- real AI generation: ❌ **BLOCKED — CREDENTIALS** (GROQ/GEMINI/OPENAI keys)
+- real S3: ❌ **NOT VERIFIED** (لا AWS)
+- real download: ✅ **LOCAL ONLY** (stream من DB tier، 8ms)
+- real publish: ❌ **BLOCKED — CREDENTIALS** (لا OAuth tokens)
+
+**Providers:**
+- OpenAI: **BLOCKED — CREDENTIALS** (health/providers: configured=false)
+- Groq: **BLOCKED — CREDENTIALS**
+- Runway: **BLOCKED — CREDENTIALS**
+- Luma: **BLOCKED — CREDENTIALS**
+- fal.ai: **BLOCKED — CREDENTIALS**
+- Replicate: **BLOCKED — CREDENTIALS**
+- ElevenLabs: **BLOCKED — CREDENTIALS**
+- YouTube: **BLOCKED — CREDENTIALS** (OAuth app)
+- TikTok: **BLOCKED — CREDENTIALS**
+- Instagram: **BLOCKED — CREDENTIALS** (Meta app)
+- Stripe: **BLOCKED — CREDENTIALS**
+
+**NOT PRODUCTION READY** — لا يمكن قولها إلا بعد تنفيذ E2E كامل على AWS بمفاتيح حقيقية.
+
+---
+
+## Commit hashes (هذه الجولة)
+- `15735b5` — security: fail-closed OAuth probe redirect URIs, console.info for logger sink
+- `360cd3e` — chore: exclude deploy-aws.yml from push (workflows permission)
+- دُفعا إلى `arena/019ff045-auto-publisher-ai`
+- PR #22: https://github.com/aalgume2-ship-it/auto-publisher-ai/pull/22 — **OPEN، لم يُدمج**
