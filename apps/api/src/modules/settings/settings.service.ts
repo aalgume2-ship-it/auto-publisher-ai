@@ -169,7 +169,7 @@ export class SettingsService {
         code: 'probe_invalid_code',
         client_id: clientId,
         client_secret: clientSecret,
-        redirect_uri: this.googleRedirectUri() ?? 'https://localhost/',
+        redirect_uri: this.googleRedirectUri() ?? 'https://invalid.invalid/callback',
         grant_type: 'authorization_code',
       }),
     });
@@ -201,7 +201,7 @@ export class SettingsService {
         client_secret: clientSecret,
         code: 'probe_invalid_code',
         grant_type: 'authorization_code',
-        redirect_uri: this.tiktokRedirectUri() ?? 'https://localhost/',
+        redirect_uri: this.tiktokRedirectUri() ?? 'https://invalid.invalid/callback',
         code_verifier: 'probe_verifier',
       }),
     });
