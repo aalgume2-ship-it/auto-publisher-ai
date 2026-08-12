@@ -23,7 +23,9 @@ COPY packages/video-engine/package.json ./packages/video-engine/
 COPY apps/api/package.json ./apps/api/
 COPY apps/worker/package.json ./apps/worker/
 
-RUN pnpm install --no-frozen-lockfile --ignore-scripts
+# Build stage needs devDependencies (Prisma CLI, TypeScript, etc.) even though
+# the final runtime uses NODE_ENV=production.
+RUN pnpm install --no-frozen-lockfile --ignore-scripts --prod=false
 
 COPY packages ./packages
 COPY apps/api ./apps/api
