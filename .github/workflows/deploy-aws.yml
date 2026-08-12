@@ -61,7 +61,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Verify AWS identity and inspect existing deployment
+      - name: Verify AWS identity and recover failed initial stack
         id: aws
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -71,9 +71,47 @@ jobs:
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
           echo "account_id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
           echo "region=${AWS_REGION}" >> "$GITHUB_OUTPUT"
-          aws cloudformation describe-stacks --stack-name "$STACK_NAME" >/dev/null 2>&1 \
-            && echo "Existing CloudFormation stack found; it will be updated in place." \
-            || echo "No existing stack found; the declared production stack will be created."
+
+          DB_SECRET_NAME="autocreator/prod/db"
+          STACK_STATUS="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
+          if [ "$STACK_STATUS" = "ROLLBACK_FAILED" ]; then
+            echo "Recovering failed first-time CloudFormation stack: $STACK_NAME"
+
+            DELETED_DATE="$(aws secretsmanager describe-secret --secret-id "$DB_SECRET_NAME" --region "$AWS_REGION" --query 'DeletedDate' --output text 2>/dev/null || true)"
+            if [ -n "$DELETED_DATE" ] && [ "$DELETED_DATE" != "None" ]; then
+              echo "Restoring database secret so CloudFormation can finish cleanup."
+              aws secretsmanager restore-secret --secret-id "$DB_SECRET_NAME" --region "$AWS_REGION" >/dev/null
+            fi
+
+            aws cloudformation delete-stack --stack-name "$STACK_NAME" --region "$AWS_REGION"
+            if ! aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region "$AWS_REGION"; then
+              echo "Stack deletion failed. Recent events:"
+              aws cloudformation describe-stack-events --stack-name "$STACK_NAME" --region "$AWS_REGION" \
+                --query 'StackEvents[0:30].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]' --output table || true
+              exit 1
+            fi
+
+            # The failed stack had already scheduled this named secret for deletion.
+            # Remove the recovered orphan so the clean stack can recreate the same declared name.
+            if aws secretsmanager describe-secret --secret-id "$DB_SECRET_NAME" --region "$AWS_REGION" >/dev/null 2>&1; then
+              aws secretsmanager delete-secret --secret-id "$DB_SECRET_NAME" --force-delete-without-recovery --region "$AWS_REGION" >/dev/null || true
+              for _ in $(seq 1 60); do
+                if ! aws secretsmanager describe-secret --secret-id "$DB_SECRET_NAME" --region "$AWS_REGION" >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 5
+              done
+              if aws secretsmanager describe-secret --secret-id "$DB_SECRET_NAME" --region "$AWS_REGION" >/dev/null 2>&1; then
+                echo "Database secret name is still pending deletion; refusing to start a stack that would collide with it."
+                exit 1
+              fi
+            fi
+          elif [ -n "$STACK_STATUS" ]; then
+            echo "Existing CloudFormation stack found in status: $STACK_STATUS"
+          else
+            echo "No existing stack found; a clean production stack will be created."
+          fi
+
           aws ecs list-clusters --region "$AWS_REGION"
           aws ecr describe-repositories --region "$AWS_REGION" >/dev/null 2>&1 || true
           aws ec2 describe-instances --region "$AWS_REGION" --filters Name=instance-state-name,Values=pending,running,stopping,stopped --query 'Reservations[].Instances[].{Id:InstanceId,State:State.Name,Tags:Tags}'
@@ -132,12 +170,22 @@ jobs:
           if [ "${#DEPLOY_MASTER}" -lt 64 ]; then DEPLOY_MASTER="$(openssl rand -hex 32)"; fi
           echo "::add-mask::$DEPLOY_JWT"
           echo "::add-mask::$DEPLOY_MASTER"
+
+          # The account is currently subject to the RDS free-tier backup-retention limit.
+          # Keep the source template unchanged for now, but deploy a deterministic compatible copy.
+          DEPLOY_TEMPLATE="$RUNNER_TEMP/cloudformation.deploy.yml"
+          cp infra/aws/cloudformation.yml "$DEPLOY_TEMPLATE"
+          sed -i 's/BackupRetentionPeriod: 14/BackupRetentionPeriod: 1/' "$DEPLOY_TEMPLATE"
+          grep -q 'BackupRetentionPeriod: 1' "$DEPLOY_TEMPLATE"
+
           aws cloudformation validate-template \
-            --template-body file://infra/aws/cloudformation.yml \
+            --template-body "file://$DEPLOY_TEMPLATE" \
             --region "$AWS_REGION" >/dev/null
+
+          set +e
           aws cloudformation deploy \
             --stack-name "$STACK_NAME" \
-            --template-file infra/aws/cloudformation.yml \
+            --template-file "$DEPLOY_TEMPLATE" \
             --capabilities CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset \
             --region "$AWS_REGION" \
@@ -147,6 +195,18 @@ jobs:
               WorkerImage="$WORKER_IMAGE" \
               AuthJwtSecret="$DEPLOY_JWT" \
               SecretsMasterKey="$DEPLOY_MASTER"
+          DEPLOY_RC=$?
+          set -e
+
+          if [ "$DEPLOY_RC" -ne 0 ]; then
+            echo "CloudFormation deployment failed. Stack status and recent failure events:"
+            aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" \
+              --query 'Stacks[0].{Status:StackStatus,Reason:StackStatusReason}' --output table || true
+            aws cloudformation describe-stack-events --stack-name "$STACK_NAME" --region "$AWS_REGION" \
+              --query "StackEvents[?contains(ResourceStatus, 'FAILED') || contains(ResourceStatus, 'ROLLBACK')].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
+              --output table || true
+            exit "$DEPLOY_RC"
+          fi
 
       - name: Read deployment outputs
         env:
