@@ -95,7 +95,7 @@ async function call<T>(
 
       const contentType = res.headers.get('content-type');
       const text = await res.text();
-      let json: any = null;
+      let json: unknown = null;
       if (text) {
         try { json = JSON.parse(text); } catch { json = null; }
       }
@@ -109,7 +109,12 @@ async function call<T>(
         return {
           ok: false,
           reachable: false,
-          error: { kind: 'cold_start', status: res.status, code: json?.code || 'COLD_START', detail: json?.detail || 'Service is unavailable' },
+          error: {
+            kind: 'cold_start',
+            status: res.status,
+            code: typeof (json as { code?: unknown } | null)?.code === 'string' ? (json as { code: string }).code : 'COLD_START',
+            detail: typeof (json as { detail?: unknown } | null)?.detail === 'string' ? (json as { detail: string }).detail : 'Service is unavailable',
+          },
         };
       }
 
@@ -123,8 +128,8 @@ async function call<T>(
         return { ok: false, reachable: true, error: { kind: 'http', status: res.status, code: pb.code, detail: pb.detail } };
       }
       return { ok: true, reachable: true, data: json as T };
-    } catch (err: any) {
-      const isTimeout = err?.name === 'AbortError';
+    } catch (err: unknown) {
+      const isTimeout = err instanceof Error && err.name === 'AbortError';
       if (attempt < maxAttempts - 1) {
         await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
         lastError = { ok: false, reachable: false, error: { kind: 'network', detail: isTimeout ? 'timeout - retrying' : 'backend unreachable - retrying' } };
@@ -174,8 +179,16 @@ export interface VideoDto {
   id: string;
   status: string;
   keyword?: string;
+  failureReason?: string | null;
+  seo?: { step?: string; progress?: number } | null;
   createdAt: string;
   renditions?: Array<{ status: string; url?: string }>;
+}
+
+export interface GenerateVideoDto {
+  video?: { id?: string; status?: string };
+  id?: string;
+  jobId?: string;
 }
 
 export function createSeries(token: string, orgId: string, name: string) {
@@ -185,7 +198,7 @@ export function listSeries(token: string, orgId: string) {
   return call<{ items: SeriesDto[] }>('GET', `/organizations/${orgId}/series`, undefined, token);
 }
 export function generateVideo(token: string, orgId: string, seriesId: string, keyword: string, targetSeconds: number) {
-  return call<{ id: string; status: string }>('POST', `/organizations/${orgId}/series/${seriesId}/videos`, { keyword, targetSeconds }, token);
+  return call<GenerateVideoDto>('POST', `/organizations/${orgId}/series/${seriesId}/videos`, { keyword, targetSeconds }, token);
 }
 export function listVideos(token: string, orgId: string) {
   return call<{ items: VideoDto[] }>('GET', `/organizations/${orgId}/videos`, undefined, token);

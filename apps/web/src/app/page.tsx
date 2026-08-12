@@ -1,6 +1,3 @@
-import { redirect } from 'next/navigation';
-
-/** Temporary product-test entry point: open the Studio directly. */
-export default function Home() {
-  redirect('/create');
-}
+import { PlatformShell, MediaCard, SectionRail } from '../components/creative/CreativePlatform';
+import { featured, rails } from '../components/creative/catalog';
+export default function Home(){return <PlatformShell><div className="cp-explore-head"><div><h1>Explore what’s possible</h1><p>Discover original creative workflows for moving images, campaigns, cinema and automated publishing.</p></div></div><section className="cp-featured">{featured.map((item,i)=><MediaCard key={item.title} item={item} large={i===0}/>)}</section>{Object.entries(rails).map(([title,items])=><SectionRail key={title} title={title} items={items}/>)}</PlatformShell>}
