@@ -77,11 +77,48 @@ jobs:
           DB_INSTANCE_ID="autocreator-prod"
           STACK_STATUS="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
 
-          if [ "$STACK_STATUS" = "ROLLBACK_FAILED" ] || [ "$STACK_STATUS" = "DELETE_FAILED" ]; then
-            echo "Recovering failed CloudFormation stack: $STACK_NAME ($STACK_STATUS)"
+          if [ "$STACK_STATUS" = "ROLLBACK_FAILED" ]; then
+            echo "Recovering rollback-failed CloudFormation stack: $STACK_NAME"
+
+            # The failed rollback can be blocked because the DB credential secret was already
+            # scheduled for deletion. Restore it first so RDS/CloudFormation can finish cleanup.
+            if aws secretsmanager describe-secret --secret-id "$DB_SECRET_NAME" --region "$AWS_REGION" >/dev/null 2>&1; then
+              aws secretsmanager restore-secret --secret-id "$DB_SECRET_NAME" --region "$AWS_REGION" >/dev/null 2>&1 || true
+            fi
+
+            set +e
+            aws cloudformation delete-stack --stack-name "$STACK_NAME" --region "$AWS_REGION"
+            aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region "$AWS_REGION"
+            DELETE_RC=$?
+            set -e
+
+            if [ "$DELETE_RC" -ne 0 ]; then
+              CURRENT_STATUS="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
+              if [ "$CURRENT_STATUS" = "DELETE_FAILED" ]; then
+                echo "Normal deletion reached DELETE_FAILED; retaining Database so the stack can be removed."
+                aws cloudformation delete-stack --stack-name "$STACK_NAME" --retain-resources Database --region "$AWS_REGION"
+                aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region "$AWS_REGION"
+              else
+                echo "Stack recovery failed in status: ${CURRENT_STATUS:-UNKNOWN}"
+                aws cloudformation describe-stack-events --stack-name "$STACK_NAME" --region "$AWS_REGION" \
+                  --query 'StackEvents[0:40].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]' --output table || true
+                exit 1
+              fi
+            fi
+
+          elif [ "$STACK_STATUS" = "DELETE_FAILED" ]; then
+            echo "Recovering delete-failed CloudFormation stack: $STACK_NAME"
             aws cloudformation delete-stack --stack-name "$STACK_NAME" --retain-resources Database --region "$AWS_REGION"
             aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region "$AWS_REGION"
 
+          elif [ -n "$STACK_STATUS" ]; then
+            echo "Existing CloudFormation stack found in status: $STACK_STATUS"
+          else
+            echo "No existing stack found; a clean production stack will be created."
+          fi
+
+          # Remove any retained/orphaned DB after the broken stack is gone.
+          if ! aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" >/dev/null 2>&1; then
             if aws rds describe-db-instances --db-instance-identifier "$DB_INSTANCE_ID" --region "$AWS_REGION" >/dev/null 2>&1; then
               echo "Removing retained/orphaned database $DB_INSTANCE_ID."
               aws rds delete-db-instance --db-instance-identifier "$DB_INSTANCE_ID" --skip-final-snapshot --delete-automated-backups --region "$AWS_REGION" >/dev/null || true
@@ -98,10 +135,6 @@ jobs:
                 done
               fi
             done
-          elif [ -n "$STACK_STATUS" ]; then
-            echo "Existing CloudFormation stack found in status: $STACK_STATUS"
-          else
-            echo "No existing stack found; a clean production stack will be created."
           fi
 
           aws ecs list-clusters --region "$AWS_REGION"
