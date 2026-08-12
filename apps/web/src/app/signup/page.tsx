@@ -31,21 +31,19 @@ function SignupInner() {
     setBusy(true); setErr(null); setRetryMsg(null);
     const name = email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
-    let attempts = 0;
-    const maxAttempts = 5;
-    while (attempts < maxAttempts) {
-      attempts++;
-      const res = await signupWith(email.trim().toLowerCase(), password, name);
-      if (res.ok) { setBusy(false); redirectToSubscribe(); return; }
-      if (res.retryable && attempts < maxAttempts) {
-        setRetryMsg(`Processing — محاولة ${attempts}/${maxAttempts} — جاري المعالجة ونعيد المحاولة تلقائياً`);
-        await new Promise((r) => setTimeout(r, 2500 * attempts));
-        continue;
-      }
-      setBusy(false);
-      setRetryMsg(null);
+    // The API client already performs a short, idempotency-safe retry. Do not
+    // wrap it in another 5-attempt loop: nested retries made a dead upstream
+    // look like a five-minute signup spinner and could submit duplicate POSTs.
+    setRetryMsg('Processing — جاري إنشاء الحساب…');
+    const res = await signupWith(email.trim().toLowerCase(), password, name);
+    if (res.ok) { setBusy(false); setRetryMsg(null); redirectToSubscribe(); return; }
+
+    setBusy(false);
+    setRetryMsg(null);
+    if (res.retryable) {
+      setErr('تعذر الاتصال بخدمة الحساب الآن. تأكد من تشغيل الـ API ثم حاول مرة أخرى.');
+    } else {
       setErr(res.message);
-      return;
     }
   }
 
@@ -71,7 +69,7 @@ function SignupInner() {
           <form onSubmit={submitEmail}>
             <div className="field"><label>Email</label><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></div>
             <div className="field"><label>Password</label><input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="6+ characters" autoComplete="new-password" /></div>
-            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? (retryMsg ? 'Processing...' : 'Creating...') : 'Create account'}</button>
+            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? 'Creating...' : 'Create account'}</button>
           </form>
           <div className="alt">Already have an account? <Link href={`/login?next=${encodeURIComponent(next)}`}>Sign in</Link></div>
         </motion.div>
