@@ -179,7 +179,7 @@ Resources:
   ApiSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: API - ALB only and health from ALB
+      GroupDescription: API - ALB only + health from ALB
       VpcId: !Ref Vpc
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -200,7 +200,7 @@ Resources:
   DatabaseSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: RDS PostgreSQL - API and worker only
+      GroupDescription: RDS PostgreSQL - API + worker only
       VpcId: !Ref Vpc
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -215,7 +215,7 @@ Resources:
   RedisSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: ElastiCache Redis - API and worker only
+      GroupDescription: ElastiCache Redis - API + worker only
       VpcId: !Ref Vpc
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -296,8 +296,8 @@ Resources:
       MultiAZ: false
       PubliclyAccessible: false
       BackupRetentionPeriod: 14
-      MasterUsername: !Sub "{{resolve:secretsmanager:${SecretsPrefix}/db:Username}}"
-      MasterUserPassword: !Sub "{{resolve:secretsmanager:${SecretsPrefix}/db:Password}}"
+      MasterUsername: !Sub "{{resolve:secretsmanager:${SecretsPrefix}/db:SecretString:Username}}"
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:${SecretsPrefix}/db:SecretString:Password}}"
       Tags: [{ Key: Name, Value: !Sub "autocreator-${EnvironmentName}-db" }]
 
   # ── ElastiCache Redis (production queue/rate-limit/idempotency) ─────────

@@ -23,8 +23,9 @@ COPY packages/events/package.json ./packages/events/
 COPY packages/video-engine/package.json ./packages/video-engine/
 COPY apps/api/package.json ./apps/api/
 
-# Install (scripts disabled; ffmpeg binary ships inside @ffmpeg-installer)
-RUN pnpm install --no-frozen-lockfile --ignore-scripts
+# Build stage needs devDependencies (Prisma CLI, TypeScript, etc.) even though
+# the final runtime uses NODE_ENV=production.
+RUN pnpm install --no-frozen-lockfile --ignore-scripts --prod=false
 
 # Sources
 COPY packages ./packages

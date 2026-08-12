@@ -1,0 +1,112 @@
+name: recover-aws-stack
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/recover-aws-stack.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: recover-aws-stack
+  cancel-in-progress: false
+
+env:
+  STACK_NAME: autocreator-prod
+  DB_INSTANCE_ID: autocreator-prod
+  DB_SECRET_NAME: autocreator/prod/db
+  RUNTIME_SECRET_NAME: autocreator/prod/runtime
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: production
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Recover failed CloudFormation stack
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity
+
+          STACK_STATUS="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
+          echo "Current stack status: ${STACK_STATUS:-NONE}"
+
+          if [ "$STACK_STATUS" = "DELETE_FAILED" ] || [ "$STACK_STATUS" = "ROLLBACK_FAILED" ]; then
+            echo "Detaching failed Database resource so the broken stack can be removed."
+            aws cloudformation delete-stack \
+              --stack-name "$STACK_NAME" \
+              --retain-resources Database \
+              --region "$AWS_REGION"
+
+            if ! aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region "$AWS_REGION"; then
+              echo "Stack deletion still failed. Recent events:"
+              aws cloudformation describe-stack-events --stack-name "$STACK_NAME" --region "$AWS_REGION" \
+                --query 'StackEvents[0:40].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]' \
+                --output table || true
+              exit 1
+            fi
+          elif [ -n "$STACK_STATUS" ]; then
+            echo "Stack is not in a failed deletion state; no forced recovery needed."
+          else
+            echo "No stack exists."
+          fi
+
+          if aws rds describe-db-instances --db-instance-identifier "$DB_INSTANCE_ID" --region "$AWS_REGION" >/dev/null 2>&1; then
+            DB_STATUS="$(aws rds describe-db-instances --db-instance-identifier "$DB_INSTANCE_ID" --region "$AWS_REGION" --query 'DBInstances[0].DBInstanceStatus' --output text)"
+            echo "Removing orphaned RDS instance $DB_INSTANCE_ID (status: $DB_STATUS)."
+            aws rds delete-db-instance \
+              --db-instance-identifier "$DB_INSTANCE_ID" \
+              --skip-final-snapshot \
+              --delete-automated-backups \
+              --region "$AWS_REGION" >/dev/null
+            aws rds wait db-instance-deleted --db-instance-identifier "$DB_INSTANCE_ID" --region "$AWS_REGION"
+          fi
+
+          for secret in "$DB_SECRET_NAME" "$RUNTIME_SECRET_NAME"; do
+            if aws secretsmanager describe-secret --secret-id "$secret" --region "$AWS_REGION" >/dev/null 2>&1; then
+              echo "Removing orphaned secret $secret."
+              aws secretsmanager delete-secret \
+                --secret-id "$secret" \
+                --force-delete-without-recovery \
+                --region "$AWS_REGION" >/dev/null || true
+              for _ in $(seq 1 60); do
+                if ! aws secretsmanager describe-secret --secret-id "$secret" --region "$AWS_REGION" >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 5
+              done
+              if aws secretsmanager describe-secret --secret-id "$secret" --region "$AWS_REGION" >/dev/null 2>&1; then
+                echo "Secret $secret is still present; aborting before redeploy."
+                exit 1
+              fi
+            fi
+          done
+
+          echo "AWS failed-stack recovery completed."
+
+      - name: Trigger clean AWS deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-aws.yml/dispatches" \
+            -d '{"ref":"main"}'
+          echo "deploy-aws dispatched on main."
