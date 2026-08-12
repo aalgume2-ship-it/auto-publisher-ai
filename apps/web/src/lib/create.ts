@@ -1,4 +1,4 @@
-/* Studio create-flow catalogs + draft persistence (all original values). */
+/* Studio create-flow catalogs + draft persistence. */
 
 export type Aspect = { id: string; label: string; ratio: number; hint: string; sw: number; sh: number };
 export type Model = { id: string; name: string; tag: string; cost: number; desc: string };
@@ -17,7 +17,9 @@ export const ASPECTS: Aspect[] = [
   { id: '4:3', label: '4:3', hint: 'Classic', ratio: 4 / 3, sw: 4, sh: 3 },
 ];
 
-export const DURATIONS = [4, 6, 8, 10];
+// API GenerateVideoBody accepts 20–60 seconds. Keep the Studio catalog aligned
+// so a valid UI selection can never be rejected by backend validation.
+export const DURATIONS = [20, 30, 45, 60];
 
 export const STYLES: StyleDef[] = [
   { id: 'cinematic', name: 'Cinematic', from: '#8b7bff', to: '#ff5d9e' },
@@ -44,7 +46,7 @@ export const DEFAULT_DRAFT: CreateDraft = {
   model: 'lumen-pro',
   style: 'cinematic',
   aspect: '9:16',
-  duration: 6,
+  duration: 20,
   seed: Math.floor(Math.random() * 1e6),
   updatedAt: 0,
 };
@@ -57,7 +59,13 @@ export function loadDraft(): CreateDraft {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return { ...DEFAULT_DRAFT };
     const p = JSON.parse(raw) as Partial<CreateDraft>;
-    return { ...DEFAULT_DRAFT, ...p, updatedAt: p.updatedAt ?? 0 };
+    const duration = Number(p.duration);
+    return {
+      ...DEFAULT_DRAFT,
+      ...p,
+      duration: Number.isFinite(duration) ? Math.min(60, Math.max(20, duration)) : DEFAULT_DRAFT.duration,
+      updatedAt: p.updatedAt ?? 0,
+    };
   } catch {
     return { ...DEFAULT_DRAFT };
   }
@@ -72,4 +80,3 @@ export function saveDraft(d: Partial<CreateDraft>): CreateDraft {
 export function clearDraft(): void {
   if (typeof window !== 'undefined') window.localStorage.removeItem(KEY);
 }
-
