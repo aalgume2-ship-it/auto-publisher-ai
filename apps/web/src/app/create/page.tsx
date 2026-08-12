@@ -5,6 +5,7 @@ import StudioNav from '../../components/studio/StudioNav';
 import CreatePanel from '../../components/studio/CreatePanel';
 import { loadDraft, saveDraft, type CreateDraft } from '../../lib/create';
 
+/** Temporary test mode: the Studio is intentionally the first screen. */
 export default function CreatePage() {
   const router = useRouter();
   function handleGenerate(d: CreateDraft) {
@@ -18,7 +19,7 @@ export default function CreatePage() {
       <main className="shell" style={{ paddingTop: 20 }}>
         <div style={{ textAlign: 'center', marginBottom: 18 }}>
           <h1 style={{ fontSize: 34, fontWeight: 800 }}>Create a video</h1>
-          <p className="muted">Describe your scene, tune the settings, generate.</p>
+          <p className="muted">Write what you want to create. No account or subscription is required during testing.</p>
         </div>
         <CreatePanel initial={loadDraft()} onGenerate={handleGenerate} />
       </main>

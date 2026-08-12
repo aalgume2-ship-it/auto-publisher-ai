@@ -6,50 +6,58 @@ import { motion } from 'framer-motion';
 import { Check, Loader2 } from 'lucide-react';
 import StudioNav from '../../components/studio/StudioNav';
 import { loadDraft } from '../../lib/create';
-import { loadStudioSession, tryRefreshToken } from '../../lib/studio-session';
+import { ensureGuestSession, loadStudioSession, tryRefreshToken } from '../../lib/studio-session';
 import { submitGeneration, pollVideo, requeueVideo, friendlyStatus } from '../../lib/studio-flow';
 
-type Phase = 'guard' | 'processing' | 'completed';
+type Phase = 'booting' | 'processing' | 'completed';
 
 function GenerateInner() {
   const router = useRouter();
   const [draft] = useState(() => loadDraft());
-  const session = useMemo(() => loadStudioSession(), []);
-  const [phase, setPhase] = useState<Phase>('guard');
+  const initialSession = useMemo(() => loadStudioSession(), []);
+  const [phase, setPhase] = useState<Phase>('booting');
   const [status, setStatus] = useState('QUEUED');
   const startedRef = useRef(false);
   const cancelledRef = useRef(false);
 
   useEffect(() => {
-    if (!session) { router.replace('/signup?next=/generate'); return; }
-    if (!session.plan) { router.replace('/subscribe?next=/generate'); return; }
     if (!draft.prompt) { router.replace('/create'); return; }
-
     if (startedRef.current) return;
     startedRef.current = true;
 
     (async () => {
+      // Testing mode: provision a short-lived anonymous workspace in the real API.
+      // The user never sees a login/signup/payment screen.
+      const session = initialSession?.tokens?.accessToken && initialSession.plan
+        ? initialSession
+        : await ensureGuestSession();
+      if (!session) {
+        setStatus('retrying');
+        setPhase('processing');
+        return;
+      }
+
       await tryRefreshToken();
       const cur = loadStudioSession() ?? session;
       setPhase('processing');
 
       while (!cancelledRef.current) {
-        // 1) Submit (or re-submit) the job.
         const res = await submitGeneration(cur, draft.prompt, Math.max(20, draft.duration));
         if (cancelledRef.current) return;
         if (res.kind === 'error') {
-          router.replace('/login?next=/generate'); // session issue
-          return;
+          setStatus('retrying');
+          await new Promise((r) => setTimeout(r, 2500));
+          continue;
         }
         if (res.kind === 'retry') {
           setStatus('retrying');
-          await new Promise((r) => setTimeout(r, 2500)); // auto-retry
+          await new Promise((r) => setTimeout(r, 2500));
           continue;
         }
 
         const job = res.job;
         setStatus('QUEUED');
-        const outcome = await pollVideo(cur.tokens!.accessToken, job.orgId, job.videoId, (st) => setStatus(st));
+        const outcome = await pollVideo(cur.tokens!.accessToken, job.orgId, job.videoId, (st) => setStatus(st), 15 * 60_000);
 
         if (cancelledRef.current) return;
         if (outcome === 'completed') {
@@ -59,28 +67,18 @@ function GenerateInner() {
           }, 800);
           return;
         }
-        if (outcome === 'session') {
-          router.replace('/login?next=/generate');
-          return;
-        }
-        // processing → provider hiccup / network → auto-re-enqueue and loop.
         await requeueVideo(cur, job.orgId, job.videoId);
         setStatus('retrying');
         await new Promise((r) => setTimeout(r, 2000));
       }
-    })().catch(() => setStatus('retrying'));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, draft]);
+    })().catch(() => {
+      setPhase('processing');
+      setStatus('retrying');
+    });
+    return () => { cancelledRef.current = true; };
+  }, [initialSession, draft, router]);
 
   const label = phase === 'completed' ? 'Completed' : friendlyStatus(status);
-
-  if (phase === 'guard') {
-    return (
-      <div dir="ltr" className="studio-root"><div className="aurora a1" /><div className="grain" /><StudioNav minimal />
-        <main className="shell" style={{ paddingTop: 60 }}><div className="loader-cards"><div className="skel" style={{ height: 260 }} /><div className="skel" style={{ height: 260 }} /><div className="skel" style={{ height: 260 }} /></div></main>
-      </div>
-    );
-  }
 
   return (
     <div dir="ltr" className="studio-root">
@@ -95,22 +93,24 @@ function GenerateInner() {
           ) : (
             <div className="spinner magenta" style={{ margin: '0 auto' }} />
           )}
-          <h1 style={{ fontSize: 26, fontWeight: 800, marginTop: 20 }}>{label}</h1>
+          <h1 style={{ fontSize: 26, fontWeight: 800, marginTop: 20 }}>{phase === 'booting' ? 'Preparing Studio' : label}</h1>
           <p className="muted" style={{ marginTop: 8 }}>
-            {label === 'Completed'
+            {phase === 'completed'
               ? 'Your video is ready.'
-              : label === 'Preparing'
-                ? 'Getting everything ready…'
-                : label === 'Rendering'
-                  ? 'Your video is being rendered on the studio pipeline.'
-                  : 'Your request is being processed. This may take a moment — we will continue automatically.'}
+              : phase === 'booting'
+                ? 'Preparing a temporary testing workspace…'
+                : label === 'Preparing'
+                  ? 'Getting everything ready…'
+                  : label === 'Rendering'
+                    ? 'Your video is being rendered on the studio pipeline.'
+                    : 'Your request is being processed. We will keep working automatically.'}
           </p>
           <div className="bar" style={{ marginTop: 24, maxWidth: 420, marginInline: 'auto' }}>
             <div className="fill" style={{ width: phase === 'completed' ? '100%' : label === 'Rendering' ? '72%' : '46%' }} />
           </div>
           <p className="sm muted" style={{ marginTop: 18, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {phase !== 'completed' && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />}
-            {phase === 'completed' ? 'Opening your video…' : 'We will keep working until it is done.'}
+            {phase === 'completed' ? 'Opening your video…' : 'No login or subscription is required in testing mode.'}
           </p>
         </motion.div>
       </main>
