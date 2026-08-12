@@ -56,7 +56,7 @@ export async function submitGeneration(session: StudioSession, keyword: string, 
       if ((job.error?.status ?? 0) >= 400 && (job.error?.status ?? 0) < 500) return { kind: 'error', message: job.error?.detail || 'The generation request was rejected by the API.' };
       return { kind: 'retry' };
     }
-    const data: any = job.data;
+    const data = job.data;
     const videoId = data?.video?.id ?? data?.id;
     if (!videoId) return { kind: 'error', message: 'The API accepted the request but did not return a video ID.' };
     return { kind: 'job', job: { orgId, seriesId, videoId, keyword, targetSeconds: safeSeconds } };
@@ -68,31 +68,46 @@ async function listSeries(token: string, orgId: string) {
   return listSeries(token, orgId);
 }
 
-export function friendlyStatus(status: string): 'Preparing' | 'Generating' | 'Rendering' | 'Completed' | 'Processing' {
+export function friendlyStatus(status: string): 'Preparing' | 'Generating' | 'Rendering' | 'Uploading' | 'Completed' | 'Failed' | 'Processing' {
   const s = (status || '').toUpperCase();
   if (s === 'READY') return 'Completed';
   if (s === 'RENDERING') return 'Rendering';
+  if (s === 'UPLOADING') return 'Uploading';
   if (s === 'QUEUED' || s === 'PENDING' || s === 'GENERATING') return 'Generating';
-  if (s === 'FAILED' || s === 'ERROR' || s === 'CANCELLED') return 'Processing';
+  if (s === 'FAILED' || s === 'ERROR' || s === 'CANCELLED') return 'Failed';
   return 'Processing';
 }
 
-export async function pollVideo(token: string, orgId: string, videoId: string, onStatus: (status: string) => void, maxMs = 15 * 60_000): Promise<'completed' | 'processing' | 'session' | 'failed'> {
+export type PollResult =
+  | { kind: 'completed' }
+  | { kind: 'processing' }
+  | { kind: 'session' }
+  | { kind: 'failed'; message: string };
+
+export async function pollVideo(
+  token: string,
+  orgId: string,
+  videoId: string,
+  onStatus: (status: string, progress?: number, step?: string) => void,
+  maxMs = 15 * 60_000,
+): Promise<PollResult> {
   const started = Date.now();
   while (Date.now() - started < maxMs) {
     const r = await getVideo(token, orgId, videoId);
-    if (r.reachable === false) return 'processing';
+    if (r.reachable === false) return { kind: 'processing' };
     if (!r.ok) {
-      if (r.error?.status === 401) return 'session';
-      return 'processing';
+      if (r.error?.status === 401) return { kind: 'session' };
+      return { kind: 'processing' };
     }
     const st = r.data?.status ?? 'QUEUED';
-    onStatus(st);
-    if (st === 'READY') return 'completed';
-    if (['FAILED', 'ERROR', 'CANCELLED'].includes(st)) return 'failed';
+    onStatus(st, r.data?.seo?.progress, r.data?.seo?.step);
+    if (st === 'READY') return { kind: 'completed' };
+    if (['FAILED', 'ERROR', 'CANCELLED'].includes(st)) {
+      return { kind: 'failed', message: r.data?.failureReason || 'Video generation failed.' };
+    }
     await new Promise((res) => setTimeout(res, 3000));
   }
-  return 'processing';
+  return { kind: 'processing' };
 }
 
 export async function requeueVideo(session: StudioSession, orgId: string, videoId: string): Promise<boolean> {
