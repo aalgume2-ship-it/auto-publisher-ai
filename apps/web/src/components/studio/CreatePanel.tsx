@@ -19,11 +19,36 @@ export default function CreatePanel({ initial, onGenerate, busy = false }: { ini
   const canGo = prompt.trim().length > 2 || media.length > 0;
 
   function addFiles(files: FileList | File[]) {
-    const next = Array.from(files).filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/')).slice(0, 12 - media.length);
-    setMedia((current) => [...current, ...next.map((f) => ({ id: `${f.name}-${f.lastModified}-${Math.random()}`, name: f.name, url: URL.createObjectURL(f), type: f.type.startsWith('video/') ? 'video' : 'image' }))]);
+    const next = Array.from(files)
+      .filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'))
+      .slice(0, 12 - media.length);
+    const additions: MediaItem[] = next.map((f): MediaItem => ({
+      id: `${f.name}-${f.lastModified}-${Math.random()}`,
+      name: f.name,
+      url: URL.createObjectURL(f),
+      type: f.type.startsWith('video/') ? 'video' : 'image',
+    }));
+    setMedia((current): MediaItem[] => [...current, ...additions]);
   }
-  function remove(id: string) { setMedia((items) => { const item = items.find((x) => x.id === id); if (item) URL.revokeObjectURL(item.url); return items.filter((x) => x.id !== id); }); }
-  function go() { if (!canGo || busy) return; onGenerate({ prompt: prompt.trim() || 'Create a cinematic video from the uploaded media.', model, style, aspect, duration }); }
+
+  function remove(id: string) {
+    setMedia((items) => {
+      const item = items.find((x) => x.id === id);
+      if (item) URL.revokeObjectURL(item.url);
+      return items.filter((x) => x.id !== id);
+    });
+  }
+
+  function go() {
+    if (!canGo || busy) return;
+    onGenerate({
+      prompt: prompt.trim() || 'Create a cinematic video from the uploaded media.',
+      model,
+      style,
+      aspect,
+      duration,
+    });
+  }
 
   return (
     <motion.div initial={{ opacity: 0, y: 22 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .5 }} className="hf-create">
