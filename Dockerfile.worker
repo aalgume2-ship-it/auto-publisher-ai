@@ -62,6 +62,10 @@ COPY --from=builder /app/apps/worker/package.json ./apps/worker/package.json
 COPY --from=builder /app/packages/database/prisma ./packages/database/prisma
 COPY --from=builder /app/infra/fonts ./infra/fonts
 
+# Validate the final stage, not just the builder where pnpm links always exist.
+RUN cd /app/apps/worker && node --input-type=module -e \
+  "const {createRequire}=await import('node:module'); const require=createRequire(import.meta.url); const p=JSON.parse(await (await import('node:fs/promises')).readFile('package.json','utf8')); for (const dependency of Object.keys(p.dependencies)) { try { import.meta.resolve(dependency) } catch (error) { if (error.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') require.resolve(dependency + '/package.json') } } await import('reflect-metadata'); console.log('Worker runtime dependencies verified')"
+
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
