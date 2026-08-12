@@ -121,7 +121,7 @@ export type AssetListQuery = z.infer<typeof AssetListQuerySchema>;
 
 export const VideoListQuerySchema = z.object({
   seriesId: z.string().uuid().optional(),
-  status: z.enum(['DRAFT', 'QUEUED', 'GENERATING', 'READY', 'SCHEDULED', 'PUBLISHED', 'FAILED']).optional(),
+  status: z.enum(['DRAFT', 'QUEUED', 'GENERATING', 'RENDERING', 'UPLOADING', 'READY', 'SCHEDULED', 'PUBLISHED', 'FAILED']).optional(),
 });
 
 export const SeriesDoc = {

@@ -10,8 +10,8 @@ import { loadStudioSession } from '../../lib/studio-session';
 import { listVideos, type VideoDto } from '../../lib/studio-api';
 
 const STATUS_LABEL: Record<string, string> = {
-  QUEUED: 'Processing', PENDING: 'Processing', RENDERING: 'Rendering', READY: 'Completed',
-  DONE: 'Completed', FAILED: 'Processing', ERROR: 'Processing', CANCELLED: 'Processing',
+  QUEUED: 'Queued', PENDING: 'Queued', GENERATING: 'Generating', RENDERING: 'Rendering', UPLOADING: 'Uploading', READY: 'Completed',
+  DONE: 'Completed', FAILED: 'Failed', ERROR: 'Failed', CANCELLED: 'Cancelled',
 };
 
 function DashboardInner() {

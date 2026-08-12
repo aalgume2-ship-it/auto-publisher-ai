@@ -5,9 +5,9 @@
 > — DO NOT EDIT BY HAND. Drift fails CI (structural-gates job). Relationship
 > labels are the Prisma relation/field names; `PK` = primary key, `FK` = part of
 > a `@relation(fields:[…])` constraint. `optional` marks nullable fields.
-> 75 models · 97 relationships.
+> 79 models · 105 relationships.
 
-## Overview — all 75 models (relations only)
+## Overview — all 79 models (relations only)
 
 ```mermaid
 erDiagram
@@ -161,6 +161,18 @@ erDiagram
   PublishingTask {
     string id PK
   }
+  ImageGeneration {
+    string id PK
+  }
+  DubbingJob {
+    string id PK
+  }
+  Campaign {
+    string id PK
+  }
+  CampaignPost {
+    string id PK
+  }
   ChannelAnalyticsDaily {
     string id PK
   }
@@ -298,6 +310,14 @@ erDiagram
   PipelineRun ||--o{ PipelineStepRun : "run"
   Video ||--o{ PublishingTask : "video"
   Channel ||--o{ PublishingTask : "channel"
+  Organization ||--o{ ImageGeneration : "organization"
+  Organization ||--o{ DubbingJob : "organization"
+  Video ||--o{ DubbingJob : "video"
+  Organization ||--o{ Campaign : "organization"
+  Campaign ||--o{ CampaignPost : "campaign"
+  Organization ||--o{ CampaignPost : "organization"
+  Video ||--o{ CampaignPost : "video"
+  Channel ||--o{ CampaignPost : "channel"
   Channel ||--o{ ChannelAnalyticsDaily : "channel"
   Video ||--o{ VideoAnalyticsDaily : "video"
   Project ||--o{ OptimizationReport : "project"
@@ -437,6 +457,10 @@ erDiagram
     developerapp_arr developerApps
     featureflagoverride_arr flagOverrides
     marketplacelisting_arr publishedListings
+    imagegeneration_arr imageGenerations
+    dubbingjob_arr dubbingJobs
+    campaign_arr campaigns
+    campaignpost_arr campaignPosts
   }
   OrganizationMember {
     string id PK
@@ -707,7 +731,7 @@ erDiagram
 
 Inbound FK from another domain: `Organization ← Subscription.organization`, `Organization ← OrganizationBillingProfile.organization`, `Organization ← Invoice.organization`, `Organization ← AiCreditTransaction.organization`, `Organization ← UsageRecord.organization`.
 
-## Channels, Content & Publishing (19 models)
+## Channels, Content & Publishing (23 models)
 
 ```mermaid
 erDiagram
@@ -749,6 +773,7 @@ erDiagram
     channelanalyticsdaily_arr analytics
     automationconfig_arr autopilotConfigs
     memoryentry_arr memories
+    campaignpost_arr campaignPosts
   }
   ChannelCredential {
     string id PK
@@ -875,6 +900,8 @@ erDiagram
     assetusage_arr assetUsage
     experiment_arr experiments
     aimessage_arr aiMessages
+    dubbingjob_arr dubbingJobs
+    campaignpost_arr campaignPosts
   }
   Script {
     string id PK
@@ -1036,6 +1063,83 @@ erDiagram
     video video
     channel channel
   }
+  ImageGeneration {
+    string id PK
+    string orgId FK
+    string prompt
+    string negativePrompt "optional"
+    string style "optional"
+    string aspectRatio
+    string resolution
+    int count
+    imagegenstatus status
+    string_arr assetIds
+    string failureReason "optional"
+    string createdById "optional"
+    timestamptz finishedAt "optional"
+    timestamptz createdAt
+    timestamptz updatedAt
+    organization organization
+  }
+  DubbingJob {
+    string id PK
+    string orgId FK
+    string videoId FK
+    string sourceLanguage
+    string targetLanguage
+    string voiceId "optional"
+    dubbingstatus status
+    string outputRenditionId "optional"
+    string failureReason "optional"
+    string createdById "optional"
+    timestamptz finishedAt "optional"
+    timestamptz createdAt
+    timestamptz updatedAt
+    organization organization
+    video video
+  }
+  Campaign {
+    string id PK
+    string orgId FK
+    string name
+    string_arr platforms
+    string cadence
+    string timeOfDay
+    string timezone
+    string contentMode
+    string_arr referenceImageIds
+    jsonb config
+    campaignstatus status
+    timestamptz nextRunAt "optional"
+    timestamptz lastRunAt "optional"
+    string createdById "optional"
+    timestamptz createdAt
+    timestamptz updatedAt
+    organization organization
+    campaignpost_arr posts
+  }
+  CampaignPost {
+    string id PK
+    string campaignId FK
+    string orgId FK
+    string platform
+    string channelId FK "optional"
+    timestamptz scheduledFor
+    campaignpoststatus status
+    string videoId FK "optional"
+    string_arr imageIds
+    string caption "optional"
+    string_arr hashtags
+    string publishedTaskId "optional"
+    string failureReason "optional"
+    timestamptz publishedAt "optional"
+    timestamptz createdAt
+    timestamptz updatedAt
+    campaign campaign
+    organization organization
+    video video "optional"
+    channel channel "optional"
+  }
   Channel ||--o| ChannelCredential : "channel"
   Voice ||--o{ Project : "ProjectDefaultVoice"
   Project ||--o| AutomationConfig : "project"
@@ -1056,9 +1160,13 @@ erDiagram
   Video ||--o{ Thumbnail : "video"
   Video ||--o{ PublishingTask : "video"
   Channel ||--o{ PublishingTask : "channel"
+  Video ||--o{ DubbingJob : "video"
+  Campaign ||--o{ CampaignPost : "campaign"
+  Video ||--o{ CampaignPost : "video"
+  Channel ||--o{ CampaignPost : "channel"
 ```
 
-Inbound FK from another domain: `Organization ← ProviderCredential.organization`, `PluginInstallation ← ProviderCredential.pluginInstall`, `Organization ← Channel.organization`, `Organization ← Project.organization`, `Team ← Project.team`, `Workflow ← Project.workflow`, `User ← Video.VideoCreator`, `Organization ← Asset.organization`.
+Inbound FK from another domain: `Organization ← ProviderCredential.organization`, `PluginInstallation ← ProviderCredential.pluginInstall`, `Organization ← Channel.organization`, `Organization ← Project.organization`, `Team ← Project.team`, `Workflow ← Project.workflow`, `User ← Video.VideoCreator`, `Organization ← Asset.organization`, `Organization ← ImageGeneration.organization`, `Organization ← DubbingJob.organization`, `Organization ← Campaign.organization`, `Organization ← CampaignPost.organization`.
 
 ## Pipeline & Workflow Engine (5 models)
 
