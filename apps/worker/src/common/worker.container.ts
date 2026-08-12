@@ -16,6 +16,7 @@ import { createPublishProcessor } from '../processors/publish.processor.js';
 import { createRenderProcessor, createThumbnailProcessor } from '../processors/render.processor.js';
 import { CampaignScheduler } from '../processors/campaign.scheduler.js';
 import { deadLetter } from '../processors/job-record.js';
+import { verifyMediaRuntime } from '@aca/video-engine';
 
 const QUEUES = ['generation', 'image-generation', 'dubbing', 'publish', 'render', 'thumbnail'] as const;
 
@@ -26,6 +27,7 @@ export class WorkerContainer {
   private producers: Map<string, Queue> = new Map();
   private scheduler: CampaignScheduler;
   private healthServer: http.Server | null = null;
+  private mediaRuntimeReady = false;
 
   constructor(
     private config: AppConfig,
@@ -53,6 +55,11 @@ export class WorkerContainer {
     // 2) Verify Postgres
     await this.prisma.$queryRawUnsafe('SELECT 1');
     this.logger.info({ module: 'worker-container' }, 'postgres.connected');
+
+    // Rendering is a required worker capability, not an optional late failure.
+    await verifyMediaRuntime();
+    this.mediaRuntimeReady = true;
+    this.logger.info({ module: 'worker-container' }, 'media-runtime.ready');
 
     // 3) Producers (campaign scheduler re-enqueues generation jobs)
     for (const q of QUEUES) {
@@ -146,7 +153,7 @@ export class WorkerContainer {
         res.end(JSON.stringify(body));
       };
       try {
-        if (url.startsWith('/health/live')) {
+        if (url === '/health' || url.startsWith('/health/live')) {
           json(200, { status: 'alive', service: 'apps/worker', timestamp: new Date().toISOString() });
           return;
         }
@@ -157,11 +164,17 @@ export class WorkerContainer {
           for (const q of this.producers.values()) {
             waiting.push(await q.getWaitingCount().catch(() => 0));
           }
-          const ready = redisPong === 'PONG';
+          const ready = redisPong === 'PONG' && this.mediaRuntimeReady;
           json(ready ? 200 : 503, {
             status: ready ? 'ready' : 'not_ready',
             service: 'apps/worker',
-            checks: { redis: ready ? 'up' : 'down', postgres: 'up', queuesWaiting: waiting },
+            checks: {
+              redis: redisPong === 'PONG' ? 'up' : 'down',
+              postgres: 'up',
+              ffmpeg: this.mediaRuntimeReady ? 'up' : 'down',
+              ffprobe: this.mediaRuntimeReady ? 'up' : 'down',
+              queuesWaiting: waiting,
+            },
             timestamp: new Date().toISOString(),
           });
           return;

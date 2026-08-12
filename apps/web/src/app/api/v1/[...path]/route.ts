@@ -77,12 +77,6 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
   const isHealth = segments[0] === 'health';
 
   if (!upstream) {
-    if (isHealth) {
-      return NextResponse.json(
-        { status: 'ok', service: 'apps/web', version: '0.3.0', environment: 'production', timestamp: new Date().toISOString(), note: 'no upstream configured — set API_UPSTREAM to the AWS API domain' },
-        { status: 200 },
-      );
-    }
     return NextResponse.json(
       { type: 'about:blank', title: 'Upstream not configured', status: 503, code: 'UPSTREAM_NOT_CONFIGURED', detail: 'API_UPSTREAM is not set. Set it to the AWS API domain in Vercel env.' },
       { status: 503 },

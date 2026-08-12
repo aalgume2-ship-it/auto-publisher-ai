@@ -72,6 +72,14 @@ function resolveFfprobe(): string {
 const ffmpegPath: string = resolveFfmpeg();
 const ffprobePath: string = resolveFfprobe();
 
+/** Worker readiness gate: both runtime binaries must execute successfully. */
+export async function verifyMediaRuntime(): Promise<void> {
+  await Promise.all([
+    run(ffmpegPath, ['-version'], 15_000),
+    run(ffprobePath, ['-version'], 15_000),
+  ]);
+}
+
 function findFontsDir(): string {
   // repo root = project src root; walk up looking for infra/fonts.
   let dir = process.cwd();

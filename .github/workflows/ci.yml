@@ -129,11 +129,8 @@ jobs:
           node-version: 22
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm db:generate
-      # no migrations exist yet (Database.md is the source of truth; real
-      # migration files land with their authoring env). Against the FRESH CI
-      # database the honest bootstrap is db push; when migrations land, this
-      # step becomes 'migrate deploy' first, db push removed.
-      - run: pnpm --filter @aca/database exec prisma db push --skip-generate
+      - name: Apply versioned migrations to clean database
+        run: pnpm db:migrate
       - run: pnpm build
       - name: events backbone integration suite (real PG + Redis, 5 e2e)
         run: pnpm --filter @aca/events exec vitest run --config vitest.integration.config.ts

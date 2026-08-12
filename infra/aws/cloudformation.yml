@@ -11,7 +11,7 @@
 # Deploy: aws cloudformation deploy --stack-name autocreator-prod \
 #   --template-file infra/aws/cloudformation.yml \
 #   --capabilities CAPABILITY_NAMED_IAM \
-#   --parameter-overrides DomainName=api.autocreator.ai CertificateArn=arn:aws:acm:...
+#   --parameter-overrides ApiDomain=api.autocreator.ai CertificateArn=arn:aws:acm:...
 # ─────────────────────────────────────────────────────────────────────────────
 AWSTemplateFormatVersion: "2010-09-09"
 Description: "AutoCreator AI — production API + Worker on ECS Fargate with RDS PostgreSQL, ElastiCache Redis, S3, Secrets Manager"
@@ -68,6 +68,16 @@ Parameters:
     Type: String
     Default: "autocreator/prod"
     Description: Prefix for Secrets Manager secrets
+  AuthJwtSecret:
+    Type: String
+    NoEcho: true
+    MinLength: 64
+    Description: Stable JWT signing secret supplied by the deployment workflow
+  SecretsMasterKey:
+    Type: String
+    NoEcho: true
+    MinLength: 64
+    Description: Stable 32-byte hex envelope-encryption key
 
 Resources:
   # ── VPC ───────────────────────────────────────────────────────────────────
@@ -160,7 +170,7 @@ Resources:
   AlbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: ALB — HTTPS from internet
+      GroupDescription: ALB - HTTPS from internet
       VpcId: !Ref Vpc
       SecurityGroupIngress:
         - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0 }
@@ -169,7 +179,7 @@ Resources:
   ApiSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: API — ALB only + health from ALB
+      GroupDescription: API - ALB only and health from ALB
       VpcId: !Ref Vpc
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -182,7 +192,7 @@ Resources:
   WorkerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Worker — no inbound from internet
+      GroupDescription: Worker - no inbound from internet
       VpcId: !Ref Vpc
       SecurityGroupEgress:
         - { IpProtocol: -1, CidrIp: 0.0.0.0/0 }
@@ -190,7 +200,7 @@ Resources:
   DatabaseSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: RDS PostgreSQL — API + worker only
+      GroupDescription: RDS PostgreSQL - API and worker only
       VpcId: !Ref Vpc
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -205,7 +215,7 @@ Resources:
   RedisSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: ElastiCache Redis — API + worker only
+      GroupDescription: ElastiCache Redis - API and worker only
       VpcId: !Ref Vpc
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -278,7 +288,6 @@ Resources:
     Properties:
       DBInstanceIdentifier: !Sub "autocreator-${EnvironmentName}"
       Engine: postgres
-      EngineVersion: "16.4"
       DBInstanceClass: !Ref RdsInstanceClass
       AllocatedStorage: !Ref RdsStorageGb
       StorageEncrypted: true
@@ -301,7 +310,7 @@ Resources:
   RedisCluster:
     Type: AWS::ElastiCache::CacheCluster
     Properties:
-      CacheClusterName: !Sub "autocreator-${EnvironmentName}"
+      ClusterName: !Sub "autocreator-${EnvironmentName}"
       Engine: redis
       CacheNodeType: !Ref RedisNodeType
       NumCacheNodes: 1
@@ -328,10 +337,25 @@ Resources:
       Description: "AutoCreator runtime secrets: DATABASE_URL, REDIS_URL, AUTH_JWT_SECRET, SECRETS_MASTER_KEY, AI keys, OAuth clients"
       SecretString: !Sub |
         {
-          "DATABASE_URL": "postgresql://aca_app:{{resolve:secretsmanager:${SecretsPrefix}/db:SecretString:Password}}@${Database.Endpoint.Address}:5432/autocreator",
+          "DATABASE_URL": "postgresql://aca_app:{{resolve:secretsmanager:${SecretsPrefix}/db:SecretString:Password}}@${Database.Endpoint.Address}:5432/postgres",
           "REDIS_URL": "redis://${RedisCluster.RedisEndpoint.Address}:6379/0",
-          "AUTH_JWT_SECRET": "CHANGE_ME_64_HEX",
-          "SECRETS_MASTER_KEY": "CHANGE_ME_64_HEX"
+          "AUTH_JWT_SECRET": "${AuthJwtSecret}",
+          "SECRETS_MASTER_KEY": "${SecretsMasterKey}",
+          "OPENAI_API_KEY": "",
+          "GROQ_API_KEY": "",
+          "GEMINI_API_KEY": "",
+          "RUNWAY_API_KEY": "",
+          "LUMA_API_KEY": "",
+          "FAL_KEY": "",
+          "GOOGLE_CLIENT_ID": "",
+          "GOOGLE_CLIENT_SECRET": "",
+          "TIKTOK_CLIENT_KEY": "",
+          "TIKTOK_CLIENT_SECRET": "",
+          "META_APP_ID": "",
+          "META_APP_SECRET": "",
+          "STRIPE_SECRET_KEY": "",
+          "STRIPE_WEBHOOK_SECRET": "",
+          "PUBLIC_API_URL": ""
         }
 
   # ── ECS cluster + task roles ─────────────────────────────────────────────
@@ -417,11 +441,16 @@ Resources:
       Port: 80
       Protocol: HTTP
       DefaultActions:
-        - Type: redirect
-          RedirectConfig: { Protocol: HTTPS, Port: 443, StatusCode: HTTP_301 }
+        - !If
+          - HasDomain
+          - Type: redirect
+            RedirectConfig: { Protocol: HTTPS, Port: 443, StatusCode: HTTP_301 }
+          - Type: forward
+            TargetGroupArn: !Ref AlbTargetGroup
 
   AlbHttpsListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: HasDomain
     Properties:
       LoadBalancerArn: !Ref LoadBalancer
       Port: 443
@@ -452,8 +481,8 @@ Resources:
       RequiresCompatibilities: [FARGATE]
       Cpu: !Ref ApiCpu
       Memory: !Ref ApiMemory
-      ExecutionRoleArn: !Ref TaskRole
-      TaskRoleArn: !Ref TaskRole
+      ExecutionRoleArn: !GetAtt TaskRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
       ContainerDefinitions:
         - Name: api
           Image: !Ref ApiImage
@@ -464,8 +493,12 @@ Resources:
             - { Name: NODE_ENV, Value: production }
             - { Name: PORT, Value: "3000" }
             - { Name: HOST, Value: "0.0.0.0" }
-            - { Name: CORS_ORIGINS, Value: "https://autocreator.vercel.app,https://www.autocreator.ai" }
-            - { Name: PUBLIC_WEB_URL, Value: "https://autocreator.vercel.app" }
+            - { Name: CORS_ORIGINS, Value: "https://auto-publisher-ai-web.vercel.app" }
+            - { Name: PUBLIC_WEB_URL, Value: "https://auto-publisher-ai-web.vercel.app" }
+            - { Name: AWS_REGION, Value: !Ref "AWS::Region" }
+            - { Name: S3_BUCKET, Value: !Ref AssetsBucket }
+            - { Name: S3_BUCKET_ASSETS, Value: !Ref AssetsBucket }
+            - { Name: S3_BUCKET_RENDERS, Value: !Ref RendersBucket }
           Secrets:
             - { Name: DATABASE_URL, ValueFrom: !Sub "${SecretsRuntime}:DATABASE_URL::" }
             - { Name: REDIS_URL, ValueFrom: !Sub "${SecretsRuntime}:REDIS_URL::" }
@@ -486,15 +519,18 @@ Resources:
             - { Name: STRIPE_SECRET_KEY, ValueFrom: !Sub "${SecretsRuntime}:STRIPE_SECRET_KEY::" }
             - { Name: STRIPE_WEBHOOK_SECRET, ValueFrom: !Sub "${SecretsRuntime}:STRIPE_WEBHOOK_SECRET::" }
             - { Name: PUBLIC_API_URL, ValueFrom: !Sub "${SecretsRuntime}:PUBLIC_API_URL::" }
-            - { Name: S3_ACCESS_KEY_ID, ValueFrom: !Sub "${SecretsRuntime}:S3_ACCESS_KEY_ID::" }
-            - { Name: S3_SECRET_ACCESS_KEY, ValueFrom: !Sub "${SecretsRuntime}:S3_SECRET_ACCESS_KEY::" }
-            - { Name: S3_BUCKET, ValueFrom: !Sub "${SecretsRuntime}:S3_BUCKET::" }
           LogConfiguration:
             LogDriver: awslogs
             Options:
               awslogs-group: !Ref ApiLogGroup
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: api
+          HealthCheck:
+            Command: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+            Interval: 15
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
 
   WorkerTaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -504,8 +540,8 @@ Resources:
       RequiresCompatibilities: [FARGATE]
       Cpu: !Ref WorkerCpu
       Memory: !Ref WorkerMemory
-      ExecutionRoleArn: !Ref TaskRole
-      TaskRoleArn: !Ref TaskRole
+      ExecutionRoleArn: !GetAtt TaskRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
       ContainerDefinitions:
         - Name: worker
           Image: !Ref WorkerImage
@@ -514,6 +550,10 @@ Resources:
             - { Name: NODE_ENV, Value: production }
             - { Name: PORT, Value: "8080" }
             - { Name: HOST, Value: "0.0.0.0" }
+            - { Name: AWS_REGION, Value: !Ref "AWS::Region" }
+            - { Name: S3_BUCKET, Value: !Ref AssetsBucket }
+            - { Name: S3_BUCKET_ASSETS, Value: !Ref AssetsBucket }
+            - { Name: S3_BUCKET_RENDERS, Value: !Ref RendersBucket }
           Secrets:
             - { Name: DATABASE_URL, ValueFrom: !Sub "${SecretsRuntime}:DATABASE_URL::" }
             - { Name: REDIS_URL, ValueFrom: !Sub "${SecretsRuntime}:REDIS_URL::" }
@@ -526,15 +566,18 @@ Resources:
             - { Name: LUMA_API_KEY, ValueFrom: !Sub "${SecretsRuntime}:LUMA_API_KEY::" }
             - { Name: FAL_KEY, ValueFrom: !Sub "${SecretsRuntime}:FAL_KEY::" }
             - { Name: PUBLIC_API_URL, ValueFrom: !Sub "${SecretsRuntime}:PUBLIC_API_URL::" }
-            - { Name: S3_ACCESS_KEY_ID, ValueFrom: !Sub "${SecretsRuntime}:S3_ACCESS_KEY_ID::" }
-            - { Name: S3_SECRET_ACCESS_KEY, ValueFrom: !Sub "${SecretsRuntime}:S3_SECRET_ACCESS_KEY::" }
-            - { Name: S3_BUCKET, ValueFrom: !Sub "${SecretsRuntime}:S3_BUCKET::" }
           LogConfiguration:
             LogDriver: awslogs
             Options:
               awslogs-group: !Ref WorkerLogGroup
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: worker
+          HealthCheck:
+            Command: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8080/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+            Interval: 15
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
 
   ApiService:
     Type: AWS::ECS::Service
@@ -607,3 +650,21 @@ Outputs:
     Value: !GetAtt RedisCluster.RedisEndpoint.Address
   ClusterName:
     Value: !Ref Cluster
+  ApiServiceName:
+    Value: !Sub "autocreator-${EnvironmentName}-api"
+  WorkerServiceName:
+    Value: !Sub "autocreator-${EnvironmentName}-worker"
+  ApiTaskDefinitionArn:
+    Value: !Ref ApiTaskDefinition
+  WorkerTaskDefinitionArn:
+    Value: !Ref WorkerTaskDefinition
+  PrivateSubnetIds:
+    Value: !Join [",", [!Ref PrivateSubnet1, !Ref PrivateSubnet2]]
+  ApiSecurityGroupId:
+    Value: !Ref ApiSecurityGroup
+  WorkerSecurityGroupId:
+    Value: !Ref WorkerSecurityGroup
+  RuntimeSecretArn:
+    Value: !Ref SecretsRuntime
+  DatabaseSecretArn:
+    Value: !Ref SecretsDatabase

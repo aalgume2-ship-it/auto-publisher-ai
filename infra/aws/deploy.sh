@@ -4,7 +4,7 @@
 #
 # Prereqs:  aws cli configured, AWS_REGION set, Docker available,
 #           an ECR repo pair (autocreator/api, autocreator/worker),
-#           ACM certificate for the API domain.
+#           jq and openssl. An ACM certificate is optional when using the ALB URL.
 #
 # Usage:
 #   export AWS_REGION=eu-central-1
@@ -19,6 +19,18 @@ API_DOMAIN="${API_DOMAIN:-}"
 CERT_ARN="${CERT_ARN:-}"
 STACK="${STACK:-autocreator-prod}"
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+RUNTIME_SECRET_ID="${RUNTIME_SECRET_ID:-autocreator/prod/runtime}"
+
+EXISTING_RUNTIME='{}'
+if aws secretsmanager describe-secret --secret-id "$RUNTIME_SECRET_ID" --region "$AWS_REGION" >/dev/null 2>&1; then
+  EXISTING_RUNTIME="$(aws secretsmanager get-secret-value \
+    --secret-id "$RUNTIME_SECRET_ID" --region "$AWS_REGION" \
+    --query SecretString --output text)"
+fi
+AUTH_JWT_SECRET="${AUTH_JWT_SECRET:-$(jq -r '.AUTH_JWT_SECRET // empty' <<<"$EXISTING_RUNTIME")}"
+SECRETS_MASTER_KEY="${SECRETS_MASTER_KEY:-$(jq -r '.SECRETS_MASTER_KEY // empty' <<<"$EXISTING_RUNTIME")}"
+if [ "${#AUTH_JWT_SECRET}" -lt 64 ]; then AUTH_JWT_SECRET="$(openssl rand -hex 32)"; fi
+if [ "${#SECRETS_MASTER_KEY}" -lt 64 ]; then SECRETS_MASTER_KEY="$(openssl rand -hex 32)"; fi
 
 API_REPO="${API_REPO:-autocreator/api}"
 WORKER_REPO="${WORKER_REPO:-autocreator/worker}"
@@ -45,6 +57,8 @@ PARAMS=(
   "EnvironmentName=prod"
   "ApiImage=${API_IMAGE}"
   "WorkerImage=${WORKER_IMAGE}"
+  "AuthJwtSecret=${AUTH_JWT_SECRET}"
+  "SecretsMasterKey=${SECRETS_MASTER_KEY}"
 )
 if [ -n "${API_DOMAIN}" ]; then PARAMS+=("ApiDomain=${API_DOMAIN}"); fi
 if [ -n "${CERT_ARN}" ]; then PARAMS+=("CertificateArn=${CERT_ARN}"); fi
@@ -57,36 +71,13 @@ aws cloudformation deploy \
   --capabilities CAPABILITY_NAMED_IAM \
   --region "$AWS_REGION"
 
-echo "▶ writing runtime secrets (fill values, never commit)…"
-aws secretsmanager put-secret-value \
-  --secret-id "autocreator/prod/runtime" \
-  --secret-string "$(cat <<'JSON'
-{
-  "AUTH_JWT_SECRET": "",
-  "SECRETS_MASTER_KEY": "",
-  "OPENAI_API_KEY": "",
-  "GROQ_API_KEY": "",
-  "GEMINI_API_KEY": "",
-  "RUNWAY_API_KEY": "",
-  "LUMA_API_KEY": "",
-  "FAL_KEY": "",
-  "GOOGLE_CLIENT_ID": "",
-  "GOOGLE_CLIENT_SECRET": "",
-  "TIKTOK_CLIENT_KEY": "",
-  "TIKTOK_CLIENT_SECRET": "",
-  "META_APP_ID": "",
-  "META_APP_SECRET": "",
-  "STRIPE_SECRET_KEY": "",
-  "STRIPE_WEBHOOK_SECRET": "",
-  "PUBLIC_API_URL": "https://${API_DOMAIN}",
-  "S3_ACCESS_KEY_ID": "",
-  "S3_SECRET_ACCESS_KEY": "",
-  "S3_BUCKET": "autocreator-${ACCOUNT_ID}-assets"
-}
-JSON
-)"
-
-API_URL="https://${API_DOMAIN:-<ALB-DNS>}"
+if [ -n "$API_DOMAIN" ]; then
+  API_URL="https://${API_DOMAIN}"
+else
+  API_URL="$(aws cloudformation describe-stacks --stack-name "$STACK" --region "$AWS_REGION" \
+    --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue | [0]" --output text)"
+fi
 echo ""
 echo "  API  → ${API_URL}"
+echo "  Runtime provider credentials remain managed in Secrets Manager: ${RUNTIME_SECRET_ID}"
 echo "  Set on Vercel:  API_UPSTREAM=${API_URL}  PUBLIC_API_URL=${API_URL}  PUBLIC_WEB_URL=https://<vercel-domain>"
