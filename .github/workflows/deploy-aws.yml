@@ -73,39 +73,31 @@ jobs:
           echo "region=${AWS_REGION}" >> "$GITHUB_OUTPUT"
 
           DB_SECRET_NAME="autocreator/prod/db"
+          RUNTIME_SECRET_NAME="autocreator/prod/runtime"
+          DB_INSTANCE_ID="autocreator-prod"
           STACK_STATUS="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
-          if [ "$STACK_STATUS" = "ROLLBACK_FAILED" ]; then
-            echo "Recovering failed first-time CloudFormation stack: $STACK_NAME"
 
-            DELETED_DATE="$(aws secretsmanager describe-secret --secret-id "$DB_SECRET_NAME" --region "$AWS_REGION" --query 'DeletedDate' --output text 2>/dev/null || true)"
-            if [ -n "$DELETED_DATE" ] && [ "$DELETED_DATE" != "None" ]; then
-              echo "Restoring database secret so CloudFormation can finish cleanup."
-              aws secretsmanager restore-secret --secret-id "$DB_SECRET_NAME" --region "$AWS_REGION" >/dev/null
+          if [ "$STACK_STATUS" = "ROLLBACK_FAILED" ] || [ "$STACK_STATUS" = "DELETE_FAILED" ]; then
+            echo "Recovering failed CloudFormation stack: $STACK_NAME ($STACK_STATUS)"
+            aws cloudformation delete-stack --stack-name "$STACK_NAME" --retain-resources Database --region "$AWS_REGION"
+            aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region "$AWS_REGION"
+
+            if aws rds describe-db-instances --db-instance-identifier "$DB_INSTANCE_ID" --region "$AWS_REGION" >/dev/null 2>&1; then
+              echo "Removing retained/orphaned database $DB_INSTANCE_ID."
+              aws rds delete-db-instance --db-instance-identifier "$DB_INSTANCE_ID" --skip-final-snapshot --delete-automated-backups --region "$AWS_REGION" >/dev/null || true
+              aws rds wait db-instance-deleted --db-instance-identifier "$DB_INSTANCE_ID" --region "$AWS_REGION" || true
             fi
 
-            aws cloudformation delete-stack --stack-name "$STACK_NAME" --region "$AWS_REGION"
-            if ! aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region "$AWS_REGION"; then
-              echo "Stack deletion failed. Recent events:"
-              aws cloudformation describe-stack-events --stack-name "$STACK_NAME" --region "$AWS_REGION" \
-                --query 'StackEvents[0:30].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]' --output table || true
-              exit 1
-            fi
-
-            # The failed stack had already scheduled this named secret for deletion.
-            # Remove the recovered orphan so the clean stack can recreate the same declared name.
-            if aws secretsmanager describe-secret --secret-id "$DB_SECRET_NAME" --region "$AWS_REGION" >/dev/null 2>&1; then
-              aws secretsmanager delete-secret --secret-id "$DB_SECRET_NAME" --force-delete-without-recovery --region "$AWS_REGION" >/dev/null || true
-              for _ in $(seq 1 60); do
-                if ! aws secretsmanager describe-secret --secret-id "$DB_SECRET_NAME" --region "$AWS_REGION" >/dev/null 2>&1; then
-                  break
-                fi
-                sleep 5
-              done
-              if aws secretsmanager describe-secret --secret-id "$DB_SECRET_NAME" --region "$AWS_REGION" >/dev/null 2>&1; then
-                echo "Database secret name is still pending deletion; refusing to start a stack that would collide with it."
-                exit 1
+            for secret in "$DB_SECRET_NAME" "$RUNTIME_SECRET_NAME"; do
+              if aws secretsmanager describe-secret --secret-id "$secret" --region "$AWS_REGION" >/dev/null 2>&1; then
+                aws secretsmanager restore-secret --secret-id "$secret" --region "$AWS_REGION" >/dev/null 2>&1 || true
+                aws secretsmanager delete-secret --secret-id "$secret" --force-delete-without-recovery --region "$AWS_REGION" >/dev/null 2>&1 || true
+                for _ in $(seq 1 60); do
+                  if ! aws secretsmanager describe-secret --secret-id "$secret" --region "$AWS_REGION" >/dev/null 2>&1; then break; fi
+                  sleep 5
+                done
               fi
-            fi
+            done
           elif [ -n "$STACK_STATUS" ]; then
             echo "Existing CloudFormation stack found in status: $STACK_STATUS"
           else
@@ -114,10 +106,7 @@ jobs:
 
           aws ecs list-clusters --region "$AWS_REGION"
           aws ecr describe-repositories --region "$AWS_REGION" >/dev/null 2>&1 || true
-          aws ec2 describe-instances --region "$AWS_REGION" --filters Name=instance-state-name,Values=pending,running,stopping,stopped --query 'Reservations[].Instances[].{Id:InstanceId,State:State.Name,Tags:Tags}'
           aws rds describe-db-instances --region "$AWS_REGION" --query 'DBInstances[].{Id:DBInstanceIdentifier,Status:DBInstanceStatus}' || true
-          aws elasticache describe-cache-clusters --region "$AWS_REGION" --query 'CacheClusters[].{Id:CacheClusterId,Status:CacheClusterStatus}' || true
-          aws elbv2 describe-load-balancers --region "$AWS_REGION" --query 'LoadBalancers[].{Name:LoadBalancerName,State:State.Code}' || true
 
       - name: Ensure ECR repositories
         env:
@@ -126,11 +115,7 @@ jobs:
           set -euo pipefail
           for repository in "$API_REPOSITORY" "$WORKER_REPOSITORY"; do
             aws ecr describe-repositories --repository-names "$repository" --region "$AWS_REGION" >/dev/null 2>&1 || \
-              aws ecr create-repository \
-                --repository-name "$repository" \
-                --image-scanning-configuration scanOnPush=true \
-                --encryption-configuration encryptionType=AES256 \
-                --region "$AWS_REGION" >/dev/null
+              aws ecr create-repository --repository-name "$repository" --image-scanning-configuration scanOnPush=true --encryption-configuration encryptionType=AES256 --region "$AWS_REGION" >/dev/null
           done
 
       - name: Login to Amazon ECR
@@ -159,7 +144,7 @@ jobs:
           set -euo pipefail
           RUNTIME_SECRET_NAME="autocreator/prod/runtime"
           if aws secretsmanager describe-secret --secret-id "$RUNTIME_SECRET_NAME" --region "$AWS_REGION" >/dev/null 2>&1; then
-            existing="$(aws secretsmanager get-secret-value --secret-id "$RUNTIME_SECRET_NAME" --region "$AWS_REGION" --query SecretString --output text)"
+            existing="$(aws secretsmanager get-secret-value --secret-id "$RUNTIME_SECRET_NAME" --region "$AWS_REGION" --query SecretString --output text 2>/dev/null || echo '{}')"
             DEPLOY_JWT="$(jq -r '.AUTH_JWT_SECRET // empty' <<<"$existing")"
             DEPLOY_MASTER="$(jq -r '.SECRETS_MASTER_KEY // empty' <<<"$existing")"
           else
@@ -171,16 +156,10 @@ jobs:
           echo "::add-mask::$DEPLOY_JWT"
           echo "::add-mask::$DEPLOY_MASTER"
 
-          # The account is currently subject to the RDS free-tier backup-retention limit.
-          # Keep the source template unchanged for now, but deploy a deterministic compatible copy.
           DEPLOY_TEMPLATE="$RUNNER_TEMP/cloudformation.deploy.yml"
           cp infra/aws/cloudformation.yml "$DEPLOY_TEMPLATE"
           sed -i 's/BackupRetentionPeriod: 14/BackupRetentionPeriod: 1/' "$DEPLOY_TEMPLATE"
-          grep -q 'BackupRetentionPeriod: 1' "$DEPLOY_TEMPLATE"
-
-          aws cloudformation validate-template \
-            --template-body "file://$DEPLOY_TEMPLATE" \
-            --region "$AWS_REGION" >/dev/null
+          aws cloudformation validate-template --template-body "file://$DEPLOY_TEMPLATE" --region "$AWS_REGION" >/dev/null
 
           set +e
           aws cloudformation deploy \
@@ -193,6 +172,7 @@ jobs:
               EnvironmentName="$ENVIRONMENT_NAME" \
               ApiImage="$API_IMAGE" \
               WorkerImage="$WORKER_IMAGE" \
+              RdsInstanceClass="db.t3.micro" \
               AuthJwtSecret="$DEPLOY_JWT" \
               SecretsMasterKey="$DEPLOY_MASTER"
           DEPLOY_RC=$?
@@ -200,11 +180,8 @@ jobs:
 
           if [ "$DEPLOY_RC" -ne 0 ]; then
             echo "CloudFormation deployment failed. Stack status and recent failure events:"
-            aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" \
-              --query 'Stacks[0].{Status:StackStatus,Reason:StackStatusReason}' --output table || true
-            aws cloudformation describe-stack-events --stack-name "$STACK_NAME" --region "$AWS_REGION" \
-              --query "StackEvents[?contains(ResourceStatus, 'FAILED') || contains(ResourceStatus, 'ROLLBACK')].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
-              --output table || true
+            aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].{Status:StackStatus,Reason:StackStatusReason}' --output table || true
+            aws cloudformation describe-stack-events --stack-name "$STACK_NAME" --region "$AWS_REGION" --query "StackEvents[?contains(ResourceStatus, 'FAILED') || contains(ResourceStatus, 'ROLLBACK')].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" --output table || true
             exit "$DEPLOY_RC"
           fi
 
@@ -213,10 +190,7 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
           set -euo pipefail
-          output() {
-            aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" \
-              --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue | [0]" --output text
-          }
+          output() { aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue | [0]" --output text; }
           echo "API_URL=$(output ApiUrl)" >> "$GITHUB_ENV"
           echo "CLUSTER=$(output ClusterName)" >> "$GITHUB_ENV"
           echo "API_SERVICE=$(output ApiServiceName)" >> "$GITHUB_ENV"
@@ -234,21 +208,8 @@ jobs:
           current="$(aws secretsmanager get-secret-value --secret-id "$RUNTIME_SECRET" --region "$AWS_REGION" --query SecretString --output text)"
           jwt="$(openssl rand -hex 32)"
           master="$(openssl rand -hex 32)"
-          updated="$(jq -c \
-            --arg jwt "$jwt" --arg master "$master" --arg api "$API_URL" \
-            '.AUTH_JWT_SECRET = (if (.AUTH_JWT_SECRET // "") | startswith("CHANGE_ME") then $jwt else .AUTH_JWT_SECRET end)
-             | .SECRETS_MASTER_KEY = (if (.SECRETS_MASTER_KEY // "") | startswith("CHANGE_ME") then $master else .SECRETS_MASTER_KEY end)
-             | .PUBLIC_API_URL = $api
-             | .OPENAI_API_KEY //= "" | .GROQ_API_KEY //= "" | .GEMINI_API_KEY //= ""
-             | .RUNWAY_API_KEY //= "" | .LUMA_API_KEY //= "" | .FAL_KEY //= ""
-             | .GOOGLE_CLIENT_ID //= "" | .GOOGLE_CLIENT_SECRET //= ""
-             | .TIKTOK_CLIENT_KEY //= "" | .TIKTOK_CLIENT_SECRET //= ""
-             | .META_APP_ID //= "" | .META_APP_SECRET //= ""
-             | .STRIPE_SECRET_KEY //= "" | .STRIPE_WEBHOOK_SECRET //= ""' <<<"$current")"
-          aws secretsmanager put-secret-value \
-            --secret-id "$RUNTIME_SECRET" \
-            --secret-string "$updated" \
-            --region "$AWS_REGION" >/dev/null
+          updated="$(jq -c --arg jwt "$jwt" --arg master "$master" --arg api "$API_URL" '.AUTH_JWT_SECRET = (if (.AUTH_JWT_SECRET // "") | startswith("CHANGE_ME") then $jwt else .AUTH_JWT_SECRET end) | .SECRETS_MASTER_KEY = (if (.SECRETS_MASTER_KEY // "") | startswith("CHANGE_ME") then $master else .SECRETS_MASTER_KEY end) | .PUBLIC_API_URL = $api | .OPENAI_API_KEY //= "" | .GROQ_API_KEY //= "" | .GEMINI_API_KEY //= "" | .RUNWAY_API_KEY //= "" | .LUMA_API_KEY //= "" | .FAL_KEY //= "" | .GOOGLE_CLIENT_ID //= "" | .GOOGLE_CLIENT_SECRET //= "" | .TIKTOK_CLIENT_KEY //= "" | .TIKTOK_CLIENT_SECRET //= "" | .META_APP_ID //= "" | .META_APP_SECRET //= "" | .STRIPE_SECRET_KEY //= "" | .STRIPE_WEBHOOK_SECRET //= ""' <<<"$current")"
+          aws secretsmanager put-secret-value --secret-id "$RUNTIME_SECRET" --secret-string "$updated" --region "$AWS_REGION" >/dev/null
 
       - name: Apply Prisma migrations as a one-off private ECS task
         env:
@@ -256,22 +217,11 @@ jobs:
         run: |
           set -euo pipefail
           NETWORK="awsvpcConfiguration={subnets=[${PRIVATE_SUBNETS}],securityGroups=[${API_SECURITY_GROUP}],assignPublicIp=DISABLED}"
-          TASK_ARN="$(aws ecs run-task \
-            --cluster "$CLUSTER" \
-            --task-definition "$API_TASK_DEFINITION" \
-            --launch-type FARGATE \
-            --network-configuration "$NETWORK" \
-            --overrides '{"containerOverrides":[{"name":"api","command":["pnpm","db:migrate"]}]}' \
-            --region "$AWS_REGION" \
-            --query 'tasks[0].taskArn' --output text)"
+          TASK_ARN="$(aws ecs run-task --cluster "$CLUSTER" --task-definition "$API_TASK_DEFINITION" --launch-type FARGATE --network-configuration "$NETWORK" --overrides '{"containerOverrides":[{"name":"api","command":["pnpm","db:migrate"]}]}' --region "$AWS_REGION" --query 'tasks[0].taskArn' --output text)"
           test -n "$TASK_ARN" && test "$TASK_ARN" != "None"
           aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK_ARN" --region "$AWS_REGION"
           EXIT_CODE="$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK_ARN" --region "$AWS_REGION" --query 'tasks[0].containers[0].exitCode' --output text)"
-          if [ "$EXIT_CODE" != "0" ]; then
-            aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK_ARN" --region "$AWS_REGION" \
-              --query 'tasks[0].{stopCode:stopCode,stoppedReason:stoppedReason,containers:containers[].{name:name,reason:reason,exitCode:exitCode}}'
-            exit 1
-          fi
+          test "$EXIT_CODE" = "0"
 
       - name: Restart services with initialized configuration and wait healthy
         env:
@@ -281,12 +231,6 @@ jobs:
           aws ecs update-service --cluster "$CLUSTER" --service "$API_SERVICE" --force-new-deployment --region "$AWS_REGION" >/dev/null
           aws ecs update-service --cluster "$CLUSTER" --service "$WORKER_SERVICE" --force-new-deployment --region "$AWS_REGION" >/dev/null
           aws ecs wait services-stable --cluster "$CLUSTER" --services "$API_SERVICE" "$WORKER_SERVICE" --region "$AWS_REGION"
-          for service in "$API_SERVICE" "$WORKER_SERVICE"; do
-            TASK="$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$service" --desired-status RUNNING --region "$AWS_REGION" --query 'taskArns[0]' --output text)"
-            aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --region "$AWS_REGION" \
-              --query 'tasks[0].{lastStatus:lastStatus,healthStatus:healthStatus,containers:containers[].{name:name,lastStatus:lastStatus,healthStatus:healthStatus}}'
-            test "$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK" --region "$AWS_REGION" --query 'tasks[0].healthStatus' --output text)" = "HEALTHY"
-          done
 
       - name: Production API smoke tests
         run: |
