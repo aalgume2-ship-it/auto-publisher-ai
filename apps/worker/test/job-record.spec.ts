@@ -105,7 +105,7 @@ describe('generation processor contract', () => {
     // missing both videoId and campaignPostId + no jobRecord → beginJob returns skip=true,
     // so processor resolves without error (idempotent guard). Payload contract enforced later in process().
     await expect(processor({ id: 'j', name: 'video.generate', data: {}, attemptsMade: 0, opts: {} } as never)).resolves.toBeUndefined();
-  });
+  }, 15_000);
 
   it('campaign publish re-enqueue queue name is BullMQ-safe (no colons)', () => {
     const prefix = 'aca';

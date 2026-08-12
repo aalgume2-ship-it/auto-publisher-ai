@@ -29,6 +29,7 @@ export {
   renderSilentWav,
   renderSolidJpeg,
   FONTS_DIR,
+  verifyMediaRuntime,
   type ComposeScene,
   type MovingComposeScene,
 } from './render/compose.service.js';

@@ -19,7 +19,7 @@
     "@aca/ai": 4,
     "@aca/ui": 4,
     "@aca/web": 5,
-    "@aca/api": 5,
+    "@aca/api": 4,
     "@aca/worker": 5,
     "@aca/worker-plugins": 5
   },
@@ -50,7 +50,10 @@
     ],
     "@aca/video-engine": [
       "@aca/logger",
-      "@aca/shared"
+      "@aca/shared",
+      "@aca/auth",
+      "@aca/config",
+      "@aca/database"
     ],
     "@aca/plugin-kit": [
       "@aca/shared"
@@ -85,7 +88,8 @@
       "@aca/logger",
       "@aca/database",
       "@aca/events",
-      "@aca/auth"
+      "@aca/auth",
+      "@aca/video-engine"
     ],
     "@aca/worker": [
       "@aca/shared",
@@ -102,7 +106,8 @@
       "@aca/storage",
       "@aca/search",
       "@aca/feature-flags",
-      "@aca/plugin-kit"
+      "@aca/plugin-kit",
+      "@aca/api"
     ],
     "@aca/worker-plugins": [
       "@aca/shared",
@@ -111,8 +116,8 @@
       "@aca/plugin-kit"
     ]
   },
-  "deepImportPolicy": "Consumers import package ROOT only (@aca/x). Folders named adapters|providers|sandbox may only be imported from inside their own package (composition root) \u2014 enforced by @aca/eslint-config boundaries preset in CI.",
-  "vendorSdkPolicy": "Third-party vendor SDKs are importable only inside **/adapters/** or **/providers/** (zero-lock-in guardrail, docs/Architecture.md \u00a716); see VENDOR_SDK_PATTERNS in packages/eslint-config/index.js.",
+  "deepImportPolicy": "Consumers import package ROOT only (@aca/x). Folders named adapters|providers|sandbox may only be imported from inside their own package (composition root) — enforced by @aca/eslint-config boundaries preset in CI.",
+  "vendorSdkPolicy": "Third-party vendor SDKs are importable only inside **/adapters/** or **/providers/** (zero-lock-in guardrail, docs/Architecture.md §16); see VENDOR_SDK_PATTERNS in packages/eslint-config/index.js.",
   "devOnlyTooling": [
     "@aca/typescript-config",
     "@aca/eslint-config"

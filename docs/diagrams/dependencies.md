@@ -37,10 +37,10 @@ flowchart BT
     billing["@aca/billing<br/>packages/billing"]
     ai["@aca/ai<br/>packages/ai"]
     ui["@aca/ui<br/>packages/ui"]
+    api["@aca/api<br/>apps/api"]
   end
   subgraph L5["Layer 5"]
     web["@aca/web<br/>apps/web"]
-    api["@aca/api<br/>apps/api"]
     worker["@aca/worker<br/>apps/worker"]
     worker_plugins["@aca/worker-plugins<br/>packages/worker-plugins"]
   end
@@ -52,6 +52,7 @@ flowchart BT
   api --> events
   api --> logger
   api --> shared
+  api --> video_engine
   billing --> database
   billing --> events
   billing --> shared
@@ -69,10 +70,14 @@ flowchart BT
   search --> shared
   storage --> shared
   ui --> shared
+  video_engine --> auth
+  video_engine --> config
+  video_engine --> database
   video_engine --> logger
   video_engine --> shared
   web --> shared
   worker --> ai
+  worker --> api
   worker --> auth
   worker --> billing
   worker --> config

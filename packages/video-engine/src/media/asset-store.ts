@@ -2,8 +2,8 @@
  * AssetStore — durable binary persistence for generated/uploaded media.
  *
  * Two real tiers (never a mock):
- *   1. S3 (or S3-compatible) when AWS_ACCESS_KEY_ID + S3_BUCKET_* are set —
- *      the production path on AWS (buckets provisioned by infra/aws).
+ *   1. S3 (or S3-compatible) when S3_BUCKET_* is set — the production path
+ *      uses the ECS task role; explicit credentials are optional for local use.
  *   2. Postgres AssetBlob (bytea) when S3 is not configured — durable,
  *      zero extra services, used by sandbox/dev.
  * The local disk is only a hot cache in both modes.
@@ -28,11 +28,15 @@ export class AssetStore {
     private readonly prisma: DbClient,
   ) {
     const c = config.s3;
-    if (c.accessKeyId && c.secretAccessKey && c.bucketAssets) {
+    if (c.bucketAssets) {
       const cfg: S3ClientConfig = {
         region: c.region,
-        credentials: { accessKeyId: c.accessKeyId, secretAccessKey: c.secretAccessKey },
       };
+      // ECS uses the task role through the AWS SDK default credential chain.
+      // Explicit keys remain supported for local S3-compatible development.
+      if (c.accessKeyId && c.secretAccessKey) {
+        cfg.credentials = { accessKeyId: c.accessKeyId, secretAccessKey: c.secretAccessKey };
+      }
       if (c.endpoint) cfg.endpoint = c.endpoint;
       this.s3 = new S3Client(cfg);
       this.bucketAssets = c.bucketAssets;
