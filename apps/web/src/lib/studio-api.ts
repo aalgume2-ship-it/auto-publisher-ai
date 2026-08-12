@@ -5,14 +5,6 @@
  * proxy at /api/v1/* (see app/api/v1/[...path]/route.ts). The upstream origin
  * is set with API_UPSTREAM / NEXT_PUBLIC_API_URL at deploy time — the browser
  * never sees it.
- *
- * Every call returns a typed ApiResult. `reachable:false` means the backend
- * could not be reached — callers keep the UI in a friendly "Processing…"
- * state and retry automatically; the product never shows "API Unreachable"
- * or "Cold Start" to the user.
- *
- * Robustness upgrade: timeout (15s), cold-start detection (HTML or 502/503),
- * automatic retry with backoff (up to 3 attempts for auth, 2 for others).
  */
 
 export const API_BASE = '/api/v1';
@@ -41,7 +33,6 @@ function isColdStartResponse(status: number, text: string, contentType: string |
   if (status === 502 || status === 503) {
     const t = text.slice(0, 2000).toLowerCase();
     if (t.includes('cold') || t.includes('waking') || t.includes('unreachable') || t.includes('application loading')) return true;
-    // If 502/503 and not JSON, likely cold start
     if (contentType && contentType.includes('text/html')) return true;
     if (text.trim().startsWith('<!doctype') || text.trim().startsWith('<html')) return true;
   }
@@ -54,11 +45,16 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { ...init, signal: ac.signal });
-    return res;
+    return await fetch(url, { ...init, signal: ac.signal });
   } finally {
     clearTimeout(timer);
   }
+}
+
+interface CallOptions {
+  idempotencyKey?: string;
+  maxAttempts?: number;
+  timeoutMs?: number;
 }
 
 async function call<T>(
@@ -66,12 +62,17 @@ async function call<T>(
   path: string,
   body?: unknown,
   token?: string | null,
+  options: CallOptions = {},
 ): Promise<ApiResult<T>> {
   const finalPath = `${API_BASE}${normalizePath(path)}`;
-  // For auth, we retry more aggressively because cold start happens often on first login
   const isAuth = path.includes('/auth/');
-  const maxAttempts = isAuth ? 4 : 3;
-  const timeoutMs = isAuth ? 20000 : 15000;
+  const maxAttempts = options.maxAttempts ?? (isAuth ? 2 : 2);
+  const timeoutMs = options.timeoutMs ?? (isAuth ? 12000 : 10000);
+  const idempotencyKey = options.idempotencyKey ?? (
+    method !== 'GET' && method !== 'HEAD'
+      ? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`)
+      : undefined
+  );
 
   let lastError: ApiResult<T> | null = null;
 
@@ -84,7 +85,7 @@ async function call<T>(
           headers: {
             Accept: 'application/json',
             ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-            ...(method !== 'GET' && method !== 'HEAD' ? { 'Idempotency-Key': (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`) } : {}),
+            ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -96,37 +97,27 @@ async function call<T>(
       const text = await res.text();
       let json: any = null;
       if (text) {
-        try {
-          json = JSON.parse(text);
-        } catch {
-          json = null;
-        }
+        try { json = JSON.parse(text); } catch { json = null; }
       }
 
-      // Cold start detection - treat HTML or specific 502/503 as retryable network issue
       if (isColdStartResponse(res.status, text, contentType)) {
-        // If this is not the last attempt, wait and retry
         if (attempt < maxAttempts - 1) {
-          const delay = 2000 * Math.pow(1.7, attempt); // 2s, 3.4s, 5.8s, 9.8s
-          await new Promise((r) => setTimeout(r, delay));
+          await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
           lastError = { ok: false, reachable: false, error: { kind: 'cold_start', status: res.status, detail: 'cold start - retrying' } };
           continue;
         }
-        // Final attempt - return as cold_start / unreachable
         return {
           ok: false,
           reachable: false,
-          error: { kind: 'cold_start', status: res.status, code: json?.code || 'COLD_START', detail: 'Service is waking up' },
+          error: { kind: 'cold_start', status: res.status, code: json?.code || 'COLD_START', detail: json?.detail || 'Service is unavailable' },
         };
       }
 
       if (!res.ok) {
         const pb = (json ?? {}) as { code?: string; detail?: string };
-        // For 502/503 that are JSON (our proxy's COLD_START JSON), treat as retryable if auth and not last attempt
-        if ((res.status === 502 || res.status === 503) && isAuth && attempt < maxAttempts - 1) {
-          const delay = 2500 * Math.pow(1.5, attempt);
-          await new Promise((r) => setTimeout(r, delay));
-          lastError = { ok: false, reachable: false, error: { kind: 'cold_start', status: res.status, code: pb.code, detail: pb.detail || 'upstream waking' } };
+        if ((res.status === 502 || res.status === 503) && attempt < maxAttempts - 1) {
+          await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+          lastError = { ok: false, reachable: false, error: { kind: 'cold_start', status: res.status, code: pb.code, detail: pb.detail || 'upstream unavailable' } };
           continue;
         }
         return { ok: false, reachable: true, error: { kind: 'http', status: res.status, code: pb.code, detail: pb.detail } };
@@ -135,8 +126,7 @@ async function call<T>(
     } catch (err: any) {
       const isTimeout = err?.name === 'AbortError';
       if (attempt < maxAttempts - 1) {
-        const delay = 2000 * Math.pow(1.6, attempt);
-        await new Promise((r) => setTimeout(r, delay));
+        await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
         lastError = { ok: false, reachable: false, error: { kind: 'network', detail: isTimeout ? 'timeout - retrying' : 'backend unreachable - retrying' } };
         continue;
       }
@@ -154,15 +144,15 @@ export interface AuthUser { id: string; email: string; displayName: string; }
 export function register(email: string, password: string, displayName: string) {
   return call<{ user: AuthUser; tokens: AuthTokens; workspace?: { id: string } | null }>('POST', '/auth/register', {
     email, password, displayName, locale: 'en', timezone: 'UTC',
-  });
+  }, null, { maxAttempts: 2, timeoutMs: 12000 });
 }
 
 export function login(email: string, password: string) {
-  return call<{ kind: 'tokens'; user: AuthUser; tokens: AuthTokens } | { kind: 'mfa_required'; mfaTicket: string }>('POST', '/auth/login', { email, password });
+  return call<{ kind: 'tokens'; user: AuthUser; tokens: AuthTokens } | { kind: 'mfa_required'; mfaTicket: string }>('POST', '/auth/login', { email, password }, null, { maxAttempts: 2, timeoutMs: 12000 });
 }
 
 export function refresh(refreshToken: string) {
-  return call<{ user: AuthUser; tokens: AuthTokens }>('POST', '/auth/refresh', { refreshToken });
+  return call<{ user: AuthUser; tokens: AuthTokens }>('POST', '/auth/refresh', { refreshToken }, null, { maxAttempts: 2, timeoutMs: 10000 });
 }
 
 /* ------------------------------------------------------------- orgs ------ */
@@ -210,16 +200,13 @@ export function regenerateVideo(token: string, orgId: string, videoId: string) {
   return call<{ jobId?: string }>('POST', `/organizations/${orgId}/videos/${videoId}/regenerate`, undefined, token);
 }
 
-/** Fetch an authenticated video blob (stream requires the Bearer header). */
 export async function fetchStreamBlob(orgId: string, videoId: string, token: string): Promise<{ blob: Blob; url: string } | null> {
   try {
     const res = await fetch(videoStreamUrl(orgId, videoId, token), { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) return null;
     const blob = await res.blob();
     return { blob, url: URL.createObjectURL(blob) };
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 /* ------------------------------------------------------------- billing --- */
