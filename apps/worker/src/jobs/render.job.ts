@@ -63,10 +63,10 @@ export async function renderHeavyJob(
   };
   spec.specHash = createHash('sha256').update(JSON.stringify(spec)).digest('hex');
 
-  // Update video status to RENDERING.
+  // VideoStatus has no RENDERING state; GENERATING covers the render phase.
   await prisma.video.update({
     where: { id: payload.videoId },
-    data: { status: 'RENDERING' },
+    data: { status: 'GENERATING' },
   });
 
   const workdir = join(tmpdir(), 'aca-render', payload.videoId, spec.specHash.slice(0, 12));
