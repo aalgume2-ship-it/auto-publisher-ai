@@ -2,6 +2,11 @@ name: recreate-autocreator-prod
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/deploy-triggers/recreate-autocreator-prod
 
 permissions:
   contents: read
