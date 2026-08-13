@@ -1,5 +1,6 @@
 name: recover-aws-stack
 
+# Recovery entrypoint for failed autocreator-prod stack cleanup and clean redeploy.
 on:
   workflow_dispatch:
   push:
