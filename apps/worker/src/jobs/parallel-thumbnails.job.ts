@@ -87,7 +87,6 @@ export async function parallelThumbnailsJob(
         width: 1280,
         height: 720,
         selected: i === Math.floor(count / 2),
-        bytes: BigInt(fileStat.size),
       },
     });
     persisted += 1;
