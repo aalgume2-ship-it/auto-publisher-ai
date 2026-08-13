@@ -108,7 +108,7 @@ jobs:
           node-version: 22
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm db:generate
-      - run: pnpm --filter @aca/database exec prisma db push
+      - run: pnpm --filter @aca/database exec prisma db push --url "$DATABASE_URL"
       - run: pnpm build
       - name: events backbone integration suite (real PG + Redis, 5 e2e)
         run: pnpm --filter @aca/events exec vitest run --config vitest.integration.config.ts
