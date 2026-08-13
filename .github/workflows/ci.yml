@@ -12,71 +12,51 @@ concurrency:
 permissions: read-all
 
 jobs:
-  # ── Fast structural gates: zero-install, run in seconds, fail fast ────────
   structural-gates:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-
       - name: dependency-audit (graph acyclic, layers monotonic, zero drift)
         run: node infra/scripts/check-dependency-graph.mjs
-
       - name: tenancy-map check (TENANT_FIELD values ⊆ schema.prisma fields)
         run: node infra/scripts/check-tenancy-map.mjs
-
       - name: Database.md §3 ↔ schema.prisma byte-parity
         run: |
           awk '/^```prisma$/{flag=1;next} flag && /^```$/{exit} flag' docs/Database.md > /tmp/schema.from-docs.prisma
           diff -u /tmp/schema.from-docs.prisma packages/database/prisma/schema.prisma
           echo "byte-parity OK"
-
       - name: dependency-diagram check (docs/diagrams/dependencies.md == generated from dependency-graph.json)
         run: node infra/scripts/generate-dependency-diagram.mjs --check
-
       - name: ER-diagram check (docs/diagrams/database-er.md == generated from schema.prisma)
         run: node infra/scripts/generate-er-diagram.mjs --check
 
-  # ── Build + typecheck + unit tests (the heavy gate) ───────────────────────
   build-test:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
-        # lockfile is generated on first real install (sandbox cannot run pnpm);
-        # flip to --frozen-lockfile once pnpm-lock.yaml is committed
         with:
           version: 9.15.9
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
       - name: install
         run: pnpm install --no-frozen-lockfile
-
       - name: prisma validate (schema must be valid on its own)
-        # prisma validate still requires the datasource env VAR to exist
-        # (value is never connected to in this step)
         env:
           DATABASE_URL: postgresql://aca:aca@localhost:5432/aca
         run: pnpm --filter @aca/database exec prisma validate --schema prisma/schema.prisma
-
       - name: prisma generate (client types for tsc)
         run: pnpm db:generate
-
       - name: build (turbo build — tsc strict, all packages + apps)
         run: pnpm build
-
       - name: unit tests (turbo test — vitest; PG/Redis integration suites stay gated off)
         run: pnpm test
-
       - name: event-catalog check (docs/Event-Catalog.md == generated from shared catalog)
         run: node infra/scripts/generate-event-catalog.mjs --check
 
-  # ── Security gate ─────────────────────────────────────────────────────────
   security-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -93,7 +73,6 @@ jobs:
       - name: pnpm audit (fail on high/critical known vulnerabilities)
         run: pnpm audit --audit-level=high
 
-  # ── Integration gate (real Postgres + Redis, opt-in suites) ───────────────
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -129,11 +108,7 @@ jobs:
           node-version: 22
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm db:generate
-      # no migrations exist yet (Database.md is the source of truth; real
-      # migration files land with their authoring env). Against the FRESH CI
-      # database the honest bootstrap is db push; when migrations land, this
-      # step becomes 'migrate deploy' first, db push removed.
-      - run: pnpm --filter @aca/database exec prisma db push --skip-generate
+      - run: pnpm --filter @aca/database exec prisma db push
       - run: pnpm build
       - name: events backbone integration suite (real PG + Redis, 5 e2e)
         run: pnpm --filter @aca/events exec vitest run --config vitest.integration.config.ts
