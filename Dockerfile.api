@@ -52,11 +52,17 @@ COPY --from=builder /app/pnpm-lock.yaml ./pnpm-lock.yaml
 COPY --from=builder /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
 COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/packages/database/prisma ./packages/database/prisma
+
+# Fail the image build if pnpm package-level links or their shared-store targets
+# were not copied into the final runtime stage.
+RUN cd /app/apps/api && node --input-type=module -e \
+  "const {createRequire}=await import('node:module'); const require=createRequire(import.meta.url); const p=JSON.parse(await (await import('node:fs/promises')).readFile('package.json','utf8')); for (const dependency of Object.keys(p.dependencies)) { try { import.meta.resolve(dependency) } catch (error) { if (error.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') require.resolve(dependency + '/package.json') } } await import('reflect-metadata'); console.log('API runtime dependencies verified')"
 
 # Healthcheck for ECS target group
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=3 \
