@@ -45,7 +45,27 @@ jobs:
           STACK_STATUS="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
           echo "Current stack status: ${STACK_STATUS:-NONE}"
 
-          if [ "$STACK_STATUS" = "DELETE_FAILED" ] || [ "$STACK_STATUS" = "ROLLBACK_FAILED" ]; then
+          if [ "$STACK_STATUS" = "ROLLBACK_FAILED" ]; then
+            echo "Restoring the database secret, then retrying rollback cleanup."
+            if aws secretsmanager describe-secret --secret-id "$DB_SECRET_NAME" --region "$AWS_REGION" >/dev/null 2>&1; then
+              DELETED_DATE="$(aws secretsmanager describe-secret --secret-id "$DB_SECRET_NAME" --region "$AWS_REGION" --query 'DeletedDate' --output text 2>/dev/null || true)"
+              if [ -n "$DELETED_DATE" ] && [ "$DELETED_DATE" != "None" ]; then
+                aws secretsmanager restore-secret --secret-id "$DB_SECRET_NAME" --region "$AWS_REGION" >/dev/null
+              fi
+            fi
+
+            aws cloudformation delete-stack \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION"
+
+            if ! aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region "$AWS_REGION"; then
+              echo "Stack deletion still failed. Recent events:"
+              aws cloudformation describe-stack-events --stack-name "$STACK_NAME" --region "$AWS_REGION" \
+                --query 'StackEvents[0:40].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]' \
+                --output table || true
+              exit 1
+            fi
+          elif [ "$STACK_STATUS" = "DELETE_FAILED" ]; then
             echo "Detaching failed Database resource so the broken stack can be removed."
             aws cloudformation delete-stack \
               --stack-name "$STACK_NAME" \
@@ -72,12 +92,13 @@ jobs:
               --db-instance-identifier "$DB_INSTANCE_ID" \
               --skip-final-snapshot \
               --delete-automated-backups \
-              --region "$AWS_REGION" >/dev/null
-            aws rds wait db-instance-deleted --db-instance-identifier "$DB_INSTANCE_ID" --region "$AWS_REGION"
+              --region "$AWS_REGION" >/dev/null || true
+            aws rds wait db-instance-deleted --db-instance-identifier "$DB_INSTANCE_ID" --region "$AWS_REGION" || true
           fi
 
           for secret in "$DB_SECRET_NAME" "$RUNTIME_SECRET_NAME"; do
             if aws secretsmanager describe-secret --secret-id "$secret" --region "$AWS_REGION" >/dev/null 2>&1; then
+              aws secretsmanager restore-secret --secret-id "$secret" --region "$AWS_REGION" >/dev/null 2>&1 || true
               echo "Removing orphaned secret $secret."
               aws secretsmanager delete-secret \
                 --secret-id "$secret" \
