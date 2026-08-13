@@ -1,5 +1,6 @@
 name: diagnose-aws
 
+# Safe read-only diagnostics for autocreator-prod.
 on:
   push:
     branches: [main]
