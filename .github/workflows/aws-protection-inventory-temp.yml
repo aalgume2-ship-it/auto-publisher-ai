@@ -1,0 +1,70 @@
+name: aws-protection-inventory-temp
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/aws-protection-inventory-temp.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Read-only protection inventory
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          STACK_NAME: autocreator-prod
+        run: |
+          set -euo pipefail
+          echo '=== STACK ==='
+          aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].{Status:StackStatus,Reason:StackStatusReason}' --output table
+
+          echo '=== ACTUAL TEMPLATE POLICIES ==='
+          aws cloudformation get-template --stack-name "$STACK_NAME" --region "$AWS_REGION" --template-stage Original --query TemplateBody --output json > /tmp/template.json
+          jq -r '["LogicalResourceId","Type","DeletionPolicy"], (.Resources|to_entries[]|[.key,.value.Type,(.value.DeletionPolicy//"UNSPECIFIED")]) | @tsv' /tmp/template.json
+
+          echo '=== STACK RESOURCES ==='
+          aws cloudformation describe-stack-resources --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'StackResources[].{Logical:LogicalResourceId,Type:ResourceType,Physical:PhysicalResourceId,Status:ResourceStatus}' --output table
+
+          echo '=== FAILED/ROLLBACK EVENTS ==='
+          aws cloudformation describe-stack-events --stack-name "$STACK_NAME" --region "$AWS_REGION" --query "StackEvents[?contains(ResourceStatus, 'FAILED') || contains(ResourceStatus, 'ROLLBACK')].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" --output table || true
+
+          echo '=== RDS ==='
+          aws rds describe-db-instances --db-instance-identifier autocreator-prod --region "$AWS_REGION" --query 'DBInstances[0].{Id:DBInstanceIdentifier,Status:DBInstanceStatus,Engine:Engine,Endpoint:Endpoint.Address,BackupRetention:BackupRetentionPeriod,DeletionProtection:DeletionProtection,LatestRestorableTime:LatestRestorableTime,SubnetGroup:DBSubnetGroup.DBSubnetGroupName,SecurityGroups:VpcSecurityGroups[].VpcSecurityGroupId}' --output json || true
+          aws rds describe-db-snapshots --db-instance-identifier autocreator-prod --region "$AWS_REGION" --query 'reverse(sort_by(DBSnapshots,&SnapshotCreateTime))[:5].{Id:DBSnapshotIdentifier,Status:Status,Created:SnapshotCreateTime,Type:SnapshotType}' --output table || true
+
+          echo '=== REDIS ==='
+          aws elasticache describe-cache-clusters --cache-cluster-id autocreator-prod --region "$AWS_REGION" --show-cache-node-info --query 'CacheClusters[0].{Id:CacheClusterId,Status:CacheClusterStatus,Engine:Engine,Endpoint:CacheNodes[0].Endpoint.Address,SnapshotRetention:SnapshotRetentionLimit,SnapshotWindow:SnapshotWindow,SubnetGroup:CacheSubnetGroupName,SecurityGroups:SecurityGroups[].SecurityGroupId}' --output json || true
+          aws elasticache describe-snapshots --cache-cluster-id autocreator-prod --region "$AWS_REGION" --query 'reverse(sort_by(Snapshots,&NodeSnapshots[0].SnapshotCreateTime))[:5].{Name:SnapshotName,Status:SnapshotStatus,Created:NodeSnapshots[0].SnapshotCreateTime}' --output table || true
+
+          echo '=== SECRETS ==='
+          for secret in autocreator/prod/runtime autocreator/prod/db; do
+            set +e
+            aws secretsmanager describe-secret --secret-id "$secret" --region "$AWS_REGION" --query '{Name:Name,ARN:ARN,DeletionDate:DeletionDate,LastChangedDate:LastChangedDate}' --output json
+            rc=$?
+            set -e
+            echo "$secret describe_rc=$rc"
+          done
+
+          echo '=== NETWORK ==='
+          aws ec2 describe-vpcs --vpc-ids vpc-0ce6538109ae86d48 --region "$AWS_REGION" --query 'Vpcs[0].{Id:VpcId,State:State,Cidr:CidrBlock}' --output json 2>/dev/null || echo 'vpc missing'
+          for subnet in subnet-0060cfa9a55d6b8ca subnet-0b5d94781cf7a365d; do aws ec2 describe-subnets --subnet-ids "$subnet" --region "$AWS_REGION" --query 'Subnets[0].{Id:SubnetId,State:State,VpcId:VpcId,Cidr:CidrBlock}' --output json 2>/dev/null || echo "$subnet missing"; done
+          for sg in sg-0b975c07f7cadcde8 sg-00d6be333d4d82120 sg-0fa5a42e020aae924 sg-0d4f9816b7debc019 sg-0ecda0565743b46e4; do aws ec2 describe-security-groups --group-ids "$sg" --region "$AWS_REGION" --query 'SecurityGroups[0].{Id:GroupId,VpcId:VpcId,Name:GroupName}' --output json 2>/dev/null || echo "$sg missing"; done
+
+          echo '=== ECS / ALB ==='
+          aws ecs list-clusters --region "$AWS_REGION" --output table || true
+          aws elbv2 describe-load-balancers --names autocreator-prod-alb --region "$AWS_REGION" --query 'LoadBalancers[].{Name:LoadBalancerName,State:State.Code,DNS:DNSName}' --output table 2>/dev/null || true
+          aws elbv2 describe-target-groups --names autocreator-prod-api-tg --region "$AWS_REGION" --query 'TargetGroups[].{Name:TargetGroupName,Arn:TargetGroupArn}' --output table 2>/dev/null || true
+
+          echo '=== ECR ==='
+          for repo in autocreator/api autocreator/worker; do aws ecr describe-repositories --repository-names "$repo" --region "$AWS_REGION" --query 'repositories[0].{Name:repositoryName,Uri:repositoryUri}' --output json || true; done
+
+          echo READ_ONLY_COMPLETE
