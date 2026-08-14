@@ -72,7 +72,7 @@ export default function CreatePanel({ initial, onGenerate, busy = false }: { ini
         <span className="hf-browse">Browse</span>
       </section>
 
-      {media.length > 0 && <section className="hf-media-grid">{media.map((m) => <div className="hf-media" key={m.id}>{m.type === 'image' ? <img src={m.url} alt={m.name} /> : <video src={m.url} muted />}{m.type === 'video' && <span className="hf-video-icon"><Video size={13} /></span>}<button type="button" onClick={(e) => { e.stopPropagation(); remove(m.id); }}><X size={14} /></button></div>)}</section>}
+      {media.length > 0 && <section className="hf-media-grid">{media.map((m) => <div className="hf-media" key={m.id}>{m.type === 'image' ? <img src={m.url} alt={m.name} /> : <video src={m.url} muted loop playsInline autoPlay controls preload="metadata" aria-label={m.name}/>} {m.type === 'video' && <span className="hf-video-icon"><Video size={13} /></span>}<button type="button" aria-label={`Remove ${m.name}`} onClick={(e) => { e.stopPropagation(); remove(m.id); }}><X size={14} /></button></div>)}</section>}
 
       <section className="hf-settings">
         <div className="hf-setting"><label>Model</label><div className="hf-options">{MODELS.map((m) => <button key={m.id} type="button" className={model === m.id ? 'active' : ''} onClick={() => setModel(m.id)}><b>{m.name}</b><small>{m.tag}</small></button>)}</div></div>
