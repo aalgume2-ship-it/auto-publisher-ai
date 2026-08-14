@@ -37,6 +37,9 @@ jobs:
       - name: ER-diagram check (docs/diagrams/database-er.md == generated from schema.prisma)
         run: node infra/scripts/generate-er-diagram.mjs --check
 
+      - name: creative navigation/button integrity
+        run: node infra/scripts/check-creative-links.mjs
+
   # ── Build + typecheck + unit tests (the heavy gate) ───────────────────────
   build-test:
     runs-on: ubuntu-latest
