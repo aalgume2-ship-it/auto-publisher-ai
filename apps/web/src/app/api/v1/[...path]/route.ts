@@ -1,15 +1,20 @@
 /**
  * Catch-all API proxy: /api/v1/* → AWS API upstream (production).
  *
- * No Railway, no Render, no localhost fallback. The ONLY upstream is
- * API_UPSTREAM (set in Vercel env to the AWS ALB/API domain).
- * The browser never sees the upstream origin — server-side only.
+ * The browser never sees the AWS origin. Vercel should normally provide
+ * API_UPSTREAM, but we keep the currently verified production recovery ALB as
+ * a server-side fallback so the existing Lumen UI can generate immediately
+ * even when the Vercel environment variable has not yet been synchronized.
  */
 
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-const RAW_UPSTREAM = process.env.API_UPSTREAM?.trim() || process.env.NEXT_PUBLIC_API_BASE?.trim() || '';
+const VERIFIED_PRODUCTION_UPSTREAM = 'http://autocreator-recovery-alb-979440653.eu-north-1.elb.amazonaws.com';
+const RAW_UPSTREAM =
+  process.env.API_UPSTREAM?.trim() ||
+  process.env.NEXT_PUBLIC_API_BASE?.trim() ||
+  VERIFIED_PRODUCTION_UPSTREAM;
 
 function cleanOrigin(s: string): string {
   return s.replace(/\/+$/, '').trim();
@@ -72,16 +77,9 @@ export async function OPTIONS() {
 }
 
 async function proxy(request: NextRequest, segments: string[]): Promise<NextResponse> {
-  const upstream = RAW_UPSTREAM ? cleanOrigin(RAW_UPSTREAM) : '';
+  const upstream = cleanOrigin(RAW_UPSTREAM);
   const targetPath = upstreamPath(segments);
   const isHealth = segments[0] === 'health';
-
-  if (!upstream) {
-    return NextResponse.json(
-      { type: 'about:blank', title: 'Upstream not configured', status: 503, code: 'UPSTREAM_NOT_CONFIGURED', detail: 'API_UPSTREAM is not set. Set it to the AWS API domain in Vercel env.' },
-      { status: 503 },
-    );
-  }
 
   const hasBody = !['GET', 'HEAD'].includes(request.method);
   let bodyBuffer: ArrayBuffer | undefined;
