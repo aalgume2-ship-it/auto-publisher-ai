@@ -27,9 +27,15 @@ jobs:
           echo '=== STACK ==='
           aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].{Status:StackStatus,Reason:StackStatusReason}' --output table
 
-          echo '=== ACTUAL TEMPLATE POLICIES ==='
-          aws cloudformation get-template --stack-name "$STACK_NAME" --region "$AWS_REGION" --template-stage Original --query TemplateBody --output json > /tmp/template.json
-          jq -r '["LogicalResourceId","Type","DeletionPolicy"], (.Resources|to_entries[]|[.key,.value.Type,(.value.DeletionPolicy//"UNSPECIFIED")]) | @tsv' /tmp/template.json
+          echo '=== ACTUAL TEMPLATE STATEFUL RESOURCE BLOCKS ==='
+          aws cloudformation get-template --stack-name "$STACK_NAME" --region "$AWS_REGION" --template-stage Original --query TemplateBody --output text > /tmp/template.yml
+          awk '
+            /^  (Database|RedisCluster|SecretsRuntime|SecretsDatabase):/ {show=1; print; next}
+            show && /^  [A-Za-z0-9]+:/ {show=0}
+            show {print}
+          ' /tmp/template.yml
+          echo '=== ALL DELETION POLICIES IN ACTUAL TEMPLATE ==='
+          grep -n 'DeletionPolicy\|UpdateReplacePolicy' /tmp/template.yml || true
 
           echo '=== STACK RESOURCES ==='
           aws cloudformation describe-stack-resources --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'StackResources[].{Logical:LogicalResourceId,Type:ResourceType,Physical:PhysicalResourceId,Status:ResourceStatus}' --output table
