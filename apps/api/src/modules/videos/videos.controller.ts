@@ -166,10 +166,17 @@ export class VideosController {
   /** Browser <video> source — HTTP Range aware so seeking works. */
   @Get('videos/:videoId/stream')
   @TenantRequired()
+  @RequiresCapabilities('video.view')
+  @UseZod({ params: VideoParamsSchema })
+  @ApiOperation({ operationId: 'streamVideo', summary: 'Stream the rendered MP4 (Range-aware)' })
+  async stream(@Param() params: { orgId: string; videoId: string }, @Req() req: FastifyRequest, @Res() reply: FastifyReply) {
+    const { storageKey } = await this.videos.renditionFile(params.orgId, params.videoId);
+    return this.sendFile(reply, storageKey, 'video/mp4', req.headers.range);
+  }
 
   @Get('videos/:videoId/stream-chunk')
   @TenantRequired()
-  @RequiresCapabilities('video.read')
+  @RequiresCapabilities('video.view')
   @ApiOperation({ operationId: 'streamVideoChunk', summary: 'Read a binary-safe Base64 chunk of the rendered MP4' })
   async streamChunk(
     @Param() params: { orgId: string; videoId: string },
@@ -188,14 +195,6 @@ export class VideosController {
       done: end >= buf.byteLength,
       base64: buf.subarray(offset, end).toString('base64'),
     };
-  }
-
-  @RequiresCapabilities('video.view')
-  @UseZod({ params: VideoParamsSchema })
-  @ApiOperation({ operationId: 'streamVideo', summary: 'Stream the rendered MP4 (Range-aware)' })
-  async stream(@Param() params: { orgId: string; videoId: string }, @Req() req: FastifyRequest, @Res() reply: FastifyReply) {
-    const { storageKey } = await this.videos.renditionFile(params.orgId, params.videoId);
-    return this.sendFile(reply, storageKey, 'video/mp4', req.headers.range);
   }
 
   @Get('assets/:assetId/content')
