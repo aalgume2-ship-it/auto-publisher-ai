@@ -1,0 +1,42 @@
+name: diagnose-recovery-ecs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/diagnose-recovery-ecs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CLUSTER: autocreator-prod-recovery
+  API_SERVICE: autocreator-prod-recovery-api
+  WORKER_SERVICE: autocreator-prod-recovery-worker
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Inspect ECS services and tasks
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          set -uo pipefail
+          aws ecs describe-services --cluster "$CLUSTER" --services "$API_SERVICE" "$WORKER_SERVICE" --region "$AWS_REGION" \
+            --query 'services[].{Service:serviceName,Desired:desiredCount,Running:runningCount,Pending:pendingCount,TaskDef:taskDefinition,Deployments:deployments[*].{Status:status,Desired:desiredCount,Running:runningCount,Pending:pendingCount,Failed:failedTasks,Rollout:rolloutState,Reason:rolloutStateReason},Events:events[0:8].[createdAt,message]}' --output json
+          for service in "$API_SERVICE" "$WORKER_SERVICE"; do
+            echo "=== $service running ==="
+            RUNNING=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$service" --desired-status RUNNING --region "$AWS_REGION" --query 'taskArns' --output text)
+            if [ -n "$RUNNING" ]; then aws ecs describe-tasks --cluster "$CLUSTER" --tasks $RUNNING --region "$AWS_REGION" --query 'tasks[].{Task:taskArn,Last:lastStatus,Health:healthStatus,Started:startedAt,Containers:containers[].{Name:name,Last:lastStatus,Health:healthStatus,Exit:exitCode,Reason:reason}}' --output json; fi
+            echo "=== $service stopped ==="
+            STOPPED=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$service" --desired-status STOPPED --region "$AWS_REGION" --query 'taskArns[-8:]' --output text)
+            if [ -n "$STOPPED" ]; then aws ecs describe-tasks --cluster "$CLUSTER" --tasks $STOPPED --region "$AWS_REGION" --query 'tasks[].{Task:taskArn,StoppedAt:stoppedAt,StoppedReason:stoppedReason,StopCode:stopCode,Containers:containers[].{Name:name,Exit:exitCode,Reason:reason,Last:lastStatus}}' --output json; fi
+          done
