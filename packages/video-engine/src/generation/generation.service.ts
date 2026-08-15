@@ -243,7 +243,10 @@ export class GenerationService {
         }
       }
 
-      await markStep('render', 72, 'RENDERING');
+      // Production installations created before the expanded VideoStatus enum
+      // may not have RENDERING/UPLOADING yet. The detailed step/progress lives
+      // in seo, so keep the durable status compatible until schema repair.
+      await markStep('render', 72);
 
       /* 4 ── compose (real ffmpeg render; moving path when clips exist) */
       const { videoPath, durationMs } = movingScenes.length === script.scenes.length
@@ -251,7 +254,7 @@ export class GenerationService {
         : await this.composer.compose(stillScenes, audioPath, wd);
       const mp4 = await readFile(videoPath);
       if (mp4.byteLength < 50_000) throw new Error('render produced a suspiciously small mp4');
-      await markStep('upload', 88, 'UPLOADING');
+      await markStep('upload', 88);
       const vidStored = await this.store.put(video.orgId, 'shorts-720x1280.mp4', mp4);
       const videoAsset = await this.prisma.asset.create({
         data: {
