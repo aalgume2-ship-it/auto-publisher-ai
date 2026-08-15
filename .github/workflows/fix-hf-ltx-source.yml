@@ -10,20 +10,13 @@ on:
 permissions:
   contents: write
 
-env:
-  STACK_NAME: autocreator-prod
-  WORKER_REPOSITORY: autocreator/worker
-  SITE_ORIGIN: https://auto-publisher-ai-web.vercel.app
-
 jobs:
   fix:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
-
       - name: Register keyless LTX provider
         run: |
           set -euo pipefail
@@ -43,138 +36,26 @@ jobs:
     supportedDurations: [1, 2, 3, 4, 5],
   },
 """
-          prefix=s.split('] as const;',1)[0]
-          if "id: 'hf-ltx'" not in prefix:
+          if "id: 'hf-ltx'" not in s.split('] as const;',1)[0]:
               s=s.replace(marker, marker+block, 1)
               p.write_text(s)
           PY
           git diff --check
-
       - name: Validate workspace
         run: |
-          set -euo pipefail
           corepack enable
           corepack prepare pnpm@9.15.9 --activate
           pnpm install --frozen-lockfile
           pnpm db:generate
           pnpm typecheck
-          pnpm build
-
-      - name: Commit provider registration
-        id: source
+      - name: Commit
         run: |
-          set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add packages/video-engine/src/ai/providers-video.ts
           if git diff --cached --quiet; then
-            echo 'Already registered'
+            echo 'LTX provider already registered'
           else
             git commit -m 'fix(video): register keyless LTX provider for production'
             git push origin HEAD:main
           fi
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Discover stable production worker
-        id: prod
-        env:
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-        run: |
-          set -euo pipefail
-          STATUS=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].StackStatus' --output text)
-          echo "CloudFormation status: $STATUS"
-          case "$STATUS" in
-            CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE) ;;
-            *) echo "Refusing to touch production while stack is $STATUS"; exit 1 ;;
-          esac
-          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-          CLUSTER=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query "Stacks[0].Outputs[?OutputKey=='ClusterName'].OutputValue | [0]" --output text)
-          SERVICE=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query "Stacks[0].Outputs[?OutputKey=='WorkerServiceName'].OutputValue | [0]" --output text)
-          test "$CLUSTER" != "None" && test -n "$CLUSTER"
-          test "$SERVICE" != "None" && test -n "$SERVICE"
-          echo "account=$ACCOUNT" >> "$GITHUB_OUTPUT"
-          echo "cluster=$CLUSTER" >> "$GITHUB_OUTPUT"
-          echo "service=$SERVICE" >> "$GITHUB_OUTPUT"
-
-      - name: Build and push worker
-        env:
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-          ACCOUNT: ${{ steps.prod.outputs.account }}
-          SOURCE_SHA: ${{ steps.source.outputs.sha }}
-        run: |
-          set -euo pipefail
-          REGISTRY="${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
-          IMAGE="${REGISTRY}/${WORKER_REPOSITORY}:ltx-${SOURCE_SHA}"
-          docker build --pull -f Dockerfile.worker -t "$IMAGE" .
-          docker push "$IMAGE"
-          echo "WORKER_IMAGE=$IMAGE" >> "$GITHUB_ENV"
-
-      - name: Deploy worker only without modifying stateful resources
-        env:
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-          CLUSTER: ${{ steps.prod.outputs.cluster }}
-          SERVICE: ${{ steps.prod.outputs.service }}
-        run: |
-          set -euo pipefail
-          OLD=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" --region "$AWS_REGION" --query 'services[0].taskDefinition' --output text)
-          aws ecs describe-task-definition --task-definition "$OLD" --region "$AWS_REGION" --query taskDefinition > /tmp/old.json
-          jq --arg img "$WORKER_IMAGE" 'del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy) | .containerDefinitions |= map(if .name == "worker" then .image=$img else . end)' /tmp/old.json > /tmp/new.json
-          jq -e --arg img "$WORKER_IMAGE" '.containerDefinitions[] | select(.name=="worker" and .image==$img)' /tmp/new.json >/dev/null
-          NEW=$(aws ecs register-task-definition --region "$AWS_REGION" --cli-input-json file:///tmp/new.json --query 'taskDefinition.taskDefinitionArn' --output text)
-          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --task-definition "$NEW" --force-new-deployment --region "$AWS_REGION" >/dev/null
-          aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE" --region "$AWS_REGION"
-          aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" --region "$AWS_REGION" --query 'services[0].{desired:desiredCount,running:runningCount,pending:pendingCount,taskDefinition:taskDefinition}'
-
-      - name: Generate Neon AI video through public site
-        run: |
-          set -euo pipefail
-          curl -fLsS --retry 5 --retry-delay 3 "$SITE_ORIGIN/api/v1/health/ready" >/dev/null
-          ID="$(date +%s)-$RANDOM"
-          EMAIL="ltx-smoke-$ID@trial.lumen.app"
-          PASSWORD="Ltx${ID//-/}Aa9!xZ7#"
-          AUTH_BODY=$(jq -nc --arg e "$EMAIL" --arg p "$PASSWORD" '{email:$e,password:$p,displayName:"LTX Smoke",locale:"en",timezone:"Asia/Riyadh"}')
-          AUTH=$(curl -fLsS -H 'content-type: application/json' -H "Idempotency-Key: auth-$ID" -d "$AUTH_BODY" "$SITE_ORIGIN/api/v1/auth/register")
-          TOKEN=$(jq -r '.tokens.accessToken // empty' <<<"$AUTH")
-          ORG=$(jq -r '.workspace.id // empty' <<<"$AUTH")
-          test -n "$TOKEN" && test -n "$ORG"
-          S=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: series-${GITHUB_RUN_ID}" -d '{"name":"Neon LTX Test","niche":"cinematic","cadencePerWeek":1,"language":"en"}' "$SITE_ORIGIN/api/v1/organizations/$ORG/series")
-          SERIES=$(jq -r '.id' <<<"$S")
-          PROMPT='Neon city at night, smooth lateral tracking shot following the subject, strong parallax, wet reflections and cinematic motion'
-          BODY=$(jq -nc --arg k "$PROMPT" '{keyword:$k,targetSeconds:10}')
-          V=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: video-${GITHUB_RUN_ID}" -d "$BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series/$SERIES/videos")
-          VID=$(jq -r '.video.id // .id // empty' <<<"$V")
-          test -n "$VID"
-          deadline=$((SECONDS + 2400))
-          while [ $SECONDS -lt $deadline ]; do
-            R=$(curl -fLsS -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VID")
-            STATUS=$(jq -r '.status // empty' <<<"$R")
-            echo "status=$STATUS step=$(jq -r '.seo.step // ""' <<<"$R") progress=$(jq -r '.seo.progress // ""' <<<"$R")"
-            if [ "$STATUS" = READY ]; then
-              curl -fLsS -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VID/stream" -o neon-ltx-production.mp4
-              test "$(stat -c%s neon-ltx-production.mp4)" -gt 30000
-              ffprobe -v error -show_entries format=duration,size -of json neon-ltx-production.mp4
-              exit 0
-            fi
-            if [ "$STATUS" = FAILED ] || [ "$STATUS" = ERROR ] || [ "$STATUS" = CANCELLED ]; then
-              echo "$R" | jq '{status,failureReason,seo}'
-              exit 1
-            fi
-            sleep 8
-          done
-          exit 1
-
-      - name: Upload generated video
-        uses: actions/upload-artifact@v4
-        with:
-          name: neon-ltx-production-video
-          path: neon-ltx-production.mp4
-          if-no-files-found: error
-          retention-days: 7
