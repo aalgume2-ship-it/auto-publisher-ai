@@ -54,12 +54,15 @@ function ResultInner() {
     if (!src) return;
     setBusy('download');
     try {
-      const res = await fetch(src);
-      const blob = await res.blob();
+      // Signed S3 responses carry attachment headers; blob fallback URLs also
+      // download directly. Avoid fetching media through the web runtime again.
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      a.href = src;
       a.download = `lumen-${videoId}-${Math.round(width)}x${Math.round(height)}-${seconds}s.mp4`;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
       a.click();
+      a.remove();
       notify('Download started');
     } catch { notify('Could not start download'); } finally { setBusy(null); }
   }
