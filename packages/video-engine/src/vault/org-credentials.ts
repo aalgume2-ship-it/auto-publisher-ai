@@ -177,6 +177,9 @@ export class OrgCredentialsService {
       const env = this.envVideoKeyFor(pollinations);
       if (env) return { def: pollinations, apiKey: env, source: 'env' };
     }
+    // Free, keyless fallback: real text-to-video on Lightricks' public ZeroGPU Space.
+    const hfLtx = VIDEO_PROVIDERS.find((d) => d.id === 'hf-ltx');
+    if (hfLtx) return { def: hfLtx, apiKey: '', source: 'keyless' };
     for (const def of VIDEO_PROVIDERS) {
       const stored = await this.readSecret(orgId, 'VIDEO_ENGINE', def.id);
       if (stored?.secret) return { def, apiKey: stored.secret, source: 'org' };

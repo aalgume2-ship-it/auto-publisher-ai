@@ -3,7 +3,7 @@
  * All providers return actual MP4 motion, never Ken Burns stills.
  */
 export interface VideoProviderDef {
-  id: 'pollinations' | 'runway' | 'luma' | 'fal-kling';
+  id: 'hf-ltx' | 'pollinations' | 'runway' | 'luma' | 'fal-kling';
   label: string;
   model: string;
   consoleUrl: string;
@@ -61,7 +61,7 @@ export const VIDEO_PROVIDER_MAP: ReadonlyMap<string, VideoProviderDef> = new Map
 export interface VideoCredential {
   def: VideoProviderDef;
   apiKey: string;
-  source: 'org' | 'env';
+  source: 'org' | 'env' | 'keyless';
 }
 
 export interface ClipRequest {
@@ -89,7 +89,7 @@ async function http(url: string, init: RequestInit, timeoutMs = 30_000): Promise
 
 const bearer = (k: string) => ({ authorization: `Bearer ${k}`, 'content-type': 'application/json' });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
+\n\n/* ------------------------------------------------------ HUGGING FACE LTX */\n\nasync function hfLtxGenerate(req: ClipRequest): Promise<Buffer> {\n  const base = 'https://lightricks-ltx-2-3.hf.space';\n  // ZeroGPU is shared public compute, so keep each scene compact and vertical.\n  const duration = Math.min(5, Math.max(1, Math.round(req.windowSec)));\n  const body = {\n    data: [\n      null,\n      `${req.prompt}, continuous natural motion, cinematic camera movement, coherent subject identity, realistic temporal consistency, no slideshow, no still frame`,\n      duration,\n      false,\n      Math.floor(Math.random() * 2_000_000_000),\n      true,\n      768,\n      512,\n    ],\n  };\n  const submit = await fetch(`${base}/gradio_api/call/generate_video`, {\n    method: 'POST',\n    headers: { 'content-type': 'application/json', accept: 'application/json' },\n    body: JSON.stringify(body),\n  });\n  if (!submit.ok) throw new Error(`hf-ltx submit ${submit.status}: ${(await submit.text()).slice(0, 180)}`);\n  const submitted = (await submit.json()) as { event_id?: string };\n  if (!submitted.event_id) throw new Error('hf-ltx submit returned no event id');\n\n  const ctrl = new AbortController();\n  const timer = setTimeout(() => ctrl.abort(), CLIP_TIMEOUT_MS);\n  try {\n    const result = await fetch(`${base}/gradio_api/call/generate_video/${submitted.event_id}`, {\n      headers: { accept: 'text/event-stream' },\n      signal: ctrl.signal,\n    });\n    if (!result.ok) throw new Error(`hf-ltx result ${result.status}: ${(await result.text()).slice(0, 180)}`);\n    const sse = await result.text();\n    if (/event:\s*error/i.test(sse)) throw new Error(`hf-ltx generation failed: ${sse.slice(-500)}`);\n    const dataLines = sse.split(/\\r?\\n/).filter((line) => line.startsWith('data:'));\n    let file: { url?: string | null; path?: string } | null = null;\n    for (let i = dataLines.length - 1; i >= 0; i -= 1) {\n      try {\n        const parsed = JSON.parse(dataLines[i]!.slice(5).trim()) as unknown;\n        if (Array.isArray(parsed) && parsed[0] && typeof parsed[0] === 'object') {\n          file = parsed[0] as { url?: string | null; path?: string };\n          break;\n        }\n      } catch { /* progress line */ }\n    }\n    if (!file) throw new Error('hf-ltx completed without a video file');\n    const videoUrl = file.url || (file.path ? `${base}/gradio_api/file=${encodeURIComponent(file.path)}` : '');\n    if (!videoUrl) throw new Error('hf-ltx output had no downloadable URL');\n    const dl = await fetch(videoUrl);\n    if (!dl.ok) throw new Error(`hf-ltx download ${dl.status}`);\n    const buf = Buffer.from(await dl.arrayBuffer());\n    if (buf.length < 30_000) throw new Error('hf-ltx returned a suspiciously small clip');\n    return buf;\n  } finally {\n    clearTimeout(timer);\n  }\n}\n
 /* ----------------------------------------------------------- POLLINATIONS */
 
 async function pollinationsGenerate(apiKey: string, req: ClipRequest): Promise<Buffer> {
@@ -211,6 +211,7 @@ async function falPoll(apiKey: string, urls: { statusUrl: string; responseUrl: s
 
 /** Submit + poll + download a moving clip. Returns raw MP4 bytes. */
 export async function generateClip(cred: VideoCredential, req: ClipRequest): Promise<Buffer> {
+  if (cred.def.id === 'hf-ltx') return hfLtxGenerate(req);
   if (cred.def.id === 'pollinations') return pollinationsGenerate(cred.apiKey, req);
   let videoUrl: string;
   if (cred.def.id === 'runway') videoUrl = await runwayPoll(cred.apiKey, await runwaySubmit(cred.apiKey, req));
@@ -225,6 +226,7 @@ export async function generateClip(cred: VideoCredential, req: ClipRequest): Pro
 
 /** Validate a provider key without spending generation credits. */
 export async function validateVideoKey(def: VideoProviderDef, apiKey: string): Promise<void> {
+  if (def.id === 'hf-ltx') return;
   if (def.id === 'pollinations') {
     const { status, data } = await http('https://gen.pollinations.ai/account/key', { headers: { authorization: `Bearer ${apiKey}` } });
     const d = (data ?? {}) as { valid?: boolean };

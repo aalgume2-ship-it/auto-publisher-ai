@@ -49,6 +49,10 @@ export class ProviderRegistry {
 
     // ── VIDEO ──────────────────────────────────────────────────────────────
     for (const def of VIDEO_PROVIDERS) {
+      if (!def.envKey) {
+        push({ id: def.id, category: 'VIDEO', label: def.label, model: def.model, envKey: '', state: 'configured', source: 'keyless' });
+        continue;
+      }
       const cfgKey = (ai as unknown as Record<string, string | undefined>)[envKeyToConfig(def.envKey)];
       const envKeyValue = cfgKey && cfgKey.length > 0 ? cfgKey : undefined;
       const orgHint = videoVault.find((v) => v.provider === def.id)?.hint;

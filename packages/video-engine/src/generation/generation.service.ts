@@ -203,7 +203,7 @@ export class GenerationService {
       {
         await markStep(`clips 0/${script.scenes.length}`, 52);
         let clipsDone = 0;
-        await mapPool(script.scenes, 2, async (scene, i) => {
+        await mapPool(script.scenes, videoCred.def.id === 'hf-ltx' ? 1 : 2, async (scene, i) => {
           const w = windows[i]!;
           const buf = await this.ai.generateSceneClip(videoCred, scene.visualPrompt, this.ai.sceneImageUrl(scene.visualPrompt, 1000 + i * 77), w.durationMs / 1000);
           const clipStored = await this.store.put(video.orgId, `clip-${i}.mp4`, buf);
