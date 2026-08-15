@@ -215,7 +215,20 @@ export function regenerateVideo(token: string, orgId: string, videoId: string) {
 
 export async function fetchStreamBlob(orgId: string, videoId: string, token: string): Promise<{ blob: Blob; url: string } | null> {
   try {
-    // Fetch Base64 chunks instead of proxying raw MP4 bytes. This avoids
+    // Prefer the signed Amazon S3 object. This bypasses every binary proxy and
+    // lets the browser play/download the exact bytes written by the worker.
+    const sourceRes = await fetch(
+      `/api/v1/organizations/${orgId}/videos/${videoId}/stream-source`,
+      { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' },
+    );
+    if (sourceRes.ok) {
+      const source = await sourceRes.json() as { url: string | null };
+      if (source.url) return { blob: new Blob(), url: source.url };
+    }
+
+    // Database/local-storage fallback: rebuild from Base64 chunks instead of
+    // proxying raw MP4 bytes.
+
     // serverless adapters coercing arbitrary binary through UTF-8.
     const chunks: Uint8Array[] = [];
     let offset = 0;
