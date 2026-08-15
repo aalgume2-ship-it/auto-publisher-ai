@@ -22,30 +22,63 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Show CloudFormation stack failure details
+      - name: Safe production inventory
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           STACK_NAME: autocreator-prod
         run: |
           set -u
+          echo '=== IDENTITY ==='
+          aws sts get-caller-identity || true
+
           echo '=== STACK STATUS ==='
-          aws cloudformation describe-stacks \
-            --stack-name "$STACK_NAME" \
-            --region "$AWS_REGION" \
-            --query 'Stacks[0].{Status:StackStatus,Reason:StackStatusReason}' \
-            --output table || true
+          aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" \
+            --query 'Stacks[0].{Status:StackStatus,Reason:StackStatusReason}' --output table || true
 
-          echo '=== RECENT FAILED/ROLLBACK EVENTS ==='
-          aws cloudformation describe-stack-events \
-            --stack-name "$STACK_NAME" \
-            --region "$AWS_REGION" \
-            --query "StackEvents[?contains(ResourceStatus, 'FAILED') || contains(ResourceStatus, 'ROLLBACK')].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" \
-            --output table || true
+          echo '=== STACK RESOURCES ==='
+          aws cloudformation describe-stack-resources --stack-name "$STACK_NAME" --region "$AWS_REGION" \
+            --query 'StackResources[].{Logical:LogicalResourceId,Physical:PhysicalResourceId,Type:ResourceType,Status:ResourceStatus}' --output table || true
 
-          echo '=== MOST RECENT EVENTS ==='
-          aws cloudformation describe-stack-events \
-            --stack-name "$STACK_NAME" \
-            --region "$AWS_REGION" \
-            --max-items 40 \
-            --query 'StackEvents[].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]' \
-            --output table || true
+          echo '=== RECENT FAILED/ROLLBACK/DELETE EVENTS ==='
+          aws cloudformation describe-stack-events --stack-name "$STACK_NAME" --region "$AWS_REGION" \
+            --query "StackEvents[?contains(ResourceStatus, 'FAILED') || contains(ResourceStatus, 'ROLLBACK') || contains(ResourceStatus, 'DELETE')].[Timestamp,LogicalResourceId,ResourceType,ResourceStatus,ResourceStatusReason]" --output table || true
+
+          echo '=== RDS ==='
+          aws rds describe-db-instances --region "$AWS_REGION" \
+            --query 'DBInstances[].{Id:DBInstanceIdentifier,Status:DBInstanceStatus,Endpoint:Endpoint.Address,Port:Endpoint.Port,SubnetGroup:DBSubnetGroup.DBSubnetGroupName}' --output table || true
+
+          echo '=== ELASTICACHE ==='
+          aws elasticache describe-cache-clusters --show-cache-node-info --region "$AWS_REGION" \
+            --query 'CacheClusters[].{Id:CacheClusterId,Status:CacheClusterStatus,Engine:Engine,Endpoint:CacheNodes[0].Endpoint.Address,Port:CacheNodes[0].Endpoint.Port}' --output table || true
+
+          echo '=== SECRETS ==='
+          for s in autocreator/prod/db autocreator/prod/runtime; do
+            aws secretsmanager describe-secret --secret-id "$s" --region "$AWS_REGION" \
+              --query '{Name:Name,ARN:ARN,DeletionDate:DeletedDate,LastChanged:LastChangedDate}' --output table || true
+          done
+
+          echo '=== ECS CLUSTERS ==='
+          aws ecs list-clusters --region "$AWS_REGION" --output table || true
+          for cluster in $(aws ecs list-clusters --region "$AWS_REGION" --query 'clusterArns[]' --output text 2>/dev/null); do
+            echo "--- $cluster ---"
+            aws ecs list-services --cluster "$cluster" --region "$AWS_REGION" --output table || true
+            services=$(aws ecs list-services --cluster "$cluster" --region "$AWS_REGION" --query 'serviceArns[]' --output text 2>/dev/null || true)
+            if [ -n "$services" ]; then
+              aws ecs describe-services --cluster "$cluster" --services $services --region "$AWS_REGION" \
+                --query 'services[].{Name:serviceName,Status:status,Desired:desiredCount,Running:runningCount,Pending:pendingCount,TaskDef:taskDefinition,Events:events[0:3]}' --output json || true
+            fi
+            tasks=$(aws ecs list-tasks --cluster "$cluster" --region "$AWS_REGION" --query 'taskArns[]' --output text 2>/dev/null || true)
+            if [ -n "$tasks" ]; then
+              aws ecs describe-tasks --cluster "$cluster" --tasks $tasks --region "$AWS_REGION" \
+                --query 'tasks[].{Arn:taskArn,Last:lastStatus,Desired:desiredStatus,StoppedReason:stoppedReason,Containers:containers[].{Name:name,Last:lastStatus,Exit:exitCode,Reason:reason,Health:healthStatus}}' --output json || true
+            fi
+          done
+
+          echo '=== LOAD BALANCERS / TARGET GROUPS ==='
+          aws elbv2 describe-load-balancers --region "$AWS_REGION" \
+            --query 'LoadBalancers[].{Name:LoadBalancerName,DNS:DNSName,State:State.Code,Arn:LoadBalancerArn}' --output table || true
+          for tg in $(aws elbv2 describe-target-groups --region "$AWS_REGION" --query 'TargetGroups[].TargetGroupArn' --output text 2>/dev/null); do
+            echo "--- TARGET GROUP $tg ---"
+            aws elbv2 describe-target-health --target-group-arn "$tg" --region "$AWS_REGION" \
+              --query 'TargetHealthDescriptions[].{Target:Target.Id,Port:Target.Port,State:TargetHealth.State,Reason:TargetHealth.Reason,Description:TargetHealth.Description}' --output table || true
+          done
