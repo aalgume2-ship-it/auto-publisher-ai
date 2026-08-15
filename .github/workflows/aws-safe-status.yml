@@ -1,0 +1,57 @@
+name: aws-safe-status
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/aws-safe-status.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    environment: production
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Read-only production inventory
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          echo '=== STACK ==='
+          aws cloudformation describe-stacks --stack-name autocreator-prod --region "$AWS_REGION" --query 'Stacks[0].{Status:StackStatus,Reason:StackStatusReason}' --output json || true
+          echo '=== STACK RESOURCES ==='
+          aws cloudformation describe-stack-resources --stack-name autocreator-prod --region "$AWS_REGION" --query 'StackResources[].{Logical:LogicalResourceId,Type:ResourceType,Physical:PhysicalResourceId,Status:ResourceStatus}' --output table || true
+          echo '=== RDS ==='
+          aws rds describe-db-instances --region "$AWS_REGION" --query 'DBInstances[].{Id:DBInstanceIdentifier,Status:DBInstanceStatus,Endpoint:Endpoint.Address}' --output table || true
+          echo '=== ELASTICACHE ==='
+          aws elasticache describe-cache-clusters --region "$AWS_REGION" --show-cache-node-info --query 'CacheClusters[].{Id:CacheClusterId,Status:CacheClusterStatus,Engine:Engine,Endpoint:CacheNodes[0].Endpoint.Address}' --output table || true
+          echo '=== SECRETS ==='
+          for s in autocreator/prod/runtime autocreator/prod/db; do
+            aws secretsmanager describe-secret --secret-id "$s" --region "$AWS_REGION" --query '{Name:Name,DeletionDate:DeletionDate,LastChanged:LastChangedDate}' --output json || true
+          done
+          echo '=== RUNTIME CONFIG KEYS ONLY ==='
+          raw="$(aws secretsmanager get-secret-value --secret-id autocreator/prod/runtime --region "$AWS_REGION" --query SecretString --output text 2>/dev/null || true)"
+          if [ -n "$raw" ] && [ "$raw" != "None" ]; then
+            printf '%s' "$raw" | jq -r 'keys[]' | sort
+            printf 'POLLINATIONS_API_KEY_present='; printf '%s' "$raw" | jq -r 'has("POLLINATIONS_API_KEY") and (.POLLINATIONS_API_KEY|type=="string") and ((.POLLINATIONS_API_KEY|length)>0)'
+            printf 'RUNWAY_API_KEY_present='; printf '%s' "$raw" | jq -r 'has("RUNWAY_API_KEY") and (.RUNWAY_API_KEY|type=="string") and ((.RUNWAY_API_KEY|length)>0)'
+            printf 'LUMA_API_KEY_present='; printf '%s' "$raw" | jq -r 'has("LUMA_API_KEY") and (.LUMA_API_KEY|type=="string") and ((.LUMA_API_KEY|length)>0)'
+            printf 'FAL_KEY_present='; printf '%s' "$raw" | jq -r 'has("FAL_KEY") and (.FAL_KEY|type=="string") and ((.FAL_KEY|length)>0)'
+          fi
+          echo '=== ECS ==='
+          aws ecs list-clusters --region "$AWS_REGION" --output json
+          for c in $(aws ecs list-clusters --region "$AWS_REGION" --query 'clusterArns[]' --output text); do
+            echo "cluster=$c"
+            services=$(aws ecs list-services --cluster "$c" --region "$AWS_REGION" --query 'serviceArns[]' --output text || true)
+            if [ -n "$services" ]; then
+              aws ecs describe-services --cluster "$c" --services $services --region "$AWS_REGION" --query 'services[].{Service:serviceName,Desired:desiredCount,Running:runningCount,Pending:pendingCount,Status:status}' --output table || true
+            fi
+          done
