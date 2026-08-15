@@ -1,0 +1,70 @@
+name: enable-hf-ltx-free
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/enable-hf-ltx-free.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Add keyless LTX ZeroGPU video provider
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('packages/video-engine/src/ai/providers-video.ts')
+          s=p.read_text()
+          s=s.replace("id: 'pollinations' | 'runway' | 'luma' | 'fal-kling';", "id: 'hf-ltx' | 'pollinations' | 'runway' | 'luma' | 'fal-kling';")
+          marker="export const VIDEO_PROVIDERS: readonly VideoProviderDef[] = [\n"
+          entry="""  {\n    id: 'hf-ltx',\n    label: 'LTX-2.3 Distilled (Hugging Face ZeroGPU)',\n    model: 'ltx-2.3-distilled',\n    consoleUrl: 'https://huggingface.co/spaces/Lightricks/LTX-2-3',\n    priceHint: 'free public ZeroGPU (best effort)',\n    envKey: '',\n    supportsFirstFrame: false,\n    supportedDurations: [1, 2, 3, 4, 5],\n  },\n"""
+          if "id: 'hf-ltx'" not in s:
+              s=s.replace(marker, marker+entry)
+          s=s.replace("source: 'org' | 'env';", "source: 'org' | 'env' | 'keyless';")
+          insert_after="const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));\n"
+          hf=r'''\n\n/* ------------------------------------------------------ HUGGING FACE LTX */\n\nasync function hfLtxGenerate(req: ClipRequest): Promise<Buffer> {\n  const base = 'https://lightricks-ltx-2-3.hf.space';\n  // ZeroGPU is shared public compute, so keep each scene compact and vertical.\n  const duration = Math.min(5, Math.max(1, Math.round(req.windowSec)));\n  const body = {\n    data: [\n      null,\n      `${req.prompt}, continuous natural motion, cinematic camera movement, coherent subject identity, realistic temporal consistency, no slideshow, no still frame`,\n      duration,\n      false,\n      Math.floor(Math.random() * 2_000_000_000),\n      true,\n      768,\n      512,\n    ],\n  };\n  const submit = await fetch(`${base}/gradio_api/call/generate_video`, {\n    method: 'POST',\n    headers: { 'content-type': 'application/json', accept: 'application/json' },\n    body: JSON.stringify(body),\n  });\n  if (!submit.ok) throw new Error(`hf-ltx submit ${submit.status}: ${(await submit.text()).slice(0, 180)}`);\n  const submitted = (await submit.json()) as { event_id?: string };\n  if (!submitted.event_id) throw new Error('hf-ltx submit returned no event id');\n\n  const ctrl = new AbortController();\n  const timer = setTimeout(() => ctrl.abort(), CLIP_TIMEOUT_MS);\n  try {\n    const result = await fetch(`${base}/gradio_api/call/generate_video/${submitted.event_id}`, {\n      headers: { accept: 'text/event-stream' },\n      signal: ctrl.signal,\n    });\n    if (!result.ok) throw new Error(`hf-ltx result ${result.status}: ${(await result.text()).slice(0, 180)}`);\n    const sse = await result.text();\n    if (/event:\s*error/i.test(sse)) throw new Error(`hf-ltx generation failed: ${sse.slice(-500)}`);\n    const dataLines = sse.split(/\\r?\\n/).filter((line) => line.startsWith('data:'));\n    let file: { url?: string | null; path?: string } | null = null;\n    for (let i = dataLines.length - 1; i >= 0; i -= 1) {\n      try {\n        const parsed = JSON.parse(dataLines[i]!.slice(5).trim()) as unknown;\n        if (Array.isArray(parsed) && parsed[0] && typeof parsed[0] === 'object') {\n          file = parsed[0] as { url?: string | null; path?: string };\n          break;\n        }\n      } catch { /* progress line */ }\n    }\n    if (!file) throw new Error('hf-ltx completed without a video file');\n    const videoUrl = file.url || (file.path ? `${base}/gradio_api/file=${encodeURIComponent(file.path)}` : '');\n    if (!videoUrl) throw new Error('hf-ltx output had no downloadable URL');\n    const dl = await fetch(videoUrl);\n    if (!dl.ok) throw new Error(`hf-ltx download ${dl.status}`);\n    const buf = Buffer.from(await dl.arrayBuffer());\n    if (buf.length < 30_000) throw new Error('hf-ltx returned a suspiciously small clip');\n    return buf;\n  } finally {\n    clearTimeout(timer);\n  }\n}\n'''
+          if 'async function hfLtxGenerate' not in s:
+              s=s.replace(insert_after, insert_after+hf)
+          s=s.replace("export async function generateClip(cred: VideoCredential, req: ClipRequest): Promise<Buffer> {\n  if (cred.def.id === 'pollinations')", "export async function generateClip(cred: VideoCredential, req: ClipRequest): Promise<Buffer> {\n  if (cred.def.id === 'hf-ltx') return hfLtxGenerate(req);\n  if (cred.def.id === 'pollinations')")
+          s=s.replace("export async function validateVideoKey(def: VideoProviderDef, apiKey: string): Promise<void> {\n  if (def.id === 'pollinations')", "export async function validateVideoKey(def: VideoProviderDef, apiKey: string): Promise<void> {\n  if (def.id === 'hf-ltx') return;\n  if (def.id === 'pollinations')")
+          p.write_text(s)
+
+          p=Path('packages/video-engine/src/vault/org-credentials.ts')
+          s=p.read_text()
+          needle="""      const env = this.envVideoKeyFor(pollinations);\n      if (env) return { def: pollinations, apiKey: env, source: 'env' };\n    }\n    for (const def of VIDEO_PROVIDERS) {"""
+          repl="""      const env = this.envVideoKeyFor(pollinations);\n      if (env) return { def: pollinations, apiKey: env, source: 'env' };\n    }\n    // Free, keyless fallback: real text-to-video on Lightricks' public ZeroGPU Space.\n    const hfLtx = VIDEO_PROVIDERS.find((d) => d.id === 'hf-ltx');\n    if (hfLtx) return { def: hfLtx, apiKey: '', source: 'keyless' };\n    for (const def of VIDEO_PROVIDERS) {"""
+          if 'Free, keyless fallback' not in s:
+              if needle not in s: raise SystemExit('resolveVideo patch point changed')
+              s=s.replace(needle,repl)
+          p.write_text(s)
+
+          p=Path('packages/video-engine/src/providers/registry.ts')
+          s=p.read_text()
+          old="""    for (const def of VIDEO_PROVIDERS) {\n      const cfgKey = (ai as unknown as Record<string, string | undefined>)[envKeyToConfig(def.envKey)];"""
+          new="""    for (const def of VIDEO_PROVIDERS) {\n      if (!def.envKey) {\n        push({ id: def.id, category: 'VIDEO', label: def.label, model: def.model, envKey: '', state: 'configured', source: 'keyless' });\n        continue;\n      }\n      const cfgKey = (ai as unknown as Record<string, string | undefined>)[envKeyToConfig(def.envKey)];"""
+          if "category: 'VIDEO', label: def.label, model: def.model, envKey: '', state: 'configured'" not in s:
+              if old not in s: raise SystemExit('registry patch point changed')
+              s=s.replace(old,new)
+          p.write_text(s)
+
+          p=Path('packages/video-engine/src/generation/generation.service.ts')
+          s=p.read_text()
+          s=s.replace('await mapPool(script.scenes, 2, async (scene, i) => {', "await mapPool(script.scenes, videoCred.def.id === 'hf-ltx' ? 1 : 2, async (scene, i) => {")
+          p.write_text(s)
+          PY
+      - name: Commit free real-video provider
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/video-engine/src/ai/providers-video.ts packages/video-engine/src/vault/org-credentials.ts packages/video-engine/src/providers/registry.ts packages/video-engine/src/generation/generation.service.ts
+          git diff --cached --check
+          git commit -m 'feat(video): add keyless LTX ZeroGPU true video generation'
+          git push origin HEAD:main
