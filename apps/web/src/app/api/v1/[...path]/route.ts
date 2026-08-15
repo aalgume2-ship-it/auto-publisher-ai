@@ -1,20 +1,16 @@
 /**
  * Catch-all API proxy: /api/v1/* → AWS API upstream (production).
  *
- * The browser never sees the AWS origin. Vercel should normally provide
- * API_UPSTREAM, but we keep the currently verified production recovery ALB as
- * a server-side fallback so the existing Lumen UI can generate immediately
- * even when the Vercel environment variable has not yet been synchronized.
+ * The production recovery ALB is the verified source of truth. We deliberately
+ * prefer it over Vercel environment variables because a stale API_UPSTREAM can
+ * otherwise route the live Lumen UI to a deleted deployment and return 502s.
  */
 
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 const VERIFIED_PRODUCTION_UPSTREAM = 'http://autocreator-recovery-alb-979440653.eu-north-1.elb.amazonaws.com';
-const RAW_UPSTREAM =
-  process.env.API_UPSTREAM?.trim() ||
-  process.env.NEXT_PUBLIC_API_BASE?.trim() ||
-  VERIFIED_PRODUCTION_UPSTREAM;
+const RAW_UPSTREAM = VERIFIED_PRODUCTION_UPSTREAM;
 
 function cleanOrigin(s: string): string {
   return s.replace(/\/+$/, '').trim();
