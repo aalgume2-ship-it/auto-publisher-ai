@@ -1,0 +1,107 @@
+name: fix-hf-ltx-source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-hf-ltx-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Repair generated TypeScript block
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('packages/video-engine/src/ai/providers-video.ts')
+          s=p.read_text()
+          start=s.index("const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));")
+          end=s.index("/* ----------------------------------------------------------- POLLINATIONS */")
+          block='''const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/* ------------------------------------------------------ HUGGING FACE LTX */
+
+async function hfLtxGenerate(req: ClipRequest): Promise<Buffer> {
+  const base = 'https://lightricks-ltx-2-3.hf.space';
+  const duration = Math.min(5, Math.max(1, Math.round(req.windowSec)));
+  const body = {
+    data: [
+      null,
+      `${req.prompt}, continuous natural motion, cinematic camera movement, coherent subject identity, realistic temporal consistency, no slideshow, no still frame`,
+      duration,
+      false,
+      Math.floor(Math.random() * 2_000_000_000),
+      true,
+      768,
+      512,
+    ],
+  };
+  const submit = await fetch(`${base}/gradio_api/call/generate_video`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!submit.ok) throw new Error(`hf-ltx submit ${submit.status}: ${(await submit.text()).slice(0, 180)}`);
+  const submitted = (await submit.json()) as { event_id?: string };
+  if (!submitted.event_id) throw new Error('hf-ltx submit returned no event id');
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), CLIP_TIMEOUT_MS);
+  try {
+    const result = await fetch(`${base}/gradio_api/call/generate_video/${submitted.event_id}`, {
+      headers: { accept: 'text/event-stream' },
+      signal: ctrl.signal,
+    });
+    if (!result.ok) throw new Error(`hf-ltx result ${result.status}: ${(await result.text()).slice(0, 180)}`);
+    const sse = await result.text();
+    if (/event:\\s*error/i.test(sse)) throw new Error(`hf-ltx generation failed: ${sse.slice(-500)}`);
+    const dataLines = sse.split(/\\r?\\n/).filter((line) => line.startsWith('data:'));
+    let file: { url?: string | null; path?: string } | null = null;
+    for (let i = dataLines.length - 1; i >= 0; i -= 1) {
+      try {
+        const parsed = JSON.parse(dataLines[i]!.slice(5).trim()) as unknown;
+        if (Array.isArray(parsed) && parsed[0] && typeof parsed[0] === 'object') {
+          file = parsed[0] as { url?: string | null; path?: string };
+          break;
+        }
+      } catch { /* ignore non-result SSE data */ }
+    }
+    if (!file) throw new Error('hf-ltx completed without a video file');
+    const videoUrl = file.url || (file.path ? `${base}/gradio_api/file=${encodeURIComponent(file.path)}` : '');
+    if (!videoUrl) throw new Error('hf-ltx output had no downloadable URL');
+    const dl = await fetch(videoUrl);
+    if (!dl.ok) throw new Error(`hf-ltx download ${dl.status}`);
+    const buf = Buffer.from(await dl.arrayBuffer());
+    if (buf.length < 30_000) throw new Error('hf-ltx returned a suspiciously small clip');
+    return buf;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+'''
+          s=s[:start]+block+s[end:]
+          p.write_text(s)
+          PY
+          git diff --check
+      - name: Validate TypeScript
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+          pnpm install --frozen-lockfile
+          pnpm --filter @aca/video-engine typecheck
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/video-engine/src/ai/providers-video.ts
+          git commit -m 'fix(video): repair keyless LTX provider implementation'
+          git push origin HEAD:main
