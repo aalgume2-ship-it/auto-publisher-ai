@@ -1,0 +1,25 @@
+name: hf-ltx-probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hf-ltx-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Inspect public LTX Gradio API
+        run: |
+          set -euo pipefail
+          BASE='https://lightricks-ltx-2-3.hf.space'
+          curl -fsSL --retry 3 --retry-delay 3 "$BASE/gradio_api/info" -o info.json
+          jq '{named_endpoints:(.named_endpoints // {}), unnamed_endpoints:(.unnamed_endpoints // {})}' info.json
+          echo '--- generate candidates ---'
+          jq -r '(.named_endpoints // {}) | to_entries[] | select((.key|ascii_downcase|contains("generate")) or (.value.description // "" | ascii_downcase | contains("video"))) | .key' info.json || true
