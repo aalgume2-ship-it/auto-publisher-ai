@@ -26,7 +26,12 @@ export class CampaignScheduler {
         this.logger.error({ err: err instanceof Error ? err.message : String(err), module: 'campaign-scheduler' }, 'campaign.scheduler.tick.failed');
       });
     }, 60_000);
-    void this.tick();
+    void this.tick().catch((err) => {
+      this.logger.error(
+        { err: err instanceof Error ? err.message : String(err), module: 'campaign-scheduler' },
+        'campaign.scheduler.initial_tick.failed',
+      );
+    });
     this.logger.info({ module: 'campaign-scheduler' }, 'campaign.scheduler.started');
   }
 
