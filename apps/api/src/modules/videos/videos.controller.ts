@@ -174,6 +174,16 @@ export class VideosController {
     return this.sendFile(reply, storageKey, 'video/mp4', req.headers.range);
   }
 
+  @Get('videos/:videoId/stream-source')
+  @TenantRequired()
+  @RequiresCapabilities('video.view')
+  @ApiOperation({ operationId: 'streamVideoSource', summary: 'Return a direct signed S3 URL for the rendered MP4' })
+  async streamSource(@Param() params: { orgId: string; videoId: string }) {
+    const { storageKey } = await this.videos.renditionFile(params.orgId, params.videoId);
+    const url = await this.store.presignedUrl(storageKey, 3600, `lumen-${params.videoId}.mp4`);
+    return { url, storage: url ? 's3' : 'local' };
+  }
+
   @Get('videos/:videoId/stream-chunk')
   @TenantRequired()
   @RequiresCapabilities('video.view')
