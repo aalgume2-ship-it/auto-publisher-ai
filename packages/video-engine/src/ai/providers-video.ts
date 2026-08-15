@@ -15,6 +15,16 @@ export interface VideoProviderDef {
 
 export const VIDEO_PROVIDERS: readonly VideoProviderDef[] = [
   {
+    id: 'hf-ltx',
+    label: 'LTX-2.3 ZeroGPU',
+    model: 'ltx-2.3',
+    consoleUrl: 'https://huggingface.co/spaces/Lightricks/LTX-2.3',
+    priceHint: 'free shared ZeroGPU; no API key required',
+    envKey: '',
+    supportsFirstFrame: false,
+    supportedDurations: [1, 2, 3, 4, 5],
+  },
+  {
     id: 'pollinations',
     label: 'Pollinations WAN Fast',
     model: 'wan-fast',
