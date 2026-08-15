@@ -1,0 +1,9 @@
+name: trigger-generation-20260815
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/trigger-generation-run-20260815.txt'
+jobs:
+  generate:
+    uses: ./.github/workflows/site-generation-smoke.yml
