@@ -25,18 +25,28 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
-      - name: Inspect ECS services and tasks
+      - name: Inspect ECS services tasks and logs
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
           set -uo pipefail
           aws ecs describe-services --cluster "$CLUSTER" --services "$API_SERVICE" "$WORKER_SERVICE" --region "$AWS_REGION" \
-            --query 'services[].{Service:serviceName,Desired:desiredCount,Running:runningCount,Pending:pendingCount,TaskDef:taskDefinition,Deployments:deployments[*].{Status:status,Desired:desiredCount,Running:runningCount,Pending:pendingCount,Failed:failedTasks,Rollout:rolloutState,Reason:rolloutStateReason},Events:events[0:8].[createdAt,message]}' --output json
+            --query 'services[].{Service:serviceName,Desired:desiredCount,Running:runningCount,Pending:pendingCount,TaskDef:taskDefinition,Deployments:deployments[*].{Status:status,Desired:desiredCount,Running:runningCount,Pending:pendingCount,Failed:failedTasks,Rollout:rolloutState,Reason:rolloutStateReason},Events:events[0:10].[createdAt,message]}' --output json
           for service in "$API_SERVICE" "$WORKER_SERVICE"; do
+            TD=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" --region "$AWS_REGION" --query 'services[0].taskDefinition' --output text)
+            echo "=== $service task definition ==="
+            aws ecs describe-task-definition --task-definition "$TD" --region "$AWS_REGION" --query 'taskDefinition.containerDefinitions[].{Name:name,Image:image,Command:command,EntryPoint:entryPoint,Log:logConfiguration,Health:healthCheck}' --output json
+            GROUPS=$(aws ecs describe-task-definition --task-definition "$TD" --region "$AWS_REGION" --query 'taskDefinition.containerDefinitions[].logConfiguration.options."awslogs-group"' --output text)
             echo "=== $service running ==="
             RUNNING=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$service" --desired-status RUNNING --region "$AWS_REGION" --query 'taskArns' --output text)
             if [ -n "$RUNNING" ]; then aws ecs describe-tasks --cluster "$CLUSTER" --tasks $RUNNING --region "$AWS_REGION" --query 'tasks[].{Task:taskArn,Last:lastStatus,Health:healthStatus,Started:startedAt,Containers:containers[].{Name:name,Last:lastStatus,Health:healthStatus,Exit:exitCode,Reason:reason}}' --output json; fi
             echo "=== $service stopped ==="
-            STOPPED=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$service" --desired-status STOPPED --region "$AWS_REGION" --query 'taskArns[-8:]' --output text)
+            STOPPED=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$service" --desired-status STOPPED --region "$AWS_REGION" --query 'taskArns[-10:]' --output text)
             if [ -n "$STOPPED" ]; then aws ecs describe-tasks --cluster "$CLUSTER" --tasks $STOPPED --region "$AWS_REGION" --query 'tasks[].{Task:taskArn,StoppedAt:stoppedAt,StoppedReason:stoppedReason,StopCode:stopCode,Containers:containers[].{Name:name,Exit:exitCode,Reason:reason,Last:lastStatus}}' --output json; fi
+            for group in $GROUPS; do
+              if [ -n "$group" ] && [ "$group" != "None" ]; then
+                echo "=== CloudWatch $group ==="
+                aws logs tail "$group" --since 20m --region "$AWS_REGION" --format short | tail -n 160 || true
+              fi
+            done
           done
