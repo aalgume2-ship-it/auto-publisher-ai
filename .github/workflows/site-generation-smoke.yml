@@ -1,5 +1,6 @@
 name: site-generation-smoke
 
+# End-to-end production proof: the request must pass through the public Vercel site.
 on:
   push:
     branches: [main]
