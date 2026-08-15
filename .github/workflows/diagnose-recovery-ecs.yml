@@ -31,7 +31,21 @@ jobs:
         run: |
           set -uo pipefail
           aws ecs describe-services --cluster "$CLUSTER" --services "$API_SERVICE" "$WORKER_SERVICE" --region "$AWS_REGION" \
-            --query 'services[].{Service:serviceName,Desired:desiredCount,Running:runningCount,Pending:pendingCount,TaskDef:taskDefinition,Deployments:deployments[*].{Status:status,Desired:desiredCount,Running:runningCount,Pending:pendingCount,Failed:failedTasks,Rollout:rolloutState,Reason:rolloutStateReason},Events:events[0:10].[createdAt,message]}' --output json || true
+            --query 'services[].{Service:serviceName,Desired:desiredCount,Running:runningCount,Pending:pendingCount,TaskDef:taskDefinition,Deployments:deployments[*].{Status:status,Desired:desiredCount,Running:runningCount,Pending:pendingCount,Failed:failedTasks,Rollout:rolloutState,Reason:rolloutStateReason},Events:events[0:15].[createdAt,message]}' --output json || true
+
+          echo '=== recent worker task definitions ==='
+          aws ecs list-task-definitions --family-prefix autocreator-recovery-worker --sort DESC --max-items 10 --region "$AWS_REGION" --output json || true
+          for td in $(aws ecs list-task-definitions --family-prefix autocreator-recovery-worker --sort DESC --max-items 6 --region "$AWS_REGION" --query 'taskDefinitionArns' --output text 2>/dev/null || true); do
+            echo "--- $td ---"
+            aws ecs describe-task-definition --task-definition "$td" --region "$AWS_REGION" --query 'taskDefinition.{Arn:taskDefinitionArn,Revision:revision,Containers:containerDefinitions[].{Name:name,Image:image,Command:command,EntryPoint:entryPoint,Environment:environment,Secrets:secrets,Health:healthCheck}}' --output json || true
+          done
+
+          echo '=== cluster stopped tasks (recent) ==='
+          STOPPED_ALL=$(aws ecs list-tasks --cluster "$CLUSTER" --desired-status STOPPED --region "$AWS_REGION" --max-items 30 --query 'taskArns' --output text 2>/dev/null || true)
+          if [ -n "$STOPPED_ALL" ]; then
+            aws ecs describe-tasks --cluster "$CLUSTER" --tasks $STOPPED_ALL --region "$AWS_REGION" --query 'sort_by(tasks,&stoppedAt)[-20:].{Task:taskArn,TaskDef:taskDefinitionArn,StoppedAt:stoppedAt,StoppedReason:stoppedReason,StopCode:stopCode,Containers:containers[].{Name:name,Exit:exitCode,Reason:reason,Last:lastStatus}}' --output json || true
+          fi
+
           for service in "$API_SERVICE" "$WORKER_SERVICE"; do
             TD=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" --region "$AWS_REGION" --query 'services[0].taskDefinition' --output text)
             echo "=== $service task definition ==="
@@ -42,11 +56,11 @@ jobs:
             if [ -n "$RUNNING" ]; then aws ecs describe-tasks --cluster "$CLUSTER" --tasks $RUNNING --region "$AWS_REGION" --query 'tasks[].{Task:taskArn,Last:lastStatus,Health:healthStatus,Started:startedAt,Containers:containers[].{Name:name,Last:lastStatus,Health:healthStatus,Exit:exitCode,Reason:reason}}' --output json || true; fi
             echo "=== $service stopped ==="
             STOPPED=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$service" --desired-status STOPPED --region "$AWS_REGION" --query 'taskArns[-10:]' --output text 2>/dev/null || true)
-            if [ -n "$STOPPED" ]; then aws ecs describe-tasks --cluster "$CLUSTER" --tasks $STOPPED --region "$AWS_REGION" --query 'tasks[].{Task:taskArn,StoppedAt:stoppedAt,StoppedReason:stoppedReason,StopCode:stopCode,Containers:containers[].{Name:name,Exit:exitCode,Reason:reason,Last:lastStatus}}' --output json || true; fi
+            if [ -n "$STOPPED" ]; then aws ecs describe-tasks --cluster "$CLUSTER" --tasks $STOPPED --region "$AWS_REGION" --query 'tasks[].{Task:taskArn,TaskDef:taskDefinitionArn,StoppedAt:stoppedAt,StoppedReason:stoppedReason,StopCode:stopCode,Containers:containers[].{Name:name,Exit:exitCode,Reason:reason,Last:lastStatus}}' --output json || true; fi
             for group in $LOG_GROUPS; do
               if [ -n "$group" ] && [ "$group" != "None" ]; then
                 echo "=== CloudWatch $group ==="
-                aws logs tail "$group" --since 45m --region "$AWS_REGION" --format short 2>&1 | tail -n 300 || true
+                aws logs tail "$group" --since 2h --region "$AWS_REGION" --format short 2>&1 | tail -n 400 || true
               fi
             done
           done
