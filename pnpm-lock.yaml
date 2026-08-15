@@ -435,6 +435,12 @@ importers:
 
   packages/shared:
     dependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.20.1
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
       zod:
         specifier: ^3.23.8
         version: 3.25.76
@@ -442,12 +448,6 @@ importers:
       '@aca/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.20.1
-      typescript:
-        specifier: 'catalog:'
-        version: 5.9.3
       vitest:
         specifier: 'catalog:'
         version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.23.11)(yaml@2.9.0)
