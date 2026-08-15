@@ -19,28 +19,7 @@ jobs:
           ref: main
       - name: Register keyless LTX provider
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('packages/video-engine/src/ai/providers-video.ts')
-          s=p.read_text()
-          marker='export const VIDEO_PROVIDERS: readonly VideoProviderDef[] = [\n'
-          block="""  {
-    id: 'hf-ltx',
-    label: 'LTX-2.3 ZeroGPU',
-    model: 'ltx-2.3',
-    consoleUrl: 'https://huggingface.co/spaces/Lightricks/LTX-2.3',
-    priceHint: 'free shared ZeroGPU',
-    envKey: '',
-    supportsFirstFrame: false,
-    supportedDurations: [1, 2, 3, 4, 5],
-  },
-"""
-          head=s.split(marker,1)[1].split('];',1)[0] if marker in s else ''
-          if "id: 'hf-ltx'" not in head:
-              if marker not in s: raise SystemExit('VIDEO_PROVIDERS marker not found')
-              s=s.replace(marker, marker+block, 1)
-              p.write_text(s)
-          PY
+          python3 -c "from pathlib import Path; p=Path('packages/video-engine/src/ai/providers-video.ts'); s=p.read_text(); marker='export const VIDEO_PROVIDERS: readonly VideoProviderDef[] = [\\n'; block=\"  {\\n    id: 'hf-ltx',\\n    label: 'LTX-2.3 ZeroGPU',\\n    model: 'ltx-2.3',\\n    consoleUrl: 'https://huggingface.co/spaces/Lightricks/LTX-2.3',\\n    priceHint: 'free shared ZeroGPU',\\n    envKey: '',\\n    supportsFirstFrame: false,\\n    supportedDurations: [1, 2, 3, 4, 5],\\n  },\\n\"; head=s.split(marker,1)[1].split('];',1)[0] if marker in s else ''; p.write_text(s if \"id: 'hf-ltx'\" in head else s.replace(marker, marker+block, 1))"
           git diff --check
       - uses: pnpm/action-setup@v4
         with:
