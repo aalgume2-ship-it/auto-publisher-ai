@@ -52,7 +52,7 @@ jobs:
             ORGS=$(curl -fLsS -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations")
             ORG=$(jq -r '.items[0].organization.id // empty' <<<"$ORGS")
           fi
-          SERIES_BODY='{"name":"Neon AI Video Test","niche":"cinematic","cadencePerWeek":1,"language":"en"}'
+          SERIES_BODY='{"name":"Neon AI Video Test","niche":"cinematic","language":"en"}'
           SERIES=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: series-${GITHUB_RUN_ID}" -d "$SERIES_BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series")
           SERIES_ID=$(jq -r '.id' <<<"$SERIES")
           test -n "$SERIES_ID"
@@ -68,8 +68,12 @@ jobs:
         run: |
           set -euo pipefail
           PROMPT='Neon city at night, smooth lateral tracking shot following the subject, strong parallax, wet reflections and cinematic motion'
-          BODY=$(jq -nc --arg k "$PROMPT" '{keyword:$k,targetSeconds:10}')
-          RESP=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: neon-video-${GITHUB_RUN_ID}" -d "$BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series/$SERIES/videos")
+          BODY=$(jq -nc --arg k "$PROMPT" '{keyword:$k,targetSeconds:20}')
+          TMP=$(mktemp)
+          STATUS=$(curl -LsS -o "$TMP" -w '%{http_code}' -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: neon-video-${GITHUB_RUN_ID}" -d "$BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series/$SERIES/videos")
+          RESP=$(cat "$TMP"); rm -f "$TMP"
+          echo "$RESP" | jq '{id:(.video.id // .id),status:(.video.status // .status),title,detail,code}' 2>/dev/null || printf '%s\n' "$RESP" | head -c 1000
+          test "$STATUS" -ge 200 -a "$STATUS" -lt 300
           VIDEO_ID=$(jq -r '.video.id // .id // empty' <<<"$RESP")
           test -n "$VIDEO_ID"
           echo "id=$VIDEO_ID" >> "$GITHUB_OUTPUT"
