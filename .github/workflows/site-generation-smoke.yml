@@ -15,17 +15,17 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      SITE_ORIGIN: https://auto-publisher-ai-web-git-main-aalgume2-ship-its-projects.vercel.app
+      SITE_ORIGIN: https://auto-publisher-ai-75unmwybo-aalgume2-ship-its-projects.vercel.app
     steps:
       - name: Verify deployed site and API proxy
         run: |
           set -euo pipefail
-          curl -fsS --retry 4 --retry-delay 3 "$SITE_ORIGIN/" >/dev/null
+          curl -fLsS --retry 4 --retry-delay 3 "$SITE_ORIGIN/" >/dev/null
           echo '--- live ---'
-          curl -fsS --retry 4 --retry-delay 3 "$SITE_ORIGIN/api/v1/health/live"
+          curl -fLsS --retry 4 --retry-delay 3 "$SITE_ORIGIN/api/v1/health/live"
           echo
           echo '--- ready ---'
-          curl -fsS --retry 4 --retry-delay 3 "$SITE_ORIGIN/api/v1/health/ready"
+          curl -fLsS --retry 4 --retry-delay 3 "$SITE_ORIGIN/api/v1/health/ready"
           echo
 
       - name: Create real temporary site session
@@ -36,7 +36,7 @@ jobs:
           EMAIL="site-smoke-$ID@trial.lumen.app"
           PASSWORD="Smoke${ID//-/}Aa9!xZ7#"
           BODY=$(jq -nc --arg e "$EMAIL" --arg p "$PASSWORD" '{email:$e,password:$p,displayName:"Production Site Smoke",locale:"ar",timezone:"Asia/Riyadh"}')
-          RESP=$(curl -fsS --retry 3 --retry-delay 2 -H 'content-type: application/json' -H "Idempotency-Key: auth-$ID" -d "$BODY" "$SITE_ORIGIN/api/v1/auth/register")
+          RESP=$(curl -fLsS --retry 3 --retry-delay 2 -H 'content-type: application/json' -H "Idempotency-Key: auth-$ID" -d "$BODY" "$SITE_ORIGIN/api/v1/auth/register")
           TOKEN=$(jq -r '.tokens.accessToken // empty' <<<"$RESP")
           ORG=$(jq -r '.workspace.id // empty' <<<"$RESP")
           test -n "$TOKEN"
@@ -53,16 +53,16 @@ jobs:
           set -euo pipefail
           ORG="$ORG0"
           if [ -z "$ORG" ]; then
-            ORGS=$(curl -fsS -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations")
+            ORGS=$(curl -fLsS -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations")
             ORG=$(jq -r '.items[0].organization.id // empty' <<<"$ORGS")
           fi
           if [ -z "$ORG" ]; then
             BODY='{"name":"Production Smoke Studio","timezone":"Asia/Riyadh","defaultLocale":"ar"}'
-            O=$(curl -fsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: org-${GITHUB_RUN_ID}" -d "$BODY" "$SITE_ORIGIN/api/v1/organizations")
+            O=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: org-${GITHUB_RUN_ID}" -d "$BODY" "$SITE_ORIGIN/api/v1/organizations")
             ORG=$(jq -r '.id' <<<"$O")
           fi
           SERIES_BODY='{"name":"اختبار التوليد من الموقع","niche":"science","cadencePerWeek":1,"language":"ar"}'
-          SERIES=$(curl -fsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: series-${GITHUB_RUN_ID}" -d "$SERIES_BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series")
+          SERIES=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: series-${GITHUB_RUN_ID}" -d "$SERIES_BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series")
           SERIES_ID=$(jq -r '.id' <<<"$SERIES")
           test -n "$SERIES_ID"
           echo "org=$ORG" >> "$GITHUB_OUTPUT"
@@ -78,7 +78,7 @@ jobs:
           set -euo pipefail
           PROMPT='عجائب جسم الإنسان: كيف يعمل القلب والدماغ والأعصاب بطريقة مدهشة، بأسلوب سينمائي علمي واضح ومناسب لفيديو عمودي قصير'
           BODY=$(jq -nc --arg k "$PROMPT" '{keyword:$k,targetSeconds:35}')
-          RESP=$(curl -fsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: video-${GITHUB_RUN_ID}" -d "$BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series/$SERIES/videos")
+          RESP=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: video-${GITHUB_RUN_ID}" -d "$BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series/$SERIES/videos")
           echo "$RESP" | jq '{id:(.video.id // .id),status:(.video.status // .status),jobId}'
           VIDEO_ID=$(jq -r '.video.id // .id // empty' <<<"$RESP")
           test -n "$VIDEO_ID"
@@ -93,13 +93,13 @@ jobs:
           set -euo pipefail
           deadline=$((SECONDS + 1200))
           while [ $SECONDS -lt $deadline ]; do
-            R=$(curl -fsS -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VIDEO_ID")
+            R=$(curl -fLsS -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VIDEO_ID")
             STATUS=$(jq -r '.status // empty' <<<"$R")
             STEP=$(jq -r '.seo.step // ""' <<<"$R")
             PROGRESS=$(jq -r '.seo.progress // ""' <<<"$R")
             echo "status=$STATUS progress=$PROGRESS step=$STEP"
             if [ "$STATUS" = "READY" ]; then
-              curl -fL --retry 3 -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VIDEO_ID/stream" -o site-generated-smoke.mp4
+              curl -fLsS --retry 3 -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VIDEO_ID/stream" -o site-generated-smoke.mp4
               test "$(stat -c%s site-generated-smoke.mp4)" -gt 30000
               file site-generated-smoke.mp4
               exit 0
