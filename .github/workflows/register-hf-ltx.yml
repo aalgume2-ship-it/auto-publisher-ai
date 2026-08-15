@@ -1,0 +1,67 @@
+name: register-hf-ltx
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/register-hf-ltx.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  register:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Register keyless LTX provider
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('packages/video-engine/src/ai/providers-video.ts')
+          s=p.read_text()
+          marker='export const VIDEO_PROVIDERS: readonly VideoProviderDef[] = [\n'
+          block="""  {
+    id: 'hf-ltx',
+    label: 'LTX-2.3 ZeroGPU',
+    model: 'ltx-2.3',
+    consoleUrl: 'https://huggingface.co/spaces/Lightricks/LTX-2.3',
+    priceHint: 'free shared ZeroGPU',
+    envKey: '',
+    supportsFirstFrame: false,
+    supportedDurations: [1, 2, 3, 4, 5],
+  },
+"""
+          head=s.split(marker,1)[1].split('];',1)[0] if marker in s else ''
+          if "id: 'hf-ltx'" not in head:
+              if marker not in s: raise SystemExit('VIDEO_PROVIDERS marker not found')
+              s=s.replace(marker, marker+block, 1)
+              p.write_text(s)
+          PY
+          git diff --check
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - name: Commit provider registration
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/video-engine/src/ai/providers-video.ts
+          if git diff --cached --quiet; then
+            echo 'LTX provider already registered'
+          else
+            git commit -m 'fix(video): register keyless LTX provider'
+            git push origin HEAD:main
+          fi
