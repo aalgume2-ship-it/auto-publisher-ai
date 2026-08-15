@@ -35,7 +35,7 @@ jobs:
           for service in "$API_SERVICE" "$WORKER_SERVICE"; do
             TD=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" --region "$AWS_REGION" --query 'services[0].taskDefinition' --output text)
             echo "=== $service task definition ==="
-            aws ecs describe-task-definition --task-definition "$TD" --region "$AWS_REGION" --query 'taskDefinition.containerDefinitions[].{Name:name,Image:image,Command:command,EntryPoint:entryPoint,Log:logConfiguration,Health:healthCheck}' --output json || true
+            aws ecs describe-task-definition --task-definition "$TD" --region "$AWS_REGION" --query 'taskDefinition.containerDefinitions[].{Name:name,Image:image,Command:command,EntryPoint:entryPoint,Environment:environment,Secrets:secrets,Log:logConfiguration,Health:healthCheck}' --output json || true
             LOG_GROUPS=$(aws ecs describe-task-definition --task-definition "$TD" --region "$AWS_REGION" --query 'taskDefinition.containerDefinitions[].logConfiguration.options."awslogs-group"' --output text 2>/dev/null || true)
             echo "=== $service running ==="
             RUNNING=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$service" --desired-status RUNNING --region "$AWS_REGION" --query 'taskArns' --output text 2>/dev/null || true)
@@ -46,7 +46,7 @@ jobs:
             for group in $LOG_GROUPS; do
               if [ -n "$group" ] && [ "$group" != "None" ]; then
                 echo "=== CloudWatch $group ==="
-                aws logs tail "$group" --since 30m --region "$AWS_REGION" --format short 2>&1 | tail -n 240 || true
+                aws logs tail "$group" --since 45m --region "$AWS_REGION" --format short 2>&1 | tail -n 300 || true
               fi
             done
           done
