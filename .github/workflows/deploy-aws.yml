@@ -124,25 +124,6 @@ jobs:
           update_task "$API_SERVICE" "$API_IMAGE" API_TASK
           update_task "$WORKER_SERVICE" "$WORKER_IMAGE" WORKER_TASK
 
-      - name: Synchronize production database schema safely
-        env:
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-        run: |
-          set -euo pipefail
-          SERVICE_JSON="$(aws ecs describe-services --cluster "$CLUSTER" --services "$API_SERVICE" --region "$AWS_REGION" --query 'services[0].networkConfiguration.awsvpcConfiguration' --output json)"
-          SUBNETS="$(jq -r '.subnets | join(",")' <<<"$SERVICE_JSON")"
-          SECURITY_GROUPS="$(jq -r '.securityGroups | join(",")' <<<"$SERVICE_JSON")"
-          ASSIGN_PUBLIC_IP="$(jq -r '.assignPublicIp // "DISABLED"' <<<"$SERVICE_JSON")"
-          NETWORK="awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUPS],assignPublicIp=$ASSIGN_PUBLIC_IP}"
-          TASK_ARN="$(aws ecs run-task --cluster "$CLUSTER" --task-definition "$API_TASK" --launch-type FARGATE --network-configuration "$NETWORK" --overrides '{"containerOverrides":[{"name":"api","command":["pnpm","--filter","@aca/database","exec","prisma","db","push","--skip-generate"]}]}' --region "$AWS_REGION" --query 'tasks[0].taskArn' --output text)"
-          test -n "$TASK_ARN" && test "$TASK_ARN" != "None"
-          aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK_ARN" --region "$AWS_REGION"
-          EXIT_CODE="$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK_ARN" --region "$AWS_REGION" --query 'tasks[0].containers[0].exitCode' --output text)"
-          if [ "$EXIT_CODE" != "0" ]; then
-            aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK_ARN" --region "$AWS_REGION" --output json
-            exit 1
-          fi
-
       - name: Deploy recovery services
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
