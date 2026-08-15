@@ -10,7 +10,6 @@ import {
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
-  ApiParam,
   ApiTags,
   ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
@@ -21,19 +20,19 @@ import { RequiresCapabilities } from '../../common/guards/rbac.guard.js';
 import { UseZod } from '../../common/validation/zod-validation.pipe.js';
 import { requestContext } from '../../common/context/request-context.js';
 import { VideosService } from './videos.service.js';
-import { AssetStore } from './asset-store.js';
+import { AssetStore } from '@aca/video-engine';
 import { AutopilotService, AutopilotBodySchema, type AutopilotBody } from './autopilot.service.js';
+import { z } from 'zod';
 import {
   AssetParamsSchema,
   CreateSeriesBody,
-  CreateSeriesBodyDoc,
   GenerateVideoBody,
-  GenerateVideoBodyDoc,
   OrgParamsSchema,
+  PresignUploadBody,
+  ConfirmS3Body,
   AssetDoc,
   AssetListQuerySchema,
   ScheduleBody,
-  ScheduleBodyDoc,
   SeriesDoc,
   SeriesParamsSchema,
   TaskParamsSchema,
@@ -194,6 +193,26 @@ export class VideosController {
     return this.videos.listAssets(params.orgId, query);
   }
 
+  @Post('uploads/presign')
+  @HttpCode(201)
+  @TenantRequired()
+  @RequiresCapabilities('asset.upload')
+  @UseZod({ params: OrgParamsSchema, body: PresignUploadBody })
+  @ApiOperation({ operationId: 'presignUpload', summary: 'Presigned S3 PUT URL for direct browser upload (falls back to database tier when S3 is unconfigured)' })
+  presignUpload(@Param() params: { orgId: string }, @Body() body: z.infer<typeof PresignUploadBody>) {
+    return this.videos.presignUpload(params.orgId, body);
+  }
+
+  @Post('assets/confirm-s3')
+  @HttpCode(201)
+  @TenantRequired()
+  @RequiresCapabilities('asset.upload')
+  @UseZod({ params: OrgParamsSchema, body: ConfirmS3Body })
+  @ApiOperation({ operationId: 'confirmS3Upload', summary: 'Create the asset row after a direct S3 PUT (presigned upload)' })
+  confirmS3(@Param() params: { orgId: string }, @Body() body: z.infer<typeof ConfirmS3Body>) {
+    return this.videos.confirmS3Upload(params.orgId, body);
+  }
+
   @Post('assets/upload')
   @HttpCode(201)
   @TenantRequired()
@@ -281,5 +300,47 @@ export class VideosController {
   @ApiBadRequestResponse({ description: 'Already published', content: { 'application/problem+json': { schema: PROBLEM } } })
   cancelPost(@Param() params: { orgId: string; taskId: string }) {
     return this.videos.cancelPost(params.orgId, params.taskId);
+  }
+
+  /* ------------------------------------------------- video operations ---- */
+
+  @Post('videos/:videoId/upscale')
+  @HttpCode(202)
+  @TenantRequired()
+  @RequiresCapabilities('video.create')
+  @UseZod({ params: VideoParamsSchema })
+  @ApiOperation({ operationId: 'upscaleVideo', summary: 'Upscale the READY rendition to 2160p (real ffmpeg render job → new rendition)' })
+  upscale(@Param() params: { orgId: string; videoId: string }) {
+    return this.videos.enqueueOperation(params.orgId, params.videoId, 'render', 'video.upscale', { operation: 'upscale' });
+  }
+
+  @Post('videos/:videoId/extend')
+  @HttpCode(202)
+  @TenantRequired()
+  @RequiresCapabilities('video.create')
+  @UseZod({ params: VideoParamsSchema })
+  @ApiOperation({ operationId: 'extendVideo', summary: 'Extend the video (regenerate with a longer target duration)' })
+  extend(@Param() params: { orgId: string; videoId: string }) {
+    return this.videos.enqueueOperation(params.orgId, params.videoId, 'generation', 'video.extend', { operation: 'extend' });
+  }
+
+  @Post('videos/:videoId/remix')
+  @HttpCode(202)
+  @TenantRequired()
+  @RequiresCapabilities('video.create')
+  @UseZod({ params: VideoParamsSchema })
+  @ApiOperation({ operationId: 'remixVideo', summary: 'Remix the video (regenerate with the same keyword, new seed)' })
+  remix(@Param() params: { orgId: string; videoId: string }) {
+    return this.videos.enqueueOperation(params.orgId, params.videoId, 'generation', 'video.remix', { operation: 'remix' });
+  }
+
+  @Post('videos/:videoId/thumbnail')
+  @HttpCode(202)
+  @TenantRequired()
+  @RequiresCapabilities('video.create')
+  @UseZod({ params: VideoParamsSchema })
+  @ApiOperation({ operationId: 'generateThumbnail', summary: 'Extract a real thumbnail frame from the rendition (ffmpeg)' })
+  thumbnail(@Param() params: { orgId: string; videoId: string }) {
+    return this.videos.enqueueOperation(params.orgId, params.videoId, 'thumbnail', 'video.thumbnail', { operation: 'thumbnail' });
   }
 }

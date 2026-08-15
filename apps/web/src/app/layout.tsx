@@ -1,11 +1,12 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import './studio.css';
+import '../components/creative/creative.css';
 import ErrorBoundary from '../components/ErrorBoundary';
 
 export const metadata: Metadata = {
-  title: 'AutoCreator AI — Premium AI Studio',
-  description: 'Premium AI-native studio for channels, assets, publishing and creative automation.',
+  title: 'Lumen — AI Creative Platform',
+  description: 'A media-first AI creative platform for image, video, cinema, marketing and publishing.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

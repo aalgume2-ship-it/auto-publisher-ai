@@ -1,0 +1,264 @@
+name: recreate-autocreator-prod
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/recreate-autocreator-prod.yml
+      - .github/deploy-triggers/recreate-autocreator-prod
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recreate-autocreator-prod
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-north-1
+  STACK_NAME: autocreator-prod
+  ENVIRONMENT_NAME: prod
+  RESCUE_SHA: ebd81194943e824e6831a8b22dd2accedcf1e1d7
+  API_REPOSITORY: autocreator/api
+  WORKER_REPOSITORY: autocreator/worker
+  VPC_CIDR: 10.0.0.0/16
+  API_CPU: '1024'
+  API_MEMORY: '2048'
+  WORKER_CPU: '1024'
+  WORKER_MEMORY: '2048'
+  DESIRED_API_TASKS: '1'
+  DESIRED_WORKER_TASKS: '1'
+  RDS_INSTANCE_CLASS: db.t4g.small
+  RDS_STORAGE_GB: '20'
+  REDIS_NODE_TYPE: cache.t4g.small
+  SECRETS_PREFIX: autocreator/prod
+
+jobs:
+  recreate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment: production
+
+    steps:
+      - name: Checkout exact workflow commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify exact checkout and template
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -f infra/aws/cloudformation.yml
+          grep -Fq 'COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules' Dockerfile.api
+          grep -Fq 'COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules' Dockerfile.worker
+          grep -Fq 'COPY --from=builder /app/apps/worker/node_modules ./apps/worker/node_modules' Dockerfile.worker
+          echo "Workflow SHA: $GITHUB_SHA"
+          echo "Immutable image SHA: $RESCUE_SHA"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-north-1
+
+      - name: Safe AWS preflight
+        id: preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          test "$ACCOUNT_ID" = "449314788023"
+          echo "account_id=$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
+
+          REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          API_IMAGE="${REGISTRY}/${API_REPOSITORY}:${RESCUE_SHA}"
+          WORKER_IMAGE="${REGISTRY}/${WORKER_REPOSITORY}:${RESCUE_SHA}"
+          echo "api_image=$API_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "worker_image=$WORKER_IMAGE" >> "$GITHUB_OUTPUT"
+
+          echo "AWS account: $ACCOUNT_ID"
+          echo "Region: $AWS_REGION"
+          echo "Selected workflow Git SHA: $GITHUB_SHA"
+          echo "API image: $API_IMAGE"
+          echo "Worker image: $WORKER_IMAGE"
+
+          STACK_STATUS="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
+          if [ -n "$STACK_STATUS" ]; then
+            echo "ERROR: CloudFormation stack $STACK_NAME still exists with status $STACK_STATUS."
+            echo "This safe workflow will not delete or recover it automatically."
+            exit 1
+          fi
+          echo "CloudFormation stack state: ABSENT"
+
+          if aws rds describe-db-instances --db-instance-identifier "$STACK_NAME" --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "ERROR: RDS DB instance $STACK_NAME still exists."
+            exit 1
+          fi
+          echo "RDS conflict check: clear"
+
+          for secret in "${SECRETS_PREFIX}/db" "${SECRETS_PREFIX}/runtime"; do
+            if aws secretsmanager describe-secret --secret-id "$secret" --region "$AWS_REGION" >/dev/null 2>&1; then
+              echo "ERROR: Secrets Manager name conflict: $secret"
+              exit 1
+            fi
+          done
+          echo "Secrets Manager conflict check: clear"
+
+          if aws elasticache describe-cache-clusters --cache-cluster-id "$STACK_NAME" --region "$AWS_REGION" >/dev/null 2>&1; then
+            echo "ERROR: ElastiCache cluster $STACK_NAME still exists."
+            exit 1
+          fi
+          echo "Redis conflict check: clear"
+
+          if aws ecs describe-clusters --clusters "$STACK_NAME" --region "$AWS_REGION" --query 'clusters[?status!=`INACTIVE`].clusterName' --output text | grep -q .; then
+            echo "ERROR: ECS cluster $STACK_NAME still exists."
+            exit 1
+          fi
+          echo "ECS conflict check: clear"
+
+          for bucket in "autocreator-${ACCOUNT_ID}-assets" "autocreator-${ACCOUNT_ID}-renders" "autocreator-${ACCOUNT_ID}-logs"; do
+            if aws s3api head-bucket --bucket "$bucket" 2>/dev/null; then
+              echo "ERROR: S3 bucket name conflict: $bucket"
+              exit 1
+            fi
+          done
+          echo "S3 conflict check: clear"
+
+          for repository in "$API_REPOSITORY" "$WORKER_REPOSITORY"; do
+            DIGEST="$(aws ecr describe-images --repository-name "$repository" --image-ids imageTag="$RESCUE_SHA" --region "$AWS_REGION" --query 'imageDetails[0].imageDigest' --output text)"
+            test -n "$DIGEST" && test "$DIGEST" != "None"
+            echo "repository=$repository tag=$RESCUE_SHA digest=$DIGEST"
+          done
+
+          aws cloudformation validate-template --template-body file://infra/aws/cloudformation.yml --region "$AWS_REGION" >/dev/null
+          echo "CloudFormation template validation: OK"
+
+      - name: Generate ephemeral deployment secrets
+        id: secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          JWT="$(openssl rand -hex 48)"
+          MASTER="$(openssl rand -hex 32)"
+          test "${#JWT}" -ge 64
+          test "${#MASTER}" -ge 64
+          echo "::add-mask::$JWT"
+          echo "::add-mask::$MASTER"
+          echo "jwt=$JWT" >> "$GITHUB_OUTPUT"
+          echo "master=$MASTER" >> "$GITHUB_OUTPUT"
+
+      - name: Create AutoCreator production stack
+        shell: bash
+        env:
+          API_IMAGE: ${{ steps.preflight.outputs.api_image }}
+          WORKER_IMAGE: ${{ steps.preflight.outputs.worker_image }}
+          AUTH_JWT_SECRET: ${{ steps.secrets.outputs.jwt }}
+          SECRETS_MASTER_KEY: ${{ steps.secrets.outputs.master }}
+        run: |
+          set -euo pipefail
+          aws cloudformation deploy \
+            --stack-name "$STACK_NAME" \
+            --template-file infra/aws/cloudformation.yml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --region "$AWS_REGION" \
+            --parameter-overrides \
+              EnvironmentName="$ENVIRONMENT_NAME" \
+              VpcCidr="$VPC_CIDR" \
+              ApiImage="$API_IMAGE" \
+              WorkerImage="$WORKER_IMAGE" \
+              ApiCpu="$API_CPU" \
+              ApiMemory="$API_MEMORY" \
+              WorkerCpu="$WORKER_CPU" \
+              WorkerMemory="$WORKER_MEMORY" \
+              DesiredApiTasks="$DESIRED_API_TASKS" \
+              DesiredWorkerTasks="$DESIRED_WORKER_TASKS" \
+              RdsInstanceClass="$RDS_INSTANCE_CLASS" \
+              RdsStorageGb="$RDS_STORAGE_GB" \
+              RedisNodeType="$REDIS_NODE_TYPE" \
+              ApiDomain='' \
+              CertificateArn='' \
+              SecretsPrefix="$SECRETS_PREFIX" \
+              AuthJwtSecret="$AUTH_JWT_SECRET" \
+              SecretsMasterKey="$SECRETS_MASTER_KEY"
+
+      - name: Read stack outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query 'Stacks[0].StackStatus' --output text)"
+          test "$STATUS" = "CREATE_COMPLETE" || test "$STATUS" = "UPDATE_COMPLETE"
+          echo "CloudFormation status: $STATUS"
+
+          output() { aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$AWS_REGION" --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue | [0]" --output text; }
+          echo "API_URL=$(output ApiUrl)" >> "$GITHUB_ENV"
+          echo "CLUSTER=$(output ClusterName)" >> "$GITHUB_ENV"
+          echo "API_SERVICE=$(output ApiServiceName)" >> "$GITHUB_ENV"
+          echo "WORKER_SERVICE=$(output WorkerServiceName)" >> "$GITHUB_ENV"
+          echo "API_TASK_DEFINITION=$(output ApiTaskDefinitionArn)" >> "$GITHUB_ENV"
+          echo "PRIVATE_SUBNETS=$(output PrivateSubnetIds)" >> "$GITHUB_ENV"
+          echo "API_SECURITY_GROUP=$(output ApiSecurityGroupId)" >> "$GITHUB_ENV"
+          echo "RUNTIME_SECRET=$(output RuntimeSecretArn)" >> "$GITHUB_ENV"
+
+      - name: Set public API URL without replacing runtime secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(aws secretsmanager get-secret-value --secret-id "$RUNTIME_SECRET" --region "$AWS_REGION" --query SecretString --output text)"
+          updated="$(jq -c --arg api "$API_URL" '.PUBLIC_API_URL = $api' <<<"$current")"
+          aws secretsmanager put-secret-value --secret-id "$RUNTIME_SECRET" --secret-string "$updated" --region "$AWS_REGION" >/dev/null
+
+      - name: Apply Prisma migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          NETWORK="awsvpcConfiguration={subnets=[${PRIVATE_SUBNETS}],securityGroups=[${API_SECURITY_GROUP}],assignPublicIp=DISABLED}"
+          TASK_ARN="$(aws ecs run-task --cluster "$CLUSTER" --task-definition "$API_TASK_DEFINITION" --launch-type FARGATE --network-configuration "$NETWORK" --overrides '{"containerOverrides":[{"name":"api","command":["pnpm","db:migrate"]}]}' --region "$AWS_REGION" --query 'tasks[0].taskArn' --output text)"
+          test -n "$TASK_ARN" && test "$TASK_ARN" != "None"
+          aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK_ARN" --region "$AWS_REGION"
+          EXIT_CODE="$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK_ARN" --region "$AWS_REGION" --query 'tasks[0].containers[0].exitCode' --output text)"
+          if [ "$EXIT_CODE" != "0" ]; then
+            aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK_ARN" --region "$AWS_REGION" --output json
+            exit 1
+          fi
+
+      - name: Restart services and wait stable
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ecs update-service --cluster "$CLUSTER" --service "$API_SERVICE" --force-new-deployment --region "$AWS_REGION" >/dev/null
+          aws ecs update-service --cluster "$CLUSTER" --service "$WORKER_SERVICE" --force-new-deployment --region "$AWS_REGION" >/dev/null
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$API_SERVICE" "$WORKER_SERVICE" --region "$AWS_REGION"
+
+      - name: Verify production health
+        shell: bash
+        run: |
+          set -euo pipefail
+          DB_STATUS="$(aws rds describe-db-instances --db-instance-identifier "$STACK_NAME" --region "$AWS_REGION" --query 'DBInstances[0].DBInstanceStatus' --output text)"
+          test "$DB_STATUS" = "available"
+          echo "RDS status: $DB_STATUS"
+
+          REDIS_STATUS="$(aws elasticache describe-cache-clusters --cache-cluster-id "$STACK_NAME" --region "$AWS_REGION" --query 'CacheClusters[0].CacheClusterStatus' --output text)"
+          test "$REDIS_STATUS" = "available"
+          echo "Redis status: $REDIS_STATUS"
+
+          aws ecs describe-services --cluster "$CLUSTER" --services "$API_SERVICE" "$WORKER_SERVICE" --region "$AWS_REGION" --query 'services[].{service:serviceName,desired:desiredCount,running:runningCount,status:status}' --output table
+          API_RUNNING="$(aws ecs describe-services --cluster "$CLUSTER" --services "$API_SERVICE" --region "$AWS_REGION" --query 'services[0].runningCount' --output text)"
+          WORKER_RUNNING="$(aws ecs describe-services --cluster "$CLUSTER" --services "$WORKER_SERVICE" --region "$AWS_REGION" --query 'services[0].runningCount' --output text)"
+          test "$API_RUNNING" = "1"
+          test "$WORKER_RUNNING" = "1"
+
+          curl --fail --silent --show-error --retry 18 --retry-all-errors --retry-delay 10 "$API_URL/health/live"
+          curl --fail --silent --show-error --retry 18 --retry-all-errors --retry-delay 10 "$API_URL/health/ready"
+          echo "Production API endpoint: $API_URL"
+
+          LOG_ERRORS="$(aws logs filter-log-events --log-group-name '/ecs/autocreator/prod/api' --region "$AWS_REGION" --filter-pattern 'ERR_MODULE_NOT_FOUND' --query 'events[].message' --output text || true)"
+          test -z "$LOG_ERRORS"
+          REFLECT_ERRORS="$(aws logs filter-log-events --log-group-name '/ecs/autocreator/prod/worker' --region "$AWS_REGION" --filter-pattern 'reflect-metadata' --query 'events[].message' --output text || true)"
+          test -z "$REFLECT_ERRORS"
+
+          echo "AutoCreator production recreation and verification completed successfully."

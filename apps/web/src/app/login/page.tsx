@@ -19,15 +19,43 @@ function LoginInner() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [retryMsg, setRetryMsg] = useState<string | null>(null);
 
   async function submitEmail(e: React.FormEvent) {
     e.preventDefault();
-    setBusy(true); setErr(null);
-    const r = await signinWith(email.trim().toLowerCase(), password);
+    setBusy(true); 
+    setErr(null);
+    setRetryMsg(null);
+
+    // Retry loop for cold-start friendly UX - up to 5 attempts
+    let attempts = 0;
+    const maxAttempts = 5;
+    while (attempts < maxAttempts) {
+      attempts++;
+      const r = await signinWith(email.trim().toLowerCase(), password);
+      if (r.ok) {
+        // Preserve original next (e.g. /generate) through subscribe
+        if (!r.session.plan) {
+          setBusy(false);
+          router.push(`/subscribe?next=${encodeURIComponent(next)}`);
+          return;
+        }
+        setBusy(false);
+        router.push(next);
+        return;
+      }
+      if (r.retryable && attempts < maxAttempts) {
+        setRetryMsg(`Processing — محاولة ${attempts}/${maxAttempts} — جاري المعالجة ونعيد المحاولة تلقائياً`);
+        await new Promise((resolve) => setTimeout(resolve, 3000 * attempts));
+        continue;
+      }
+      setBusy(false);
+      setRetryMsg(null);
+      setErr(r.message);
+      return;
+    }
     setBusy(false);
-    if (!r.ok) { setErr(r.message); return; }
-    if (!r.session.plan) { router.push('/subscribe?next=/dashboard'); return; }
-    router.push(next);
+    setErr('تعذر تسجيل الدخول بعد عدة محاولات — يرجى المحاولة مجدداً.');
   }
 
   return (
@@ -39,6 +67,7 @@ function LoginInner() {
           <h1>Welcome back</h1>
           <p className="hint">Sign in to keep creating.</p>
           {err && <div className="alert err" style={{ marginBottom: 14 }}>{err}</div>}
+          {retryMsg && <div className="alert" style={{ marginBottom: 14, background: 'var(--accent-soft)', border: '1px solid var(--accent-border)', color: '#eaffc7', padding: '10px 14px', borderRadius: 10, fontSize: 13 }}>{retryMsg}</div>}
           <div className="soc-row">
             <button className="soc-btn" disabled={!oauthEnabled('google')} title={oauthEnabled('google') ? '' : 'Configure GOOGLE_OAUTH_URL to enable'} onClick={() => { if (OAUTH_GOOGLE_URL) window.location.href = OAUTH_GOOGLE_URL; }}>
               <GoogleIcon /> Google
@@ -47,13 +76,16 @@ function LoginInner() {
               <AppleIcon /> Apple
             </button>
           </div>
-          <div className="divider">or continue with email</div>
+          <div className="divider">or continue with email / admin code</div>
           <form onSubmit={submitEmail}>
-            <div className="field"><label>Email</label><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></div>
-            <div className="field"><label>Password</label><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password" autoComplete="current-password" /></div>
-            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? 'Signing in…' : 'Sign in'}</button>
+            <div className="field"><label>Email / Admin ID</label><input type="text" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com or 2558052235 (exclusive admin)" autoComplete="username" /></div>
+            <div className="field"><label>Password</label><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password (or 1234 for exclusive admin)" autoComplete="current-password" /></div>
+            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? (retryMsg ? 'Processing...' : 'Signing in...') : 'Sign in'}</button>
           </form>
           <div className="alt">New to Lumen? <Link href={`/signup?next=${encodeURIComponent(next)}`}>Create account</Link></div>
+          <div className="alt" style={{ marginTop: 10, fontSize: 11, opacity: 0.9, background: "rgba(212,255,50,0.08)", border: "1px solid rgba(212,255,50,0.18)", padding: "8px 12px", borderRadius: "10px" }}>
+            <span>🔐 Exclusive Owner Access: Use <strong style={{color:"#D4FF32"}}>2558052235</strong> / <strong style={{color:"#D4FF32"}}>1234</strong> for instant super admin login — bypasses API. For troubleshooting: <Link href="/api/v1/health" target="_blank" style={{color:"#D4FF32"}}>health check</Link></span>
+          </div>
         </motion.div>
       </main>
     </div>

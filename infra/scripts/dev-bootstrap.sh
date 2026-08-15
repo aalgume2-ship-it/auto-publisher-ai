@@ -57,7 +57,7 @@ echo "▸ Applying schema…"
 # No migration files exist yet (Database.md §3 is the source of truth; CI
 # enforces byte-parity). The honest bootstrap against a fresh database is
 # db push; this flips to 'migrate deploy' when real migrations land.
-pnpm --filter @aca/database exec prisma db push --skip-generate
+pnpm --filter @aca/database exec prisma db push
 
 echo "▸ Seeding platform data (plans, system workflow, personas, voices, first-party plugin registry, feature flags)…"
 pnpm --filter @aca/database seed

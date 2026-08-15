@@ -9,7 +9,7 @@ import { rawMediaUrl } from './media.controller.js';
 import { GenerationService } from './generation.service.js';
 import type { AssetListQuery, CreateSeriesBody, GenerateVideoBody, ScheduleBody, UpdateAssetMetaBody, UploadAssetBody } from './videos.dto.js';
 import { QueueService } from '../../common/queue/queue.service.js';
-import { AssetStore } from './asset-store.js';
+import { AssetStore } from '@aca/video-engine';
 
 const notFound = (what: string) => new ApiError('NOT_FOUND', 'Not Found', { detail: what });
 
@@ -307,6 +307,50 @@ export class VideosService {
     return this.publicAsset(orgId, updated);
   }
 
+  /** Presigned PUT for direct browser upload (S3 tier) or database-tier guidance. */
+  async presignUpload(orgId: string, body: { fileName: string; mimeType: string; kind: string; sizeBytes?: number | undefined }) {
+    const res = await this.store.presignPut(orgId, body.fileName, body.mimeType);
+    if (res) {
+      return { tier: 's3' as const, uploadUrl: res.url, storageKey: res.storageKey, expiresInSec: this.config.s3.presignTtlSec };
+    }
+    return {
+      tier: 'database' as const,
+      uploadUrl: null,
+      storageKey: null,
+      detail: 'S3 not configured — use POST /assets/upload (base64) instead; media is stored in the durable database blob tier.',
+    };
+  }
+
+  /** Asset row for a file already PUT to S3 via presigned URL (verify existence first). */
+  async confirmS3Upload(orgId: string, body: { fileName: string; mimeType: string; kind: string; storageKey: string; bytes: number }) {
+    // verify the object actually exists in S3 — never trust the client blindly
+    const head = await this.store.head(body.storageKey);
+    if (!head) {
+      throw new ApiError('PLATFORM_ERROR', 'S3 not configured', {
+        status: 503,
+        detail: 'S3 storage is not configured on this deployment — use POST /assets/upload instead.',
+      });
+    }
+    const existing = await this.prisma.asset.findFirst({ where: { orgId, storageKey: body.storageKey } });
+    if (existing) return this.publicAsset(orgId, existing); // idempotent confirm
+    const asset = await this.prisma.asset.create({
+      data: {
+        id: generateId(),
+        orgId,
+        type: body.kind as 'IMAGE' | 'VIDEO_CLIP' | 'AUDIO' | 'BRAND',
+        source: 'UPLOADED',
+        storageKey: body.storageKey,
+        cdnPath: `/v1/organizations/${orgId}/assets/pending`,
+        mimeType: body.mimeType,
+        bytes: BigInt(head.size),
+        sourceUrl: body.fileName,
+        metadata: { tier: 's3', uploadBytes: head.size },
+      },
+    });
+    await this.prisma.asset.update({ where: { id: asset.id }, data: { cdnPath: `/v1/organizations/${orgId}/assets/${asset.id}/content` } });
+    return this.publicAsset(orgId, asset);
+  }
+
   async deleteAsset(orgId: string, assetId: string) {
     const asset = await this.prisma.asset.findFirst({ where: { id: assetId, orgId } });
     if (!asset) throw notFound('asset not found');
@@ -325,20 +369,22 @@ export class VideosService {
     const channel = await this.prisma.channel.findFirst({ where: { id: body.channelId, orgId, status: 'CONNECTED' } });
     if (!channel) throw notFound('channel not found or not connected');
     const when = body.scheduledAt ? new Date(body.scheduledAt) : new Date();
+    // Platform is derived from the channel (providers are per-channel), not hard-coded.
+    const platform = channel.platform ?? 'youtube';
     const task = await this.prisma.publishingTask.create({
       data: {
         id: generateId(),
         orgId,
         videoId,
         channelId: channel.id,
-        platform: 'youtube',
+        platform,
         renditionProfile: 'shorts-720x1280',
         scheduledAt: when,
         hashtags: video.tags,
       },
     });
     const delayMs = Math.max(0, when.getTime() - Date.now());
-    const jobId = await this.queue.enqueue('publish', 'youtube.publish', { taskId: task.id }, { delayMs });
+    const jobId = await this.queue.enqueue('publish', `${platform}.publish`, { taskId: task.id }, { delayMs });
     return { task: this.publicTask(task), jobId };
   }
 
@@ -364,6 +410,32 @@ export class VideosService {
     if (t.status === 'PUBLISHED') throw new ApiError('CONFLICT', 'Already published', { detail: 'a published task cannot be cancelled' });
     await this.prisma.publishingTask.update({ where: { id: t.id }, data: { status: 'CANCELLED' } });
     return { ok: true };
+  }
+
+  /** Real operations: upscale / extend / remix / thumbnail → enqueue (worker processes). */
+  async enqueueOperation(
+    orgId: string,
+    videoId: string,
+    queue: 'generation' | 'render' | 'thumbnail',
+    name: string,
+    payload: Record<string, unknown>,
+  ) {
+    const video = await this.prisma.video.findFirst({ where: { id: videoId, orgId } });
+    if (!video) throw notFound('video not found');
+    if (video.status !== 'READY' && video.status !== 'PUBLISHED') {
+      throw new ApiError('CONFLICT', 'Video not ready', { detail: `video status is ${video.status}` });
+    }
+    if (payload['operation'] === 'extend') {
+      // real extend: regenerate the same video with a longer target duration
+      const seo = (video.seo ?? {}) as Record<string, unknown>;
+      const current = typeof seo['targetSeconds'] === 'number' ? (seo['targetSeconds'] as number) : 45;
+      await this.prisma.video.update({
+        where: { id: video.id },
+        data: { seo: { ...seo, targetSeconds: Math.min(90, current + 15) } as Prisma.InputJsonValue },
+      });
+    }
+    const jobId = await this.queue.enqueue(queue, name, { videoId, orgId, ...payload });
+    return { jobId, videoId };
   }
 
   private publicTask(t: { id: string; status: string; scheduledAt: Date | null; publishedAt: Date | null; platformUrl: string | null; lastError: string | null }) {

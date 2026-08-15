@@ -1,11 +1,18 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "export PATH=\"$HOME/.npm-global/bin:$PATH\" && pnpm install --no-frozen-lockfile --prod=false && pnpm --filter @aca/shared build && pnpm --filter @aca/web build",
-  "crons": [
+  "buildCommand": "pnpm exec tsc -b packages/shared/tsconfig.json && pnpm --filter @aca/web build",
+  "installCommand": "pnpm install --no-frozen-lockfile --prod=false",
+  "outputDirectory": "apps/web/.next",
+  "regions": ["iad1"],
+  "headers": [
     {
-      "path": "/api/v1/health",
-      "schedule": "*/10 * * * *"
+      "source": "/api/v1/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,PATCH,DELETE,OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type,Authorization,Idempotency-Key" }
+      ]
     }
   ]
 }

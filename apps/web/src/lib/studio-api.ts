@@ -5,17 +5,12 @@
  * proxy at /api/v1/* (see app/api/v1/[...path]/route.ts). The upstream origin
  * is set with API_UPSTREAM / NEXT_PUBLIC_API_URL at deploy time — the browser
  * never sees it.
- *
- * Every call returns a typed ApiResult. `reachable:false` means the backend
- * could not be reached — callers keep the UI in a friendly "Processing…"
- * state and retry automatically; the product never shows "API Unreachable"
- * or "Cold Start" to the user.
  */
 
 export const API_BASE = '/api/v1';
 
 export interface StudioApiError {
-  kind: 'http' | 'network';
+  kind: 'http' | 'network' | 'cold_start';
   status?: number;
   code?: string;
   detail?: string;
@@ -34,33 +29,116 @@ function normalizePath(path: string): string {
   return path;
 }
 
+function isColdStartResponse(status: number, text: string, contentType: string | null): boolean {
+  if (status === 502 || status === 503) {
+    const t = text.slice(0, 2000).toLowerCase();
+    if (t.includes('cold') || t.includes('waking') || t.includes('unreachable') || t.includes('application loading')) return true;
+    if (contentType && contentType.includes('text/html')) return true;
+    if (text.trim().startsWith('<!doctype') || text.trim().startsWith('<html')) return true;
+  }
+  if (contentType && contentType.includes('text/html')) return true;
+  const lower = text.slice(0, 2000).toLowerCase();
+  return lower.includes('application loading') || lower.includes('service waking up') || lower.includes('allocating compute');
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: ac.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+interface CallOptions {
+  idempotencyKey?: string;
+  maxAttempts?: number;
+  timeoutMs?: number;
+}
+
 async function call<T>(
   method: string,
   path: string,
   body?: unknown,
   token?: string | null,
+  options: CallOptions = {},
 ): Promise<ApiResult<T>> {
-  try {
-    const res = await fetch(`${API_BASE}${normalizePath(path)}`, {
-      method,
-      headers: {
-        Accept: 'application/json',
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-    const text = await res.text();
-    let json: unknown = null;
-    if (text) { try { json = JSON.parse(text); } catch { json = null; } }
-    if (!res.ok) {
-      const pb = (json ?? {}) as { code?: string; detail?: string };
-      return { ok: false, reachable: true, error: { kind: 'http', status: res.status, code: pb.code, detail: pb.detail } };
+  const finalPath = `${API_BASE}${normalizePath(path)}`;
+  const isAuth = path.includes('/auth/');
+  const maxAttempts = options.maxAttempts ?? (isAuth ? 2 : 2);
+  const timeoutMs = options.timeoutMs ?? (isAuth ? 12000 : 10000);
+  const idempotencyKey = options.idempotencyKey ?? (
+    method !== 'GET' && method !== 'HEAD'
+      ? (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`)
+      : undefined
+  );
+
+  let lastError: ApiResult<T> | null = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const res = await fetchWithTimeout(
+        finalPath,
+        {
+          method,
+          headers: {
+            Accept: 'application/json',
+            ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+            ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+        },
+        timeoutMs,
+      );
+
+      const contentType = res.headers.get('content-type');
+      const text = await res.text();
+      let json: unknown = null;
+      if (text) {
+        try { json = JSON.parse(text); } catch { json = null; }
+      }
+
+      if (isColdStartResponse(res.status, text, contentType)) {
+        if (attempt < maxAttempts - 1) {
+          await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+          lastError = { ok: false, reachable: false, error: { kind: 'cold_start', status: res.status, detail: 'cold start - retrying' } };
+          continue;
+        }
+        return {
+          ok: false,
+          reachable: false,
+          error: {
+            kind: 'cold_start',
+            status: res.status,
+            code: typeof (json as { code?: unknown } | null)?.code === 'string' ? (json as { code: string }).code : 'COLD_START',
+            detail: typeof (json as { detail?: unknown } | null)?.detail === 'string' ? (json as { detail: string }).detail : 'Service is unavailable',
+          },
+        };
+      }
+
+      if (!res.ok) {
+        const pb = (json ?? {}) as { code?: string; detail?: string };
+        if ((res.status === 502 || res.status === 503) && attempt < maxAttempts - 1) {
+          await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+          lastError = { ok: false, reachable: false, error: { kind: 'cold_start', status: res.status, code: pb.code, detail: pb.detail || 'upstream unavailable' } };
+          continue;
+        }
+        return { ok: false, reachable: true, error: { kind: 'http', status: res.status, code: pb.code, detail: pb.detail } };
+      }
+      return { ok: true, reachable: true, data: json as T };
+    } catch (err: unknown) {
+      const isTimeout = err instanceof Error && err.name === 'AbortError';
+      if (attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+        lastError = { ok: false, reachable: false, error: { kind: 'network', detail: isTimeout ? 'timeout - retrying' : 'backend unreachable - retrying' } };
+        continue;
+      }
+      return { ok: false, reachable: false, error: { kind: 'network', detail: isTimeout ? 'Request timed out' : 'backend unreachable' } };
     }
-    return { ok: true, reachable: true, data: json as T };
-  } catch {
-    return { ok: false, reachable: false, error: { kind: 'network', detail: 'backend unreachable' } };
   }
+  return lastError ?? { ok: false, reachable: false, error: { kind: 'network', detail: 'backend unreachable' } };
 }
 
 /* ---------------------------------------------------------------- auth --- */
@@ -71,15 +149,15 @@ export interface AuthUser { id: string; email: string; displayName: string; }
 export function register(email: string, password: string, displayName: string) {
   return call<{ user: AuthUser; tokens: AuthTokens; workspace?: { id: string } | null }>('POST', '/auth/register', {
     email, password, displayName, locale: 'en', timezone: 'UTC',
-  });
+  }, null, { maxAttempts: 2, timeoutMs: 12000 });
 }
 
 export function login(email: string, password: string) {
-  return call<{ kind: 'tokens'; user: AuthUser; tokens: AuthTokens } | { kind: 'mfa_required'; mfaTicket: string }>('POST', '/auth/login', { email, password });
+  return call<{ kind: 'tokens'; user: AuthUser; tokens: AuthTokens } | { kind: 'mfa_required'; mfaTicket: string }>('POST', '/auth/login', { email, password }, null, { maxAttempts: 2, timeoutMs: 12000 });
 }
 
 export function refresh(refreshToken: string) {
-  return call<{ user: AuthUser; tokens: AuthTokens }>('POST', '/auth/refresh', { refreshToken });
+  return call<{ user: AuthUser; tokens: AuthTokens }>('POST', '/auth/refresh', { refreshToken }, null, { maxAttempts: 2, timeoutMs: 10000 });
 }
 
 /* ------------------------------------------------------------- orgs ------ */
@@ -101,8 +179,16 @@ export interface VideoDto {
   id: string;
   status: string;
   keyword?: string;
+  failureReason?: string | null;
+  seo?: { step?: string; progress?: number } | null;
   createdAt: string;
   renditions?: Array<{ status: string; url?: string }>;
+}
+
+export interface GenerateVideoDto {
+  video?: { id?: string; status?: string };
+  id?: string;
+  jobId?: string;
 }
 
 export function createSeries(token: string, orgId: string, name: string) {
@@ -112,7 +198,7 @@ export function listSeries(token: string, orgId: string) {
   return call<{ items: SeriesDto[] }>('GET', `/organizations/${orgId}/series`, undefined, token);
 }
 export function generateVideo(token: string, orgId: string, seriesId: string, keyword: string, targetSeconds: number) {
-  return call<{ id: string; status: string }>('POST', `/organizations/${orgId}/series/${seriesId}/videos`, { keyword, targetSeconds }, token);
+  return call<GenerateVideoDto>('POST', `/organizations/${orgId}/series/${seriesId}/videos`, { keyword, targetSeconds }, token);
 }
 export function listVideos(token: string, orgId: string) {
   return call<{ items: VideoDto[] }>('GET', `/organizations/${orgId}/videos`, undefined, token);
@@ -120,23 +206,20 @@ export function listVideos(token: string, orgId: string) {
 export function getVideo(token: string, orgId: string, videoId: string) {
   return call<VideoDto>('GET', `/organizations/${orgId}/videos/${videoId}`, undefined, token);
 }
-export function videoStreamUrl(orgId: string, videoId: string, token: string) {
+export function videoStreamUrl(orgId: string, videoId: string, _token: string) {
   return `/api/v1/organizations/${orgId}/videos/${videoId}/stream`;
 }
 export function regenerateVideo(token: string, orgId: string, videoId: string) {
   return call<{ jobId?: string }>('POST', `/organizations/${orgId}/videos/${videoId}/regenerate`, undefined, token);
 }
 
-/** Fetch an authenticated video blob (stream requires the Bearer header). */
 export async function fetchStreamBlob(orgId: string, videoId: string, token: string): Promise<{ blob: Blob; url: string } | null> {
   try {
     const res = await fetch(videoStreamUrl(orgId, videoId, token), { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) return null;
     const blob = await res.blob();
     return { blob, url: URL.createObjectURL(blob) };
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 /* ------------------------------------------------------------- billing --- */

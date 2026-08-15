@@ -1,0 +1,108 @@
+name: build-rescue-images
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-rescue-images
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-north-1
+  API_REPOSITORY: autocreator/api
+  WORKER_REPOSITORY: autocreator/worker
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: production
+
+    steps:
+      - name: Checkout exact selected commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify exact checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          echo "Selected SHA:    $GITHUB_SHA"
+          echo "Checked-out SHA: $CHECKED_OUT_SHA"
+          test "$CHECKED_OUT_SHA" = "$GITHUB_SHA"
+
+      - name: Verify Docker runtime packaging fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules' Dockerfile.api
+          grep -Fq 'COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules' Dockerfile.worker
+          grep -Fq 'COPY --from=builder /app/apps/worker/node_modules ./apps/worker/node_modules' Dockerfile.worker
+          grep -Fq "await import('reflect-metadata')" Dockerfile.api
+          grep -Fq "await import('reflect-metadata')" Dockerfile.worker
+          echo "Runtime dependency packaging fixes are present."
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-north-1
+
+      - name: Verify AWS identity and existing ECR repositories
+        id: aws
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          echo "account_id=$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
+          echo "AWS account: $ACCOUNT_ID"
+          aws ecr describe-repositories \
+            --repository-names "$API_REPOSITORY" "$WORKER_REPOSITORY" \
+            --region "$AWS_REGION" \
+            --query 'repositories[].repositoryName' \
+            --output table
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push SHA-tagged images
+        shell: bash
+        env:
+          ACCOUNT_ID: ${{ steps.aws.outputs.account_id }}
+        run: |
+          set -euo pipefail
+          REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          API_IMAGE="${REGISTRY}/${API_REPOSITORY}:${GITHUB_SHA}"
+          WORKER_IMAGE="${REGISTRY}/${WORKER_REPOSITORY}:${GITHUB_SHA}"
+
+          echo "Building API image for exact SHA: $GITHUB_SHA"
+          docker build --pull -f Dockerfile.api -t "$API_IMAGE" .
+
+          echo "Building Worker image for exact SHA: $GITHUB_SHA"
+          docker build --pull -f Dockerfile.worker -t "$WORKER_IMAGE" .
+
+          docker push "$API_IMAGE"
+          docker push "$WORKER_IMAGE"
+
+      - name: Verify immutable image tags in ECR
+        shell: bash
+        run: |
+          set -euo pipefail
+          for repository in "$API_REPOSITORY" "$WORKER_REPOSITORY"; do
+            DIGEST="$(aws ecr describe-images \
+              --repository-name "$repository" \
+              --image-ids imageTag="$GITHUB_SHA" \
+              --region "$AWS_REGION" \
+              --query 'imageDetails[0].imageDigest' \
+              --output text)"
+
+            test -n "$DIGEST"
+            test "$DIGEST" != "None"
+            echo "repository=${repository} tag=${GITHUB_SHA} digest=${DIGEST}"
+          done

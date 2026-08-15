@@ -11,7 +11,7 @@
     "@aca/email": 2,
     "@aca/storage": 2,
     "@aca/workflows": 2,
-    "@aca/video-engine": 2,
+    "@aca/video-engine": 3,
     "@aca/plugin-kit": 2,
     "@aca/events": 3,
     "@aca/feature-flags": 4,
@@ -19,7 +19,7 @@
     "@aca/ai": 4,
     "@aca/ui": 4,
     "@aca/web": 5,
-    "@aca/api": 5,
+    "@aca/api": 4,
     "@aca/worker": 5,
     "@aca/worker-plugins": 5
   },
@@ -49,7 +49,11 @@
       "@aca/shared"
     ],
     "@aca/video-engine": [
-      "@aca/shared"
+      "@aca/logger",
+      "@aca/shared",
+      "@aca/auth",
+      "@aca/config",
+      "@aca/database"
     ],
     "@aca/plugin-kit": [
       "@aca/shared"
@@ -84,7 +88,8 @@
       "@aca/logger",
       "@aca/database",
       "@aca/events",
-      "@aca/auth"
+      "@aca/auth",
+      "@aca/video-engine"
     ],
     "@aca/worker": [
       "@aca/shared",
@@ -101,7 +106,8 @@
       "@aca/storage",
       "@aca/search",
       "@aca/feature-flags",
-      "@aca/plugin-kit"
+      "@aca/plugin-kit",
+      "@aca/api"
     ],
     "@aca/worker-plugins": [
       "@aca/shared",

@@ -131,7 +131,7 @@ export interface WorkflowValidationIssue {
 /** Kahn's algorithm. Returns deterministic topological order. */
 export function topologicalOrder(def: WorkflowDefinition): string[] {
   const indegree = new Map<string, number>(def.nodes.map((n) => [n.id, 0]));
-  for (const n of def.nodes) for (const dep of n.needs) indegree.set(n.id, (indegree.get(n.id) ?? 0) + 1);
+  for (const n of def.nodes) for (const _dep of n.needs) indegree.set(n.id, (indegree.get(n.id) ?? 0) + 1);
   const byId = new Map(def.nodes.map((n) => [n.id, n]));
   const queue = def.nodes.filter((n) => n.needs.length === 0).map((n) => n.id).sort();
   const order: string[] = [];

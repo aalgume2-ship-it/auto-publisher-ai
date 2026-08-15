@@ -20,6 +20,8 @@ import { VIDEO_PROVIDERS, type VideoCredential, type VideoProviderDef } from '..
 
 export type VaultCapability = 'LLM' | 'PUBLISHER' | 'VIDEO_ENGINE';
 const GOOGLE_OAUTH_PROVIDER = 'google-oauth';
+const TIKTOK_OAUTH_PROVIDER = 'tiktok-oauth';
+const META_OAUTH_PROVIDER = 'meta-oauth';
 const VAULT_LABEL = 'primary';
 
 interface VaultPayload {
@@ -32,6 +34,16 @@ interface VaultPayload {
 export interface GoogleClientCreds {
   clientId: string;
   clientSecret: string;
+  source: 'org' | 'env';
+}
+export interface TikTokClientCreds {
+  clientKey: string;
+  clientSecret: string;
+  source: 'org' | 'env';
+}
+export interface MetaClientCreds {
+  appId: string;
+  appSecret: string;
   source: 'org' | 'env';
 }
 
@@ -195,5 +207,55 @@ export class OrgCredentialsService {
 
   async deleteGoogleOAuth(orgId: string): Promise<boolean> {
     return this.deleteSecret(orgId, 'PUBLISHER', GOOGLE_OAUTH_PROVIDER);
+  }
+
+  // ── TikTok OAuth (same vault, separate provider key) ─────────────────────
+  async resolveTikTokOAuth(orgId: string): Promise<TikTokClientCreds | null> {
+    const stored = await this.readSecret(orgId, 'PUBLISHER', TIKTOK_OAUTH_PROVIDER);
+    const clientKey = typeof stored?.['clientKey'] === 'string' ? (stored['clientKey'] as string) : '';
+    const clientSecret = typeof stored?.['clientSecret'] === 'string' ? (stored['clientSecret'] as string) : '';
+    if (stored && clientKey && clientSecret) return { clientKey, clientSecret, source: 'org' };
+    const { tiktokClientKey, tiktokClientSecret } = this.config.platforms;
+    if (tiktokClientKey && tiktokClientSecret) return { clientKey: tiktokClientKey, clientSecret: tiktokClientSecret, source: 'env' };
+    return null;
+  }
+
+  async saveTikTokOAuth(orgId: string, clientKey: string, clientSecret: string): Promise<void> {
+    await this.writeSecret(orgId, 'PUBLISHER', TIKTOK_OAUTH_PROVIDER, {
+      secret: clientSecret,
+      clientKey,
+      clientSecret,
+      hint: OrgCredentialsService.hint(clientKey),
+      validatedAt: new Date().toISOString(),
+    });
+  }
+
+  async deleteTikTokOAuth(orgId: string): Promise<boolean> {
+    return this.deleteSecret(orgId, 'PUBLISHER', TIKTOK_OAUTH_PROVIDER);
+  }
+
+  // ── Meta (Instagram) OAuth client — org vault → env ──────────────────────
+  async resolveMetaOAuth(orgId: string): Promise<MetaClientCreds | null> {
+    const stored = await this.readSecret(orgId, 'PUBLISHER', META_OAUTH_PROVIDER);
+    const appId = typeof stored?.['appId'] === 'string' ? (stored['appId'] as string) : '';
+    const appSecret = typeof stored?.['appSecret'] === 'string' ? (stored['appSecret'] as string) : '';
+    if (stored && appId && appSecret) return { appId, appSecret, source: 'org' };
+    const { metaAppId, metaAppSecret } = this.config.platforms;
+    if (metaAppId && metaAppSecret) return { appId: metaAppId, appSecret: metaAppSecret, source: 'env' };
+    return null;
+  }
+
+  async saveMetaOAuth(orgId: string, appId: string, appSecret: string): Promise<void> {
+    await this.writeSecret(orgId, 'PUBLISHER', META_OAUTH_PROVIDER, {
+      secret: appSecret,
+      appId,
+      appSecret,
+      hint: OrgCredentialsService.hint(appId),
+      validatedAt: new Date().toISOString(),
+    });
+  }
+
+  async deleteMetaOAuth(orgId: string): Promise<boolean> {
+    return this.deleteSecret(orgId, 'PUBLISHER', META_OAUTH_PROVIDER);
   }
 }

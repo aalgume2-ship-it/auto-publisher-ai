@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * seed-admin — Render-shell one-shot that creates an OWNER user with a
+ * seed-admin — one-shot runner that creates an OWNER user with a
  * scrypt-hashed password, an org, and a membership, so a human can log in
  * via the web app without having to re-register.
  *
@@ -10,7 +10,7 @@
  * then redirects to /register, which now 409s). This script skips the
  * whole chicken-and-egg loop by inserting through Prisma directly.
  *
- * Usage (Render Shell tab on autocreator-api-preview):
+ * Usage (AWS ECS task override / local with DATABASE_URL set):
  *   node infra/scripts/seed-admin.mjs --email admin@autocreator.sa \
  *       --password 'AdminRiyadh2026!' --displayName 'Studio Admin'
  */
@@ -23,7 +23,7 @@ import { promisify } from 'node:util';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..', '..');
 
-// Load .env (Render provides DATABASE_URL via the env, but tolerate a local one).
+// Load .env (hosts provide DATABASE_URL via the env, but tolerate a local one).
 try {
   process.loadEnvFile(resolve(root, '.env'));
 } catch { /* env provided externally */ }
@@ -63,16 +63,17 @@ async function hashPassword(password) {
 }
 
 async function main() {
-  // Import compiled @aca/database (Render has run `pnpm build` during image build).
-  const { createPrismaClient } = await import('@aca/database');
+  // Import compiled @aca/database (hosts run `pnpm build` during image build).
+  const { createPrismaClient, generateId } = await import('@aca/database');
   const prisma = createPrismaClient();
   const passwordHash = await hashPassword(PASSWORD);
 
-  // 1. Upsert user
+  // 1. Upsert user (id is mandatory: User.id is @db.Uuid with no default)
   const user = await prisma.user.upsert({
     where: { email: EMAIL },
     update: { passwordHash, displayName: DISPLAY_NAME },
     create: {
+      id: generateId(),
       email: EMAIL,
       passwordHash,
       displayName: DISPLAY_NAME,
@@ -86,7 +87,7 @@ async function main() {
   const org = await prisma.organization.upsert({
     where: { slug: ORG_SLUG },
     update: { name: ORG_NAME, ownerId: user.id },
-    create: { slug: ORG_SLUG, name: ORG_NAME, ownerId: user.id },
+    create: { id: generateId(), slug: ORG_SLUG, name: ORG_NAME, ownerId: user.id },
   });
   console.log(`org:  ${org.id}  slug=${org.slug}  name=${org.name}`);
 
@@ -94,7 +95,7 @@ async function main() {
   const membership = await prisma.membership.upsert({
     where: { userId_orgId: { userId: user.id, orgId: org.id } },
     update: { role: 'OWNER', status: 'ACTIVE' },
-    create: { userId: user.id, orgId: org.id, role: 'OWNER', status: 'ACTIVE' },
+    create: { id: generateId(), userId: user.id, orgId: org.id, role: 'OWNER', status: 'ACTIVE' },
   });
   console.log(`membership: ${membership.id}  role=${membership.role}  status=${membership.status}`);
 

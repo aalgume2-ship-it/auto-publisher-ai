@@ -19,6 +19,7 @@ function SignupInner() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [retryMsg, setRetryMsg] = useState<string | null>(null);
 
   function redirectToSubscribe() {
     router.push(next === '/subscribe' ? next : `/subscribe?next=${encodeURIComponent(next)}`);
@@ -27,20 +28,22 @@ function SignupInner() {
   async function submitEmail(e: React.FormEvent) {
     e.preventDefault();
     if (password.length < 6) { setErr('Password must be at least 6 characters.'); return; }
-    setBusy(true); setErr(null);
+    setBusy(true); setErr(null); setRetryMsg(null);
     const name = email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+    // The API client already performs a short, idempotency-safe retry. Do not
+    // wrap it in another 5-attempt loop: nested retries made a dead upstream
+    // look like a five-minute signup spinner and could submit duplicate POSTs.
+    setRetryMsg('Processing — جاري إنشاء الحساب…');
     const res = await signupWith(email.trim().toLowerCase(), password, name);
+    if (res.ok) { setBusy(false); setRetryMsg(null); redirectToSubscribe(); return; }
+
     setBusy(false);
-    if (res.ok) { redirectToSubscribe(); return; }
-    setErr(res.message);
+    setRetryMsg(null);
     if (res.retryable) {
-      // Auto-retry: keep a short processing state, then re-attempt once.
-      setBusy(true);
-      window.setTimeout(async () => {
-        const r2 = await signupWith(email.trim().toLowerCase(), password, name);
-        setBusy(false);
-        if (r2.ok) redirectToSubscribe(); else setErr(r2.message);
-      }, 1800);
+      setErr('تعذر الاتصال بخدمة الحساب الآن. تأكد من تشغيل الـ API ثم حاول مرة أخرى.');
+    } else {
+      setErr(res.message);
     }
   }
 
@@ -53,6 +56,7 @@ function SignupInner() {
           <h1>Create your account</h1>
           <p className="hint">Sign up securely — you'll choose a plan next.</p>
           {err && <div className="alert err" style={{ marginBottom: 14 }}>{err}</div>}
+          {retryMsg && <div className="alert" style={{ marginBottom: 14, background: 'var(--accent-soft)', border: '1px solid var(--accent-border)', color: '#eaffc7', padding: '10px 14px', borderRadius: 10, fontSize: 13 }}>{retryMsg}</div>}
           <div className="soc-row">
             <button className="soc-btn" disabled={!oauthEnabled('google')} title={oauthEnabled('google') ? '' : 'Configure GOOGLE_OAUTH_URL to enable'} onClick={() => { if (OAUTH_GOOGLE_URL) window.location.href = OAUTH_GOOGLE_URL; }}>
               <GoogleIcon /> Google
@@ -65,7 +69,7 @@ function SignupInner() {
           <form onSubmit={submitEmail}>
             <div className="field"><label>Email</label><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></div>
             <div className="field"><label>Password</label><input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="6+ characters" autoComplete="new-password" /></div>
-            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? 'Creating…' : 'Create account'}</button>
+            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? 'Creating...' : 'Create account'}</button>
           </form>
           <div className="alt">Already have an account? <Link href={`/login?next=${encodeURIComponent(next)}`}>Sign in</Link></div>
         </motion.div>

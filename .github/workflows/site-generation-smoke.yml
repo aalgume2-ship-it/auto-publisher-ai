@@ -1,0 +1,134 @@
+name: site-generation-smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/site-generation-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generate-through-site:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SITE_ORIGIN: https://auto-publisher-ai-75unmwybo-aalgume2-ship-its-projects.vercel.app
+    steps:
+      - name: Verify deployed site and API proxy
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 4 --retry-delay 3 "$SITE_ORIGIN/" >/dev/null
+          echo '--- live ---'
+          curl -fLsS --retry 4 --retry-delay 3 "$SITE_ORIGIN/api/v1/health/live"
+          echo
+          echo '--- ready ---'
+          curl -fLsS --retry 4 --retry-delay 3 "$SITE_ORIGIN/api/v1/health/ready"
+          echo
+
+      - name: Create real temporary site session
+        id: auth
+        run: |
+          set -euo pipefail
+          ID="$(date +%s)-$RANDOM"
+          EMAIL="site-smoke-$ID@trial.lumen.app"
+          PASSWORD="Smoke${ID//-/}Aa9!xZ7#"
+          BODY=$(jq -nc --arg e "$EMAIL" --arg p "$PASSWORD" '{email:$e,password:$p,displayName:"Production Site Smoke",locale:"ar",timezone:"Asia/Riyadh"}')
+          TMP=$(mktemp)
+          STATUS=$(curl -LsS --retry 3 --retry-delay 2 -o "$TMP" -w '%{http_code}' -H 'accept: application/json' -H 'content-type: application/json' -H "Idempotency-Key: auth-$ID" -d "$BODY" "$SITE_ORIGIN/api/v1/auth/register")
+          RESP=$(cat "$TMP")
+          rm -f "$TMP"
+          echo "auth http=$STATUS content-type/body summary:"
+          if jq -e . >/dev/null 2>&1 <<<"$RESP"; then
+            jq '{code,detail,title,status,hasTokens:(.tokens.accessToken != null),hasWorkspace:(.workspace.id != null)}' <<<"$RESP"
+          else
+            printf '%s\n' "$RESP" | head -c 800
+            echo
+          fi
+          if [ "$STATUS" -lt 200 ] || [ "$STATUS" -ge 300 ]; then exit 1; fi
+          TOKEN=$(jq -r '.tokens.accessToken // empty' <<<"$RESP")
+          ORG=$(jq -r '.workspace.id // empty' <<<"$RESP")
+          test -n "$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+          echo "org=$ORG" >> "$GITHUB_OUTPUT"
+          echo "Created isolated production smoke user: $EMAIL"
+
+      - name: Resolve workspace and create project
+        id: project
+        env:
+          TOKEN: ${{ steps.auth.outputs.token }}
+          ORG0: ${{ steps.auth.outputs.org }}
+        run: |
+          set -euo pipefail
+          ORG="$ORG0"
+          if [ -z "$ORG" ]; then
+            ORGS=$(curl -fLsS -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations")
+            ORG=$(jq -r '.items[0].organization.id // empty' <<<"$ORGS")
+          fi
+          if [ -z "$ORG" ]; then
+            BODY='{"name":"Production Smoke Studio","timezone":"Asia/Riyadh","defaultLocale":"ar"}'
+            O=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: org-${GITHUB_RUN_ID}" -d "$BODY" "$SITE_ORIGIN/api/v1/organizations")
+            ORG=$(jq -r '.id' <<<"$O")
+          fi
+          SERIES_BODY='{"name":"اختبار التوليد من الموقع","niche":"science","cadencePerWeek":1,"language":"ar"}'
+          SERIES=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: series-${GITHUB_RUN_ID}" -d "$SERIES_BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series")
+          SERIES_ID=$(jq -r '.id' <<<"$SERIES")
+          test -n "$SERIES_ID"
+          echo "org=$ORG" >> "$GITHUB_OUTPUT"
+          echo "series=$SERIES_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Generate video through website API route
+        id: video
+        env:
+          TOKEN: ${{ steps.auth.outputs.token }}
+          ORG: ${{ steps.project.outputs.org }}
+          SERIES: ${{ steps.project.outputs.series }}
+        run: |
+          set -euo pipefail
+          PROMPT='عجائب جسم الإنسان: كيف يعمل القلب والدماغ والأعصاب بطريقة مدهشة، بأسلوب سينمائي علمي واضح ومناسب لفيديو عمودي قصير'
+          BODY=$(jq -nc --arg k "$PROMPT" '{keyword:$k,targetSeconds:35}')
+          RESP=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: video-${GITHUB_RUN_ID}" -d "$BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series/$SERIES/videos")
+          echo "$RESP" | jq '{id:(.video.id // .id),status:(.video.status // .status),jobId}'
+          VIDEO_ID=$(jq -r '.video.id // .id // empty' <<<"$RESP")
+          test -n "$VIDEO_ID"
+          echo "id=$VIDEO_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for READY and download generated MP4
+        env:
+          TOKEN: ${{ steps.auth.outputs.token }}
+          ORG: ${{ steps.project.outputs.org }}
+          VIDEO_ID: ${{ steps.video.outputs.id }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 1200))
+          while [ $SECONDS -lt $deadline ]; do
+            R=$(curl -fLsS -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VIDEO_ID")
+            STATUS=$(jq -r '.status // empty' <<<"$R")
+            STEP=$(jq -r '.seo.step // ""' <<<"$R")
+            PROGRESS=$(jq -r '.seo.progress // ""' <<<"$R")
+            echo "status=$STATUS progress=$PROGRESS step=$STEP"
+            if [ "$STATUS" = "READY" ]; then
+              curl -fLsS --retry 3 -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VIDEO_ID/stream" -o site-generated-smoke.mp4
+              test "$(stat -c%s site-generated-smoke.mp4)" -gt 30000
+              file site-generated-smoke.mp4
+              exit 0
+            fi
+            if [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "ERROR" ] || [ "$STATUS" = "CANCELLED" ]; then
+              echo "$R" | jq '{status,failureReason,seo}'
+              exit 1
+            fi
+            sleep 5
+          done
+          echo 'Timed out waiting for site-generated video'
+          exit 1
+
+      - name: Upload generated video proof
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-generated-video
+          path: site-generated-smoke.mp4
+          if-no-files-found: error
+          retention-days: 7

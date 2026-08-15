@@ -20,7 +20,7 @@ const boolFromEnv = (def: boolean) =>
   z
     .enum(['true', 'false', '1', '0'])
     .optional()
-    .transform((s) => (s === undefined ? def : s === 'true' || s === '1'));
+    .transform((s: 'true' | 'false' | '1' | '0' | undefined) => (s === undefined ? def : s === 'true' || s === '1'));
 
 export const AppConfigSchema = z.object({
   nodeEnv: z
@@ -31,7 +31,7 @@ export const AppConfigSchema = z.object({
 
   http: z.object({
     port: intFromEnv(3000).pipe(z.number().int().min(1).max(65535)),
-    host: z.string().default('0.0.0.0'),
+    host: z.string().min(1).default('0.0.0.0'),
     corsOrigins: z
       .string()
       .optional()
@@ -123,6 +123,7 @@ export const AppConfigSchema = z.object({
    * runtime secrets (Render env / Doppler), referenced here by name only.
    * When absent the OAuth start endpoint answers 503 PLATFORM_ERROR naming the
    * exact env keys to provision — a real configuration state, never a stub.
+   * TikTok uses PKCE; Google uses HMAC state.
    */
   platforms: z
     .object({
@@ -130,6 +131,11 @@ export const AppConfigSchema = z.object({
       googleClientSecret: z.string().min(1).optional(),
       /** Full callback URL registered in Google Cloud Console (defaults to PUBLIC_API_URL derivation). */
       googleOauthRedirectUri: z.string().url().optional(),
+      tiktokClientKey: z.string().min(1).optional(),
+      tiktokClientSecret: z.string().min(1).optional(),
+      tiktokOauthRedirectUri: z.string().url().optional(),
+      metaAppId: z.string().min(1).optional(),
+      metaAppSecret: z.string().min(1).optional(),
     })
     .default({}),
 
@@ -152,6 +158,30 @@ export const AppConfigSchema = z.object({
       runwayApiKey: z.string().min(1).optional(),
       lumaApiKey: z.string().min(1).optional(),
       falKey: z.string().min(1).optional(),
+      // image providers (org vault or env; pollinations stays the keyless default)
+      stabilityApiKey: z.string().min(1).optional(),
+      replicateApiToken: z.string().min(1).optional(),
+      // voice providers (org vault or env; gTTS stays the keyless default)
+      elevenlabsApiKey: z.string().min(1).optional(),
+    })
+    .default({}),
+
+  /**
+   * Object storage (S3 / S3-compatible). When accessKeyId + bucket are set the
+   * AssetStore writes media to S3 and reads it back from S3; otherwise it
+   * falls back to the durable AssetBlob tier (Postgres bytea). Never both.
+   */
+  s3: z
+    .object({
+      endpoint: z.string().url().optional(), // S3-compatible endpoints (MinIO/R2)
+      region: z.string().min(2).default('us-east-1'),
+      accessKeyId: z.string().min(1).optional(),
+      secretAccessKey: z.string().min(1).optional(),
+      bucketAssets: z.string().min(1).optional(),
+      bucketRenders: z.string().min(1).optional(),
+      bucketLogs: z.string().min(1).optional(),
+      /** Seconds a presigned URL stays valid (default 2h). */
+      presignTtlSec: intFromEnv(7_200).pipe(z.number().int().min(60).max(86_400)),
     })
     .default({}),
 
@@ -210,6 +240,11 @@ export const ENV_MAP = {
   GOOGLE_CLIENT_ID: 'platforms.googleClientId',
   GOOGLE_CLIENT_SECRET: 'platforms.googleClientSecret',
   GOOGLE_OAUTH_REDIRECT_URI: 'platforms.googleOauthRedirectUri',
+  TIKTOK_CLIENT_KEY: 'platforms.tiktokClientKey',
+  TIKTOK_CLIENT_SECRET: 'platforms.tiktokClientSecret',
+  TIKTOK_OAUTH_REDIRECT_URI: 'platforms.tiktokOauthRedirectUri',
+  META_APP_ID: 'platforms.metaAppId',
+  META_APP_SECRET: 'platforms.metaAppSecret',
   OPENAI_API_KEY: 'ai.openaiApiKey',
   OPENAI_MODEL: 'ai.openaiModel',
   OPENAI_TTS_VOICE: 'ai.openaiTtsVoice',
@@ -220,6 +255,21 @@ export const ENV_MAP = {
   RUNWAY_API_KEY: 'ai.runwayApiKey',
   LUMA_API_KEY: 'ai.lumaApiKey',
   FAL_KEY: 'ai.falKey',
+  STABILITY_API_KEY: 'ai.stabilityApiKey',
+  REPLICATE_API_TOKEN: 'ai.replicateApiToken',
+  ELEVENLABS_API_KEY: 'ai.elevenlabsApiKey',
+  S3_ENDPOINT: 's3.endpoint',
+  S3_REGION: 's3.region',
+  AWS_REGION: 's3.region',
+  S3_ACCESS_KEY_ID: 's3.accessKeyId',
+  AWS_ACCESS_KEY_ID: 's3.accessKeyId',
+  S3_SECRET_ACCESS_KEY: 's3.secretAccessKey',
+  AWS_SECRET_ACCESS_KEY: 's3.secretAccessKey',
+  S3_BUCKET: 's3.bucketAssets',
+  S3_BUCKET_ASSETS: 's3.bucketAssets',
+  S3_BUCKET_RENDERS: 's3.bucketRenders',
+  S3_BUCKET_LOGS: 's3.bucketLogs',
+  S3_PRESIGN_TTL_SEC: 's3.presignTtlSec',
   PUBLIC_API_URL: 'urls.publicApi',
   PUBLIC_WEB_URL: 'urls.publicWeb',
   API_PUBLIC_URL: 'urls.publicApi',

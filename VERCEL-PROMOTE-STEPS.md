@@ -29,7 +29,7 @@ I pushed a new build (deployment `5768723839`, commit `e799b37`) that produces a
 ## What the new deployment contains
 
 - ✅ Complete Next.js server app (not a static export)
-- ✅ All route handlers including `/api/v1/*` proxy to Render
+- ✅ All route handlers including `/api/v1/*` proxy to the API upstream (API_UPSTREAM env)
 - ✅ Notifications controller (per-user inbox surface)
 - ✅ All dashboard pages with working JS and CSS
 - ✅ All form submissions wired to the real API

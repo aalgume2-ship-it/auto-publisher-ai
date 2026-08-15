@@ -14,7 +14,6 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 
 const VERSION = 'v1';
 const IV_BYTES = 12; // GCM standard
-const TAG_BYTES = 16;
 
 export class EnvelopeDecryptError extends Error {
   constructor() {

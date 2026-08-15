@@ -1,104 +1,171 @@
 /**
- * Phase-1 catch-all API proxy: /api/v1/* → Render upstream.
- * Last rebuilt: 2026-08-05T20:25Z — force Vercel to pick up the new
- * vercel.json config (no outputDirectory, framework: nextjs) so the
- * .next/ build is published instead of the stale static export.
+ * Catch-all API proxy: /api/v1/* → AWS API upstream (production).
  *
- * Route mapping:
- *   /api/v1/auth/*    → UPSTREAM/v1/auth/*
- *   /api/v1/health/*  → UPSTREAM/health/*  (VERSION_NEUTRAL on the API)
- *   /api/v1/<other>   → UPSTREAM/v1/<other>
- *
- * The upstream origin is read from API_UPSTREAM (server-only env var) with a
- * fallback to the public NEXT_PUBLIC_API_BASE so that local dev works without
- * extra config.  The browser never sees the upstream URL — all traffic goes
- * through /api/v1/… on the same origin.
- *
- * Always-on: this same /health route is used by the keep-alive cron declared
- * in vercel.json so the upstream is pinged every 10 minutes and never idles
- * into a sleep (see report: cold-start elimination).
+ * The browser never sees the AWS origin. Vercel should normally provide
+ * API_UPSTREAM, but we keep the currently verified production recovery ALB as
+ * a server-side fallback so the existing Lumen UI can generate immediately
+ * even when the Vercel environment variable has not yet been synchronized.
  */
-import { NextRequest, NextResponse } from 'next/server';
 
-const UPSTREAM =
-  process.env.API_UPSTREAM?.replace(/\/+$/, '') ||
-  process.env.NEXT_PUBLIC_API_BASE?.replace(/\/+$/, '') ||
-  'https://autocreator-api-preview.onrender.com';
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
-/**
- * Remap the public path to the upstream path.
- * Health endpoints live at VERSION_NEUTRAL (/health, /health/live, /health/ready)
- * so /api/v1/health/* → /health/* rather than /v1/health/*.
- */
+const VERIFIED_PRODUCTION_UPSTREAM = 'http://autocreator-recovery-alb-979440653.eu-north-1.elb.amazonaws.com';
+const RAW_UPSTREAM =
+  process.env.API_UPSTREAM?.trim() ||
+  process.env.NEXT_PUBLIC_API_BASE?.trim() ||
+  VERIFIED_PRODUCTION_UPSTREAM;
+
+function cleanOrigin(s: string): string {
+  return s.replace(/\/+$/, '').trim();
+}
+
 function upstreamPath(segments: string[]): string {
   if (segments[0] === 'health') {
-    // /api/v1/health/live → /health/live
     return '/' + segments.join('/');
   }
-  // Everything else is versioned: /api/v1/auth/login → /v1/auth/login
   return '/v1/' + segments.join('/');
+}
+
+function isHtmlInterstitial(text: string, contentType: string | null): boolean {
+  if (contentType && contentType.includes('text/html')) return true;
+  const t = text.slice(0, 2000).toLowerCase();
+  return (
+    t.includes('<!doctype html') ||
+    t.includes('<html') ||
+    t.includes('application loading') ||
+    t.includes('allocating compute resources') ||
+    t.includes('service waking up') ||
+    t.includes('your app is almost live')
+  );
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: ac.signal } as RequestInit);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   return proxy(request, (await params).path);
 }
-
 export async function POST(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   return proxy(request, (await params).path);
 }
-
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   return proxy(request, (await params).path);
 }
-
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   return proxy(request, (await params).path);
 }
-
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   return proxy(request, (await params).path);
 }
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type,Authorization,Idempotency-Key',
+    },
+  });
+}
 
 async function proxy(request: NextRequest, segments: string[]): Promise<NextResponse> {
-  const target = new URL(upstreamPath(segments), UPSTREAM);
+  const upstream = cleanOrigin(RAW_UPSTREAM);
+  const targetPath = upstreamPath(segments);
+  const isHealth = segments[0] === 'health';
 
-  // Forward query string.
+  const hasBody = !['GET', 'HEAD'].includes(request.method);
+  let bodyBuffer: ArrayBuffer | undefined;
+  if (hasBody) {
+    try {
+      bodyBuffer = await request.arrayBuffer();
+    } catch {
+      bodyBuffer = undefined;
+    }
+  }
+
+  const target = new URL(targetPath, upstream);
   request.nextUrl.searchParams.forEach((v, k) => target.searchParams.set(k, v));
 
-  // Clone headers, drop host / connection hop-by-hop.
   const headers = new Headers(request.headers);
   headers.delete('host');
   headers.delete('connection');
   headers.delete('transfer-encoding');
+  if (!headers.has('accept')) headers.set('accept', 'application/json');
 
-  // Body: forward for mutating methods, omit for GET/HEAD.
-  const hasBody = !['GET', 'HEAD'].includes(request.method);
-  const body = hasBody ? await request.arrayBuffer() : undefined;
+  const maxAttempts = isHealth ? 2 : 3;
+  const baseDelayMs = 1500;
 
-  try {
-    const upstream = await fetch(target.toString(), {
-      method: request.method,
-      headers,
-      body,
-      // @ts-expect-error — duplex is required for streaming bodies in Node fetch
-      duplex: hasBody ? 'half' : undefined,
-    });
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const upstreamRes = await fetchWithTimeout(
+        target.toString(),
+        {
+          method: request.method,
+          headers,
+          body: bodyBuffer,
+          cache: 'no-store',
+        },
+        isHealth ? 10_000 : 25_000,
+      );
 
-    // Build response headers; strip hop-by-hop from upstream too.
-    const resHeaders = new Headers(upstream.headers);
-    resHeaders.delete('transfer-encoding');
-    resHeaders.delete('connection');
-    resHeaders.delete('content-encoding'); // let Next.js handle encoding
+      const contentType = upstreamRes.headers.get('content-type') ?? '';
+      const text = await upstreamRes.text();
 
-    return new NextResponse(upstream.body, {
-      status: upstream.status,
-      headers: resHeaders,
-    });
-  } catch (err) {
-    console.error('[api/v1 proxy]', err);
-    return NextResponse.json(
-      { type: 'about:blank', title: 'Upstream unreachable', status: 502, detail: 'The API upstream did not respond' },
-      { status: 502 },
-    );
+      if (isHtmlInterstitial(text, contentType)) {
+        if (attempt < maxAttempts - 1) {
+          await new Promise((r) => setTimeout(r, baseDelayMs * (attempt + 1)));
+          continue;
+        }
+        return NextResponse.json(
+          { type: 'about:blank', title: 'Upstream waking up', status: 503, code: 'COLD_START', detail: 'API is starting — retry in a few seconds' },
+          { status: 503 },
+        );
+      }
+
+      const responseHeaders = new Headers({
+        'content-type': contentType,
+        'access-control-allow-origin': '*',
+        'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+        'access-control-allow-headers': 'Content-Type,Authorization,Idempotency-Key',
+        'cache-control': 'no-store',
+      });
+      upstreamRes.headers.forEach((v, k) => {
+        if (!['content-length', 'content-encoding', 'transfer-encoding'].includes(k.toLowerCase())) {
+          responseHeaders.set(k, v);
+        }
+      });
+
+      if (upstreamRes.status === 502 || upstreamRes.status === 503) {
+        if (attempt < maxAttempts - 1) {
+          await new Promise((r) => setTimeout(r, baseDelayMs * (attempt + 1)));
+          continue;
+        }
+      }
+
+      return new NextResponse(text, { status: upstreamRes.status, headers: responseHeaders });
+    } catch (err) {
+      if (attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, baseDelayMs * (attempt + 1)));
+        continue;
+      }
+      const msg = err instanceof Error ? err.message : 'upstream unreachable';
+      return NextResponse.json(
+        { type: 'about:blank', title: 'Upstream unreachable', status: 502, code: 'UPSTREAM_UNREACHABLE', detail: msg },
+        { status: 502 },
+      );
+    }
   }
+
+  return NextResponse.json(
+    { type: 'about:blank', title: 'Upstream unreachable', status: 502, code: 'UPSTREAM_UNREACHABLE', detail: 'all attempts failed' },
+    { status: 502 },
+  );
 }

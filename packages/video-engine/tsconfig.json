@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../auth" },
+    { "path": "../config" },
+    { "path": "../database" },
+    { "path": "../logger" },
+    { "path": "../shared" }
+  ]
+}

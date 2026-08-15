@@ -55,10 +55,12 @@ Three ways to explore interactively: **Swagger UI** at <http://localhost:3000/do
 or `pnpm demo` for the fully-scripted tour. Full, honest instructions (incl.
 what does **not** run yet): [`docs/DEVELOPER-GUIDE.md`](./docs/DEVELOPER-GUIDE.md).
 
-**Hosted preview instead of local?** This repo is a Render Blueprint:
-dashboard → *New → Blueprint* → pick the repo — web + Postgres + Redis deploy
-themselves (see [`docs/Deployment.md` §Preview on Render](./docs/Deployment.md)
-+ [`render.yaml`](./render.yaml)).
+**Hosted deployment (Vercel-first, no Render):** web runs on **Vercel**,
+the API + Worker run on **AWS** (ECS Fargate), **RDS** hosts Postgres and
+**Upstash Redis** backs queues/rate-limits. See
+[`docs/Deployment.md` §Vercel-first architecture](./docs/Deployment.md) —
+deploy in ~10 minutes with the included GitHub Actions
+(`.github/workflows/deploy-vercel.yml`, `infra/aws/deploy.sh`).
 
 Convenience: Jaeger UI `:16686` · MinIO console `:9001` · Mailpit `:8025` · Bull Board `:3030`.
 

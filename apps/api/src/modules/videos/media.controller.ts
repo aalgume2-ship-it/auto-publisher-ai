@@ -15,7 +15,7 @@ import { Public } from '../../common/auth/auth.guard.js';
 import { ApiError } from '../../common/errors/api-error.js';
 import { API_CONFIG } from '../../common/redis.provider.js';
 import { PRISMA } from '../../common/prisma.provider.js';
-import { AssetStore } from './asset-store.js';
+import { AssetStore } from '@aca/video-engine';
 import { extname } from 'node:path';
 
 const MIME_BY_EXT: Record<string, string> = {

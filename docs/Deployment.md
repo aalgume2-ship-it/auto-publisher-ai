@@ -101,29 +101,58 @@ in Business-Model §5 unchanged (absorbed in infra line at 1k-org scale).
 
 ---
 
-## 2. Preview on Render (one-click Blueprint — durable trial URL)
+## 2. AWS-first architecture (current — Railway removed)
 
-`render.yaml` (repo root) provisions the full preview stack on Render —
-web service + managed Postgres 16 + free KeyValue (Redis protocol) — with
-zero local tooling:
+The platform no longer depends on Railway. The deployment topology is:
 
-1. <https://dashboard.render.com> → **New → Blueprint** → connect this repo.
-2. Render reads `render.yaml` and runs, per deploy: pnpm install → prisma
-   generate → `turbo build` → **pre-deploy** `ensure-vector.mjs` (pgvector,
-   idempotent) → `prisma db push` → `pnpm db:seed` → start
-   `node apps/api/dist/main.js`.
-3. When Live, the service URL (`https://<service>.onrender.com`) serves
-   `/docs`, `/openapi.json`, `/health`, `/health/ready`, `/metrics` publicly;
-   the remaining surface needs a session JWT: mint one from the web service's
-   Render **Shell** tab — `node infra/scripts/mint-dev-token.mjs` (demo-org +
-   demo user seed because `NODE_ENV=development`; a staging cut sets
-   `NODE_ENV=production`, skipping demo data per Database.md §7).
+```
+┌─────────────────────────────┐
+│  Vercel — web (Next.js 15)  │   <-- the URL the customer opens
+│  /api/v1/* → proxy to API   │       (server-side API_UPSTREAM env)
+└──────────────┬──────────────┘
+               │ HTTPS
+┌──────────────▼──────────────┐
+│  AWS ALB (HTTPS, ACM cert)  │
+└──────────────┬──────────────┘
+┌──────────────▼──────────────┐
+│  ECS Fargate — apps/api     │   long-lived NestJS (port 3000)
+│  ECS Fargate — apps/worker  │   BullMQ consumers (port 8080) + ffmpeg
+└──────┬──────────────┬───────┘
+       │              │
+   RDS PostgreSQL   ElastiCache Redis
+   (DATABASE_URL)  (REDIS_URL, BullMQ)
+       │
+   S3 (assets/renders/logs — private, presigned URLs)
+```
 
-Free-plan realities (Render, by design): web sleeps after 15 min idle (cold
-start on next request), free Postgres lasts 90 days, KeyValue free tier is
-25 MB. `AUTH_JWT_SECRET` is generated per service by Render; `TRUST_PROXY`
-is set so per-client rate limiting keys off the real client IP behind
-Render's balancer.
+### 2.1 Why the API is not a Vercel Function
+
+The API is NestJS + **BullMQ queue workers** (generation/image-generation/
+dubbing/publish/render/thumbnail) + **ffmpeg renders** (~30–40 s of CPU per
+video). Serverless functions have hard duration limits and no persistent
+process, so queue workers and renders cannot survive there. The division of
+labor is therefore:
+
+- **Vercel** → the Next.js web app + the same-origin `/api/v1/*` proxy
+  (Route Handlers, `apps/web/src/app/api/v1/[...path]/route.ts`).
+- **AWS (ECS Fargate)** → the API + the Worker (6 BullMQ queues).
+- **AWS RDS** → Postgres 16 + pgvector (the schema's `vector` extension).
+- **AWS ElastiCache** → Redis (BullMQ + rate limits + idempotency).
+- **AWS S3** → private media buckets (presigned upload/download).
+
+### 2.2 One-click deploy (AWS)
+
+1. **AWS:** `./infra/aws/deploy.sh` — ينشئ VPC/ALB/ECS/RDS/ElastiCache/S3/Secrets
+   (تفاصيل كاملة في `DEPLOYMENT.md`). أو GitHub Action `deploy-aws.yml` (OIDC).
+2. **Secrets Manager `autocreator/prod/runtime`:** ضع كل المتغيرات (لا شيء في git).
+3. **DB migrations:** `pnpm db:migrate` (`prisma migrate deploy`) — أبدًا db push.
+4. **Web (Vercel):** vercel.com → **New Project** → import this repo →
+   `vercel.json` auto-configures the build. Add env `API_UPSTREAM=https://
+   api.yourdomain.com` (+ `PUBLIC_API_URL`, `PUBLIC_WEB_URL`). (أو GitHub
+   Action `.github/workflows/deploy-vercel.yml` مع `VERCEL_TOKEN` +
+   `VERCEL_ORG_ID` + `VERCEL_PROJECT_ID`.)
+5. Open the Vercel URL → register → the full flow works end-to-end
+   (workspace/channel/asset/series/video + real generation when AI keys set).
 
 ---
 

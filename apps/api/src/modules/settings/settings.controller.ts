@@ -19,6 +19,7 @@ import {
   OrgParamsSchema,
   SaveAiKeyBodySchema,
   SaveGoogleOAuthBodySchema,
+  SaveTikTokOAuthBodySchema,
   SavedIntegrationDoc,
   VideoProviderParamsSchema,
 } from './settings.dto.js';
@@ -122,5 +123,30 @@ export class SettingsController {
   @ApiParam({ name: 'orgId', format: 'uuid' })
   deleteGoogleOAuth(@Param() params: { orgId: string }) {
     return this.settings.deleteGoogleOAuth(params.orgId);
+  }
+
+  @Put('integrations/oauth/tiktok')
+  @TenantRequired()
+  @RequiresCapabilities('project.edit')
+  @UseZod({ params: OrgParamsSchema, body: SaveTikTokOAuthBodySchema })
+  @ApiOperation({
+    operationId: 'saveTikTokOAuth',
+    summary: 'Validate a TikTok OAuth client (key+secret) against TikTok live, then store it encrypted — enables TikTok linking for this org',
+  })
+  @ApiParam({ name: 'orgId', format: 'uuid' })
+  @ApiOkResponse({ description: 'Client validated + stored', schema: SavedIntegrationDoc })
+  @ApiBadRequestResponse({ description: 'TikTok rejected the client pair', content: { 'application/problem+json': { schema: PROBLEM } } })
+  saveTikTokOAuth(@Param() params: { orgId: string }, @Body() body: { clientKey: string; clientSecret: string }) {
+    return this.settings.saveTikTokOAuth(params.orgId, body.clientKey, body.clientSecret);
+  }
+
+  @Delete('integrations/oauth/tiktok')
+  @TenantRequired()
+  @RequiresCapabilities('project.edit')
+  @UseZod({ params: OrgParamsSchema })
+  @ApiOperation({ operationId: 'deleteTikTokOAuth', summary: 'Remove the stored TikTok OAuth client (TikTok linking falls back to env config)' })
+  @ApiParam({ name: 'orgId', format: 'uuid' })
+  deleteTikTokOAuth(@Param() params: { orgId: string }) {
+    return this.settings.deleteTikTokOAuth(params.orgId);
   }
 }

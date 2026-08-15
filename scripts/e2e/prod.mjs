@@ -149,7 +149,7 @@ function assertStatus(label, res, expected) {
   // Try to start a YouTube link (expected: 503 PLATFORM_ERROR — no Google OAuth configured)
   r = await call('POST', `organizations/${orgId}/channels/youtube/link/`, { token: loginAccess });
   if (r.status === 503) {
-    log('POST /api/v1/organizations/{}/channels/youtube/link'.replace('{}', orgId), 'PASS', '503 (expected — GOOGLE_CLIENT_ID/SECRET not configured on Render; documented platform behavior)');
+    log('POST /api/v1/organizations/{}/channels/youtube/link'.replace('{}', orgId), 'PASS', '503 (expected — GOOGLE_CLIENT_ID/SECRET not configured on the host; documented platform behavior)');
   } else if (r.status === 201) {
     log('POST .../channels/youtube/link', 'PASS', '201 (Google OAuth configured)');
   } else {

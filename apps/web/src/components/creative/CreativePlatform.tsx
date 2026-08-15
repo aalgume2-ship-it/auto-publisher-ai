@@ -1,0 +1,47 @@
+'use client';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { Menu, Sparkles, Coins, ArrowUpRight, Play, LockKeyhole, ChevronRight } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import type { CreativeItem } from './catalog';
+
+const nav = [['Explore','/'],['Image','/image'],['Video','/video'],['Audio','/audio'],['Edit','/edit'],['Layers','/layers'],['Cinema Studio','/cinema'],['Viral Presets','/presets'],['Supercomputer','/automation'],['Marketing Studio','/marketing']] as const;
+
+function itemHref(item: CreativeItem): string {
+  const qs = new URLSearchParams();
+  if (item.prompt) qs.set('prompt', item.prompt);
+  if (item.style) qs.set('style', item.style);
+  if (item.aspect) qs.set('aspect', item.aspect);
+  if (item.title) qs.set('preset', item.title);
+  const query = qs.toString();
+  return query ? `${item.href}?${query}` : item.href;
+}
+
+export function TopNav(){
+  const path=usePathname();
+  const [open,setOpen]=useState(false);
+  return <header className="cp-top">
+    <Link href="/" className="cp-logo"><span><Sparkles size={17}/></span>Lumen</Link>
+    <button type="button" className="cp-menu" onClick={()=>setOpen(!open)} aria-label="Open navigation" aria-expanded={open}><Menu/></button>
+    <nav className={open?'open':''}>{nav.map(([label,href])=><Link className={(path===href||href!=='/'&&path.startsWith(href))?'active':''} href={href} key={href} onClick={()=>setOpen(false)}>{label}</Link>)}</nav>
+    <div className="cp-actions">
+      <Link href="/dashboard/billing" className="cp-credit"><Coins size={14}/> Credits</Link>
+      <Link href="/dashboard/billing">Pricing</Link>
+      <Link href="/marketing">Enterprise</Link>
+      <Link href="/dashboard" className="cp-avatar" aria-label="Open dashboard">L</Link>
+    </div>
+  </header>
+}
+
+export function PlatformShell({children}: {children:ReactNode}){return <div className="cp-root" dir="ltr"><TopNav/><main className="cp-main">{children}</main><footer className="cp-footer"><span>Lumen Creative Intelligence</span><span>Original tools for image, video, audio and automated publishing.</span></footer></div>}
+export function CapabilityBadge({available=true,label}:{available?:boolean;label?:string}){return <span className={available?'cp-cap available':'cp-cap'}>{available?null:<LockKeyhole size={11}/>} {label??(available?'Available':'Coming soon')}</span>}
+export function MediaCard({item,large=false}:{item:CreativeItem;large?:boolean}){return <Link href={itemHref(item)} className={`cp-media ${large?'large':''}`} aria-label={`Open ${item.title}`}><img src={item.image} alt={item.title}/><div className="cp-shade"/><div className="cp-media-top">{item.badge&&<span>{item.badge}</span>}<i><ArrowUpRight size={17}/></i></div><div className="cp-media-copy"><small>{item.category}</small><h3>{item.title}</h3><p>{item.description}</p><b><Play size={13} fill="currentColor"/> Use this look</b></div></Link>}
+export function SectionRail({title,items}:{title:string;items:CreativeItem[]}){const first=items[0]; return <section className="cp-section"><div className="cp-section-head"><div><h2>{title}</h2><p>Curated starting points for your next creation.</p></div>{first?<Link href={itemHref(first)}>View all <ChevronRight size={15}/></Link>:null}</div><div className="cp-rail">{items.map((x)=><MediaCard item={x} key={x.title}/>)}</div></section>}
+export function ToolCard({icon,title,description,href,available=true}:{icon:ReactNode;title:string;description:string;href:string;available?:boolean}){return available?<Link href={href} className="cp-tool-card"><div className="cp-tool-icon">{icon}</div><CapabilityBadge available/><h3>{title}</h3><p>{description}</p><span>Open tool <ArrowUpRight size={14}/></span></Link>:<div aria-disabled="true" className="cp-tool-card disabled"><div className="cp-tool-icon">{icon}</div><CapabilityBadge available={false}/><h3>{title}</h3><p>{description}</p><span>Not yet available</span></div>}
+export function PageHero({eyebrow,title,description,children}:{eyebrow:string;title:string;description:string;children?:ReactNode}){return <section className="cp-page-hero"><small>{eyebrow}</small><h1>{title}</h1><p>{description}</p>{children}</section>}
+export function EmptyState({title,description}:{title:string;description:string}){return <div className="cp-empty"><Sparkles/><h3>{title}</h3><p>{description}</p></div>}
+export const FeatureCard = MediaCard;
+export function ModelCard({name,provider,available}:{name:string;provider:string;available:boolean}){return <div className={`cp-tool-card ${available?'':'disabled'}`}><CapabilityBadge available={available}/><div className="cp-tool-icon"><Sparkles/></div><h3>{name}</h3><p>{provider}</p></div>}
+export function PresetCard({item}:{item:CreativeItem}){return <MediaCard item={item}/>}
+export function VideoPreview({src,poster}:{src?:string;poster:string}){return src?<video className="cp-preview" src={src} poster={poster} muted loop playsInline controls autoPlay preload="metadata"/>:<div className="cp-media cp-preview"><img src={poster} alt="Preview"/><div className="cp-shade"/><CapabilityBadge available={false} label="Preview unavailable"/></div>}
+export function MediaUploader(){return <label className="cp-empty" style={{cursor:'pointer'}}><input hidden type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime" multiple/><Sparkles/><h3>Add reference media</h3><p>JPG, PNG, WEBP, MP4 or MOV. Files are uploaded only through the production asset workflow.</p></label>}

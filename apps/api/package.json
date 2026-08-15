@@ -2,14 +2,14 @@
   "name": "@aca/api",
   "version": "0.1.0",
   "private": true,
-  "description": "AutoCreator AI \u2014 public HTTP API (NestJS 11 + Fastify 5): RFC 9457 errors, URI-versioned /v1 routes, generated OpenAPI, capability guards, idempotency, rate limits, OTel + Prometheus observability (L5).",
+  "description": "AutoCreator AI — public HTTP API (NestJS 11 + Fastify 5): RFC 9457 errors, URI-versioned /v1 routes, generated OpenAPI, capability guards, idempotency, rate limits, OTel + Prometheus observability (L5).",
   "type": "module",
   "scripts": {
     "build": "tsc -b",
     "dev": "tsc -b --watch",
     "start": "node dist/main.js",
     "lint": "eslint .",
-    "typecheck": "tsc -b --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:integration": "ACA_API_IT=1 vitest run --config vitest.integration.config.ts"
   },
@@ -30,6 +30,8 @@
     "@opentelemetry/sdk-node": "^0.217.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
     "fastify": "^5.7.2",
+    "@ffmpeg-installer/linux-x64": "4.1.0",
+    "@ffprobe-installer/linux-x64": "5.2.0",
     "ffmpeg-static": "^5.2.0",
     "ffprobe-static": "^3.1.0",
     "ioredis": "^5.4.2",
@@ -37,7 +39,9 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "zod": "catalog:",
-    "@aca/auth": "workspace:*"
+    "@aca/auth": "workspace:*",
+    "@aca/video-engine": "workspace:*",
+    "bullmq": "^5.15.0"
   },
   "devDependencies": {
     "@aca/typescript-config": "workspace:*",
@@ -47,5 +51,19 @@
     "typescript": "catalog:",
     "unplugin-swc": "^1.5.9",
     "vitest": "catalog:"
+  },
+  "exports": {
+    "./publish": {
+      "types": "./dist/modules/channels/publishers/index.d.ts",
+      "default": "./dist/modules/channels/publishers/index.js"
+    },
+    "./channels": {
+      "types": "./dist/modules/channels/channels.service.d.ts",
+      "default": "./dist/modules/channels/channels.service.js"
+    },
+    "./credentials": {
+      "types": "./dist/common/credentials/org-credentials.service.d.ts",
+      "default": "./dist/common/credentials/org-credentials.service.js"
+    }
   }
 }

@@ -1,0 +1,17 @@
+export DATABASE_URL="postgresql://aca@localhost:5432/autocreator"
+export REDIS_URL="redis://localhost:6379/0"
+export NODE_ENV="production"
+export PORT=4000
+export HOST="0.0.0.0"
+export AUTH_JWT_SECRET="$(python3 -c 'import secrets;print(secrets.token_hex(32))')"
+export SECRETS_MASTER_KEY="$(python3 -c 'import secrets;print(secrets.token_hex(32))')"
+export PUBLIC_API_URL="http://localhost:4000"
+export PUBLIC_WEB_URL="http://localhost:3100"
+export CORS_ORIGINS="http://localhost:3100"
+export LOG_LEVEL="info"
+export ACA_STORAGE_DIR="/home/user/data/aca-storage"
+export PRISMA_SCHEMA_ENGINE_BINARY=/home/user/data/prisma-engines-5/schema-engine
+export PRISMA_QUERY_ENGINE_BINARY=/home/user/data/prisma-engines-5/query-engine
+export PRISMA_QUERY_ENGINE_LIBRARY=/home/user/data/prisma-engines-5/libquery_engine.so.node
+export PRISMA_FMT_BINARY=/home/user/data/prisma-engines-5/prisma-fmt
+export PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1

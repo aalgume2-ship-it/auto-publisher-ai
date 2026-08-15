@@ -59,6 +59,21 @@ export const ScheduleBodyDoc = {
   },
 };
 
+export const PresignUploadBody = z.object({
+  fileName: z.string().trim().min(1).max(180),
+  mimeType: z.string().trim().min(3).max(80),
+  kind: z.enum(['IMAGE', 'VIDEO_CLIP', 'AUDIO', 'BRAND']).default('IMAGE'),
+  sizeBytes: z.number().int().min(1).max(5 * 1024 * 1024 * 1024).optional(),
+});
+
+export const ConfirmS3Body = z.object({
+  fileName: z.string().trim().min(1).max(180),
+  mimeType: z.string().trim().min(3).max(80),
+  kind: z.enum(['IMAGE', 'VIDEO_CLIP', 'AUDIO', 'BRAND']).default('IMAGE'),
+  storageKey: z.string().trim().min(3).max(500),
+  bytes: z.number().int().min(1).max(5 * 1024 * 1024 * 1024),
+});
+
 export const UploadAssetBody = z.object({
   fileName: z.string().trim().min(1).max(180),
   mimeType: z.string().trim().min(3).max(80),
@@ -106,7 +121,7 @@ export type AssetListQuery = z.infer<typeof AssetListQuerySchema>;
 
 export const VideoListQuerySchema = z.object({
   seriesId: z.string().uuid().optional(),
-  status: z.enum(['DRAFT', 'QUEUED', 'GENERATING', 'READY', 'SCHEDULED', 'PUBLISHED', 'FAILED']).optional(),
+  status: z.enum(['DRAFT', 'QUEUED', 'GENERATING', 'RENDERING', 'UPLOADING', 'READY', 'SCHEDULED', 'PUBLISHED', 'FAILED']).optional(),
 });
 
 export const SeriesDoc = {

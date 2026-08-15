@@ -12,7 +12,7 @@
     "dev": "turbo dev",
     "build": "node infra/scripts/build.mjs",
     "lint": "turbo lint",
-    "typecheck": "turbo typecheck",
+    "typecheck": "pnpm db:generate && turbo typecheck",
     "test": "turbo test",
     "test:e2e": "turbo test:e2e --concurrency=1",
     "eval": "turbo eval --filter @aca/ai",
@@ -30,7 +30,10 @@
   "devDependencies": {
     "@aca/eslint-config": "workspace:*",
     "@aca/typescript-config": "workspace:*",
+    "@prisma/adapter-pg": "catalog:",
+    "@prisma/client": "catalog:",
     "prettier": "^3.4.2",
+    "prisma": "catalog:",
     "turbo": "^2.5.0",
     "typescript": "^5.6.3"
   },

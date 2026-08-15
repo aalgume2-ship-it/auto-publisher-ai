@@ -2,7 +2,7 @@
   "name": "@aca/database",
   "version": "0.1.0",
   "private": true,
-  "description": "AutoCreator AI \u2014 Prisma schema, tenant-scoped client factory, partitioning helpers",
+  "description": "AutoCreator AI — Prisma schema, tenant-scoped client factory, partitioning helpers",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -20,7 +20,7 @@
     "build": "prisma generate && tsc -b",
     "dev": "tsc -b --watch",
     "lint": "eslint .",
-    "typecheck": "tsc -b --noEmit && tsc -p tsconfig.seed.json",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.seed.json --noEmit",
     "typecheck:seed": "tsc -p tsconfig.seed.json",
     "test": "vitest run --passWithNoTests",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
@@ -32,8 +32,10 @@
   },
   "dependencies": {
     "@aca/shared": "workspace:*",
+    "@prisma/adapter-pg": "catalog:",
     "@prisma/client": "catalog:",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "pg": "^8.22.0"
   },
   "devDependencies": {
     "@aca/typescript-config": "workspace:*",
@@ -41,7 +43,8 @@
     "prisma": "catalog:",
     "tsx": "^4.19.2",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "@types/pg": "^8.11.10"
   },
   "prisma": {
     "seed": "tsx ./prisma/seed.ts"
