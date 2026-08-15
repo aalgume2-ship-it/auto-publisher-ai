@@ -136,7 +136,10 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
         ? null
         : isTextual
           ? await upstreamRes.text()
-          : await upstreamRes.arrayBuffer();
+          // Preserve media byte-for-byte. Buffering the upstream MP4 through
+          // the route runtime can coerce arbitrary bytes through UTF-8 and
+          // introduce replacement characters, corrupting the container.
+          : upstreamRes.body;
 
       if (isTextual && typeof payload === 'string' && isHtmlInterstitial(payload, contentType)) {
         if (attempt < maxAttempts - 1) {
