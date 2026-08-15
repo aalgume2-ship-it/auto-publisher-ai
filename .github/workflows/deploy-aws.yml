@@ -86,6 +86,24 @@ jobs:
               aws ecr create-repository --repository-name "$repository" --image-scanning-configuration scanOnPush=true --encryption-configuration encryptionType=AES256 --region "$AWS_REGION" >/dev/null
           done
 
+      - name: Ensure private S3 media bucket
+        env:
+          ACCOUNT_ID: ${{ steps.aws.outputs.account_id }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          ASSET_BUCKET="autocreator-${ACCOUNT_ID}-assets"
+          if ! aws s3api head-bucket --bucket "$ASSET_BUCKET" 2>/dev/null; then
+            if [ "$AWS_REGION" = "us-east-1" ]; then
+              aws s3api create-bucket --bucket "$ASSET_BUCKET" --region "$AWS_REGION" >/dev/null
+            else
+              aws s3api create-bucket --bucket "$ASSET_BUCKET" --region "$AWS_REGION" --create-bucket-configuration "LocationConstraint=$AWS_REGION" >/dev/null
+            fi
+          fi
+          aws s3api put-public-access-block --bucket "$ASSET_BUCKET" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+          aws s3api put-bucket-encryption --bucket "$ASSET_BUCKET" --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+          echo "ASSET_BUCKET=$ASSET_BUCKET" >> "$GITHUB_ENV"
+
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
@@ -105,7 +123,7 @@ jobs:
           echo "API_IMAGE=$API_IMAGE" >> "$GITHUB_ENV"
           echo "WORKER_IMAGE=$WORKER_IMAGE" >> "$GITHUB_ENV"
 
-      - name: Clone task definitions and change image only
+      - name: Clone task definitions and configure media storage
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
@@ -114,8 +132,17 @@ jobs:
             service="$1" image="$2" outvar="$3"
             current="$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" --region "$AWS_REGION" --query 'services[0].taskDefinition' --output text)"
             aws ecs describe-task-definition --task-definition "$current" --region "$AWS_REGION" --query taskDefinition --output json > current.json
-            jq --arg image "$image" '
+            jq --arg image "$image" --arg bucket "$ASSET_BUCKET" --arg region "$AWS_REGION" '
               .containerDefinitions[0].image = $image
+              | .containerDefinitions[0].environment = (
+                  ((.containerDefinitions[0].environment // [])
+                    | map(select(.name != "S3_BUCKET" and .name != "S3_BUCKET_RENDERS" and .name != "AWS_REGION")))
+                  + [
+                      {"name":"S3_BUCKET","value":$bucket},
+                      {"name":"S3_BUCKET_RENDERS","value":$bucket},
+                      {"name":"AWS_REGION","value":$region}
+                    ]
+                )
               | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)
             ' current.json > next.json
             next="$(aws ecs register-task-definition --cli-input-json file://next.json --region "$AWS_REGION" --query 'taskDefinition.taskDefinitionArn' --output text)"
