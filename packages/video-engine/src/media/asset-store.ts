@@ -132,10 +132,23 @@ export class AssetStore {
   }
 
   /** Presigned S3 GET URL (production download path). Null when S3 is off. */
-  async presignedUrl(storageKey: string, ttlSec?: number): Promise<string | null> {
+  async presignedUrl(storageKey: string, ttlSec?: number, downloadName?: string): Promise<string | null> {
     if (!this.s3 || !this.bucketAssets) return null;
     const ttl = ttlSec ?? this.config.s3.presignTtlSec;
-    return presign(this.s3, new GetObjectCommand({ Bucket: this.bucketAssets, Key: storageKey }), { expiresIn: ttl });
+    return presign(
+      this.s3,
+      new GetObjectCommand({
+        Bucket: this.bucketAssets,
+        Key: storageKey,
+        ...(downloadName
+          ? {
+              ResponseContentDisposition: `attachment; filename="${downloadName.replace(/["\\]/g, '_')}"`,
+              ResponseContentType: 'video/mp4',
+            }
+          : {}),
+      }),
+      { expiresIn: ttl },
+    );
   }
 
   /**
