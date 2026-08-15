@@ -158,6 +158,7 @@ export class GenerationService {
       let cursor = 0;
       const windows: { startMs: number; durationMs: number }[] = [];
       const movingScenes: { clipPath: string; caption: string; durationMs: number }[] = [];
+      const stillScenes: { imagePath: string; caption: string; durationMs: number }[] = [];
       for (let i = 0; i < script.scenes.length; i += 1) {
         const scene = script.scenes[i]!;
         const isLast = i === script.scenes.length - 1;
@@ -183,6 +184,7 @@ export class GenerationService {
           },
         });
         await this.prisma.asset.update({ where: { id: imgAsset.id }, data: { cdnPath: `/v1/organizations/${video.orgId}/assets/${imgAsset.id}/content` } });
+        stillScenes[i] = { imagePath: this.store.fullPath(imgStored.storageKey), caption: scene.narration, durationMs };
         this.assertDimensionsCoherent(imgAsset.id);
         await this.prisma.scene.create({
           data: {
@@ -203,37 +205,50 @@ export class GenerationService {
       {
         await markStep(`clips 0/${script.scenes.length}`, 52);
         let clipsDone = 0;
-        await mapPool(script.scenes, videoCred.def.id === 'hf-ltx' ? 1 : 2, async (scene, i) => {
-          const w = windows[i]!;
-          const buf = await this.ai.generateSceneClip(videoCred, scene.visualPrompt, this.ai.sceneImageUrl(scene.visualPrompt, 1000 + i * 77), w.durationMs / 1000);
-          const clipStored = await this.store.put(video.orgId, `clip-${i}.mp4`, buf);
-          const clipAsset = await this.prisma.asset.create({
-            data: {
-              id: generateId(),
-              orgId: video.orgId,
-              type: 'VIDEO_CLIP',
-              source: 'GENERATED',
-              storageKey: clipStored.storageKey,
-              cdnPath: 'pending',
-              mimeType: 'video/mp4',
-              bytes: BigInt(buf.length),
-              durationMs: w.durationMs,
-              width: 720,
-              height: 1280,
-              metadata: { prompt: scene.visualPrompt, provider: videoCred.def.id, firstFrameStill: `scene-${i}.jpg` },
-            },
+        try {
+          await mapPool(script.scenes, videoCred.def.id === 'hf-ltx' ? 1 : 2, async (scene, i) => {
+            const w = windows[i]!;
+            const buf = await this.ai.generateSceneClip(videoCred, scene.visualPrompt, this.ai.sceneImageUrl(scene.visualPrompt, 1000 + i * 77), w.durationMs / 1000);
+            const clipStored = await this.store.put(video.orgId, `clip-${i}.mp4`, buf);
+            const clipAsset = await this.prisma.asset.create({
+              data: {
+                id: generateId(),
+                orgId: video.orgId,
+                type: 'VIDEO_CLIP',
+                source: 'GENERATED',
+                storageKey: clipStored.storageKey,
+                cdnPath: 'pending',
+                mimeType: 'video/mp4',
+                bytes: BigInt(buf.length),
+                durationMs: w.durationMs,
+                width: 720,
+                height: 1280,
+                metadata: { prompt: scene.visualPrompt, provider: videoCred.def.id, firstFrameStill: `scene-${i}.jpg` },
+              },
+            });
+            await this.prisma.asset.update({ where: { id: clipAsset.id }, data: { cdnPath: `/v1/organizations/${video.orgId}/assets/${clipAsset.id}/content` } });
+            movingScenes[i] = { clipPath: this.store.fullPath(clipStored.storageKey), caption: scene.narration, durationMs: w.durationMs };
+            clipsDone += 1;
+            await markStep(`clips ${clipsDone}/${script.scenes.length}`, 52 + Math.round((clipsDone / script.scenes.length) * 18));
           });
-          await this.prisma.asset.update({ where: { id: clipAsset.id }, data: { cdnPath: `/v1/organizations/${video.orgId}/assets/${clipAsset.id}/content` } });
-          movingScenes[i] = { clipPath: this.store.fullPath(clipStored.storageKey), caption: scene.narration, durationMs: w.durationMs };
-          clipsDone += 1;
-          await markStep(`clips ${clipsDone}/${script.scenes.length}`, 52 + Math.round((clipsDone / script.scenes.length) * 18));
-        });
+        } catch (err) {
+          // The public ZeroGPU queue can be unavailable or out of quota. It is
+          // the keyless tier only, so keep the job useful by rendering the
+          // generated scene art with deterministic camera motion. Paid/BYOK
+          // provider failures still surface normally.
+          if (videoCred.source !== 'keyless') throw err;
+          movingScenes.length = 0;
+          seoState['motionFallback'] = 'animated-stills';
+          await markStep('motion fallback', 70);
+        }
       }
 
       await markStep('render', 72, 'RENDERING');
 
       /* 4 ── compose (real ffmpeg render; moving path when clips exist) */
-      const { videoPath, durationMs } = await this.composer.composeMoving(movingScenes, audioPath, wd);
+      const { videoPath, durationMs } = movingScenes.length === script.scenes.length
+        ? await this.composer.composeMoving(movingScenes, audioPath, wd)
+        : await this.composer.compose(stillScenes, audioPath, wd);
       const mp4 = await readFile(videoPath);
       if (mp4.byteLength < 50_000) throw new Error('render produced a suspiciously small mp4');
       await markStep('upload', 88, 'UPLOADING');
