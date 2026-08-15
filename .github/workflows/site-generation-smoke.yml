@@ -36,7 +36,18 @@ jobs:
           EMAIL="site-smoke-$ID@trial.lumen.app"
           PASSWORD="Smoke${ID//-/}Aa9!xZ7#"
           BODY=$(jq -nc --arg e "$EMAIL" --arg p "$PASSWORD" '{email:$e,password:$p,displayName:"Production Site Smoke",locale:"ar",timezone:"Asia/Riyadh"}')
-          RESP=$(curl -fLsS --retry 3 --retry-delay 2 -H 'content-type: application/json' -H "Idempotency-Key: auth-$ID" -d "$BODY" "$SITE_ORIGIN/api/v1/auth/register")
+          TMP=$(mktemp)
+          STATUS=$(curl -LsS --retry 3 --retry-delay 2 -o "$TMP" -w '%{http_code}' -H 'accept: application/json' -H 'content-type: application/json' -H "Idempotency-Key: auth-$ID" -d "$BODY" "$SITE_ORIGIN/api/v1/auth/register")
+          RESP=$(cat "$TMP")
+          rm -f "$TMP"
+          echo "auth http=$STATUS content-type/body summary:"
+          if jq -e . >/dev/null 2>&1 <<<"$RESP"; then
+            jq '{code,detail,title,status,hasTokens:(.tokens.accessToken != null),hasWorkspace:(.workspace.id != null)}' <<<"$RESP"
+          else
+            printf '%s\n' "$RESP" | head -c 800
+            echo
+          fi
+          if [ "$STATUS" -lt 200 ] || [ "$STATUS" -ge 300 ]; then exit 1; fi
           TOKEN=$(jq -r '.tokens.accessToken // empty' <<<"$RESP")
           ORG=$(jq -r '.workspace.id // empty' <<<"$RESP")
           test -n "$TOKEN"
