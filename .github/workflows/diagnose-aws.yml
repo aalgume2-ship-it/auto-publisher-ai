@@ -82,3 +82,14 @@ jobs:
             aws elbv2 describe-target-health --target-group-arn "$tg" --region "$AWS_REGION" \
               --query 'TargetHealthDescriptions[].{Target:Target.Id,Port:Target.Port,State:TargetHealth.State,Reason:TargetHealth.Reason,Description:TargetHealth.Description}' --output table || true
           done
+
+          echo '=== ALB HTTP HEALTH PROBES ==='
+          for dns in $(aws elbv2 describe-load-balancers --region "$AWS_REGION" --query 'LoadBalancers[?State.Code==`active`].DNSName' --output text 2>/dev/null); do
+            echo "--- http://$dns ---"
+            for path in /health/live /health/ready; do
+              code=$(curl -sS -o /tmp/probe-body -w '%{http_code}' --connect-timeout 5 --max-time 12 "http://$dns$path" || true)
+              echo "$path -> HTTP $code"
+              head -c 500 /tmp/probe-body 2>/dev/null || true
+              echo
+            done
+          done
