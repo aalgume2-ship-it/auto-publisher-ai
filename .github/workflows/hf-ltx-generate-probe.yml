@@ -1,0 +1,49 @@
+name: hf-ltx-generate-probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/hf-ltx-generate-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Generate one-second real AI video through public ZeroGPU
+        run: |
+          set -euo pipefail
+          BASE='https://lightricks-ltx-2-3.hf.space'
+          BODY=$(jq -nc '{data:[null,"Neon city at night, cinematic lateral tracking shot, wet street reflections, natural motion",1.0,false,42,true,768,512]}')
+          RESP=$(curl -fsSL --retry 3 --retry-delay 2 -H 'content-type: application/json' -d "$BODY" "$BASE/gradio_api/call/generate_video")
+          echo "$RESP" | jq '{event_id}'
+          EVENT=$(jq -r '.event_id // empty' <<<"$RESP")
+          test -n "$EVENT"
+          curl -fNsS --max-time 800 "$BASE/gradio_api/call/generate_video/$EVENT" -o result.sse
+          tail -n 30 result.sse
+          DATA=$(grep '^data:' result.sse | tail -n1 | sed 's/^data: //')
+          test -n "$DATA"
+          URL=$(jq -r '.[0].url // empty' <<<"$DATA")
+          PATHVAL=$(jq -r '.[0].path // empty' <<<"$DATA")
+          if [ -n "$URL" ]; then
+            curl -fLsS --retry 3 "$URL" -o probe.mp4
+          elif [ -n "$PATHVAL" ]; then
+            ENCODED=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$PATHVAL")
+            curl -fLsS --retry 3 "$BASE/gradio_api/file=$ENCODED" -o probe.mp4
+          else
+            echo 'No video output URL/path'
+            exit 1
+          fi
+          test "$(stat -c%s probe.mp4)" -gt 30000
+          file probe.mp4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hf-ltx-real-video-probe
+          path: probe.mp4
+          if-no-files-found: error
+          retention-days: 2
