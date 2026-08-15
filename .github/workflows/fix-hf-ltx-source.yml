@@ -20,7 +20,7 @@ jobs:
       - name: Register keyless LTX provider
         run: |
           set -euo pipefail
-          python3 -c "from pathlib import Path; p=Path('packages/video-engine/src/ai/providers-video.ts'); s=p.read_text(); marker='export const VIDEO_PROVIDERS: readonly VideoProviderDef[] = [\\n'; block=\"  {\\n    id: 'hf-ltx',\\n    label: 'LTX-2.3 ZeroGPU',\\n    model: 'ltx-2.3',\\n    consoleUrl: 'https://huggingface.co/spaces/Lightricks/LTX-2.3',\\n    priceHint: 'free shared ZeroGPU; no API key required',\\n    envKey: '',\\n    supportsFirstFrame: false,\\n    supportedDurations: [1, 2, 3, 4, 5],\\n  },\\n\"; prefix=s.split('] as const;',1)[0]; p.write_text(s if \"id: 'hf-ltx'\" in prefix else s.replace(marker, marker+block, 1))"
+          python3 -c "from pathlib import Path; p=Path('packages/video-engine/src/ai/providers-video.ts'); s=p.read_text(); marker='export const VIDEO_PROVIDERS: readonly VideoProviderDef[] = [\\n'; block=\"  {\\n    id: 'hf-ltx',\\n    label: 'LTX-2.3 ZeroGPU',\\n    model: 'ltx-2.3',\\n    consoleUrl: 'https://huggingface.co/spaces/Lightricks/LTX-2.3',\\n    priceHint: 'free shared ZeroGPU; no API key required',\\n    envKey: '',\\n    supportsFirstFrame: false,\\n    supportedDurations: [1, 2, 3, 4, 5],\\n  },\\n\"; a=s.index(marker); b=s.index('] as const;', a); section=s[a:b]; p.write_text(s if \"id: 'hf-ltx'\" in section else s.replace(marker, marker+block, 1))"
           git diff --check
       - name: Validate workspace
         run: |
