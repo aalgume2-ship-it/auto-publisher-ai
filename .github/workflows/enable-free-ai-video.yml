@@ -1,0 +1,56 @@
+name: enable-free-ai-video
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/enable-free-ai-video.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Route Pollinations credential to real video provider
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('packages/video-engine/src/vault/org-credentials.ts')
+          s = p.read_text()
+          old = "const map: Record<string, string | undefined> = { runway: ai.runwayApiKey, luma: ai.lumaApiKey, 'fal-kling': ai.falKey };"
+          new = "const map: Record<string, string | undefined> = { pollinations: ai.pollinationsApiKey, runway: ai.runwayApiKey, luma: ai.lumaApiKey, 'fal-kling': ai.falKey };"
+          if old in s:
+              s = s.replace(old, new)
+          elif new not in s:
+              raise SystemExit('envVideoKeyFor shape changed; refusing blind patch')
+
+          old2 = "  async resolveVideo(orgId: string): Promise<VideoCredential | null> {\n    for (const def of VIDEO_PROVIDERS) {"
+          new2 = "  async resolveVideo(orgId: string): Promise<VideoCredential | null> {\n    // Prefer Pollinations for the zero/low-cost path. A single Pollinations key\n    // can be stored either under VIDEO_ENGINE or LLM and is reused safely.\n    const pollinations = VIDEO_PROVIDERS.find((d) => d.id === 'pollinations');\n    if (pollinations) {\n      const videoStored = await this.readSecret(orgId, 'VIDEO_ENGINE', 'pollinations');\n      if (videoStored?.secret) return { def: pollinations, apiKey: videoStored.secret, source: 'org' };\n      const llmStored = await this.readSecret(orgId, 'LLM', 'pollinations');\n      if (llmStored?.secret) return { def: pollinations, apiKey: llmStored.secret, source: 'org' };\n      const env = this.envVideoKeyFor(pollinations);\n      if (env) return { def: pollinations, apiKey: env, source: 'env' };\n    }\n    for (const def of VIDEO_PROVIDERS) {"
+          if old2 in s:
+              s = s.replace(old2, new2)
+          elif 'Prefer Pollinations for the zero/low-cost path' not in s:
+              raise SystemExit('resolveVideo shape changed; refusing blind patch')
+          p.write_text(s)
+
+          g = Path('packages/video-engine/src/generation/generation.service.ts')
+          x = g.read_text()
+          x = x.replace("['RUNWAY_API_KEY', 'LUMA_API_KEY', 'FAL_KEY']", "['POLLINATIONS_API_KEY', 'RUNWAY_API_KEY', 'LUMA_API_KEY', 'FAL_KEY']")
+          g.write_text(x)
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/video-engine/src/vault/org-credentials.ts packages/video-engine/src/generation/generation.service.ts
+          if git diff --cached --quiet; then
+            echo 'Already patched'
+          else
+            git commit -m 'feat(video): prefer Pollinations free-tier real motion provider'
+            git push origin HEAD:main
+          fi
