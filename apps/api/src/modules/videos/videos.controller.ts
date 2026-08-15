@@ -166,6 +166,30 @@ export class VideosController {
   /** Browser <video> source — HTTP Range aware so seeking works. */
   @Get('videos/:videoId/stream')
   @TenantRequired()
+
+  @Get('videos/:videoId/stream-chunk')
+  @TenantRequired()
+  @RequiresCapabilities('video.read')
+  @ApiOperation({ operationId: 'streamVideoChunk', summary: 'Read a binary-safe Base64 chunk of the rendered MP4' })
+  async streamChunk(
+    @Param() params: { orgId: string; videoId: string },
+    @Query('offset') offsetRaw?: string,
+  ) {
+    const { storageKey } = await this.videos.renditionFile(params.orgId, params.videoId);
+    const buf = await this.store.read(storageKey);
+    const chunkBytes = 512 * 1024;
+    const requested = Number.parseInt(offsetRaw ?? '0', 10);
+    const offset = Number.isFinite(requested) ? Math.max(0, Math.min(requested, buf.byteLength)) : 0;
+    const end = Math.min(offset + chunkBytes, buf.byteLength);
+    return {
+      offset,
+      nextOffset: end,
+      totalBytes: buf.byteLength,
+      done: end >= buf.byteLength,
+      base64: buf.subarray(offset, end).toString('base64'),
+    };
+  }
+
   @RequiresCapabilities('video.view')
   @UseZod({ params: VideoParamsSchema })
   @ApiOperation({ operationId: 'streamVideo', summary: 'Stream the rendered MP4 (Range-aware)' })
