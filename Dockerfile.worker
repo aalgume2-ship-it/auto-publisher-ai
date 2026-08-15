@@ -8,9 +8,10 @@ ENV NODE_ENV=production
 # Prisma generation and runtime must agree on the system OpenSSL ABI. The slim
 # Node image does not guarantee libssl is installed, so install it in the shared
 # base used by both builder and runner. ca-certificates is also required for
-# outbound HTTPS calls to the AI video providers.
+# outbound HTTPS calls to the AI video providers. System ffmpeg/ffprobe provide
+# a reliable executable fallback in production in addition to the npm binaries.
 RUN apt-get update -y \
- && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && apt-get install -y --no-install-recommends openssl ca-certificates ffmpeg \
  && rm -rf /var/lib/apt/lists/* \
  && corepack enable \
  && corepack prepare pnpm@9.15.9 --activate
@@ -69,6 +70,15 @@ COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
 COPY --from=builder /app/apps/worker/package.json ./apps/worker/package.json
 COPY --from=builder /app/packages/database/prisma ./packages/database/prisma
 COPY --from=builder /app/infra/fonts ./infra/fonts
+
+# pnpm's copied store can lose execute bits on the platform-specific installer
+# binaries. Restore them explicitly so media-runtime verification cannot fail
+# with EACCES before BullMQ workers are started.
+RUN find /app/node_modules/.pnpm -type f \( -name ffmpeg -o -name ffprobe \) -exec chmod 0755 {} + \
+ && command -v ffmpeg \
+ && command -v ffprobe \
+ && ffmpeg -version >/dev/null \
+ && ffprobe -version >/dev/null
 
 # Validate the final stage, not just the builder where pnpm links always exist.
 RUN openssl version \
