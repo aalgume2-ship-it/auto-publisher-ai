@@ -1,8 +1,8 @@
 /**
  * @aca/video-engine — the REAL pipeline core shared by API (enqueue) and
  * worker (process): AI providers, durable asset store (S3 + Postgres blobs),
- * FFmpeg compose/render, video generation, image generation, dubbing,
- * render/thumbnail jobs, provider registry.
+ * FFmpeg compose/render, true moving-video generation, image generation,
+ * dubbing, render/thumbnail jobs, provider registry.
  */
 
 export { PipelineError, providerNotConfigured, type PipelineErrorCode } from './errors.js';
