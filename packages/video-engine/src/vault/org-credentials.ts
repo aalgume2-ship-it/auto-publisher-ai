@@ -159,13 +159,24 @@ export class OrgCredentialsService {
   /** env fallback for a moving-picture provider. */
   private envVideoKeyFor(def: VideoProviderDef): string | null {
     const ai = this.config.ai;
-    const map: Record<string, string | undefined> = { runway: ai.runwayApiKey, luma: ai.lumaApiKey, 'fal-kling': ai.falKey };
+    const map: Record<string, string | undefined> = { pollinations: ai.pollinationsApiKey, runway: ai.runwayApiKey, luma: ai.lumaApiKey, 'fal-kling': ai.falKey };
     const v = map[def.id];
     return v && v.length > 0 ? v : null;
   }
 
   /** The video-clip credential (moving scenes). Null ⇒ stills mode (legit default). */
   async resolveVideo(orgId: string): Promise<VideoCredential | null> {
+    // Prefer Pollinations for the zero/low-cost path. A single Pollinations key
+    // can be stored either under VIDEO_ENGINE or LLM and is reused safely.
+    const pollinations = VIDEO_PROVIDERS.find((d) => d.id === 'pollinations');
+    if (pollinations) {
+      const videoStored = await this.readSecret(orgId, 'VIDEO_ENGINE', 'pollinations');
+      if (videoStored?.secret) return { def: pollinations, apiKey: videoStored.secret, source: 'org' };
+      const llmStored = await this.readSecret(orgId, 'LLM', 'pollinations');
+      if (llmStored?.secret) return { def: pollinations, apiKey: llmStored.secret, source: 'org' };
+      const env = this.envVideoKeyFor(pollinations);
+      if (env) return { def: pollinations, apiKey: env, source: 'env' };
+    }
     for (const def of VIDEO_PROVIDERS) {
       const stored = await this.readSecret(orgId, 'VIDEO_ENGINE', def.id);
       if (stored?.secret) return { def, apiKey: stored.secret, source: 'org' };

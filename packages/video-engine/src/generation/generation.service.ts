@@ -84,7 +84,7 @@ export class GenerationService {
       const videoCred = await this.ai.resolveVideoCred(video.orgId);
       if (!videoCred) {
         throw providerNotConfigured(
-          ['RUNWAY_API_KEY', 'LUMA_API_KEY', 'FAL_KEY'],
+          ['POLLINATIONS_API_KEY', 'RUNWAY_API_KEY', 'LUMA_API_KEY', 'FAL_KEY'],
           'AI generation provider is not configured',
         );
       }
