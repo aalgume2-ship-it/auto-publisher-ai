@@ -1,0 +1,1 @@
+Trigger production site generation smoke after AWS deployment success. Prompt target: Neon city at night, smooth lateral tracking shot following the subject, strong parallax, wet reflections and cinematic motion.
