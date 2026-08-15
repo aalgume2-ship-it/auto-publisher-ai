@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      SITE_ORIGIN: https://auto-publisher-ai-75unmwybo-aalgume2-ship-its-projects.vercel.app
+      SITE_ORIGIN: https://auto-publisher-ai-web.vercel.app
     steps:
       - name: Verify deployed site and API proxy
         run: |
