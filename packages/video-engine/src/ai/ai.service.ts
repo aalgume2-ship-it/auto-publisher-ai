@@ -4,7 +4,7 @@
  * Routing:
  *   script  → first configured LLM credential (org vault → env): OpenAI /
  *             Groq / Gemini / OpenRouter / Pollinations — all REAL.
- *             No credential anywhere → AI_CREDENTIALS_MISSING (terminal).
+ *             No credential anywhere → deterministic prompt-derived script.
  *   voice   → OpenAI tts-1 when the resolved credential is OpenAI;
  *             otherwise gTTS (key-less REAL Arabic speech).
  *   visuals → Pollinations image API (still genuinely key-less — verified).
@@ -16,7 +16,8 @@
  * user-friendly status mapping (Processing/Retrying/Completed/Failed) surfaced
  * via seo.step, never raw stack traces.
  *
- * NO demo/mock/local fallback — every path requires a real provider.
+ * The keyless script fallback is deliberately deterministic and prompt-derived;
+ * moving pictures still come from a real video provider.
  */
 import { z } from 'zod';
 import type { AppConfig } from '@aca/config';
@@ -108,6 +109,43 @@ export class AiService {
 
   /* ---------------------------------------------------------------- SCRIPT */
 
+  private keylessScript(req: ScriptRequest): VideoScript {
+    const keyword = req.keyword.trim().replace(/\s+/g, ' ') || 'موضوع ملهم';
+    const niche = req.niche.trim().replace(/\s+/g, ' ') || 'محتوى عام';
+    const english = req.language.toLowerCase().startsWith('en');
+    const visualBase = keyword.replace(/[\r\n]+/g, ' ').slice(0, 500);
+
+    if (english) {
+      return {
+        title: keyword.slice(0, 110),
+        description: `A cinematic short film inspired by ${keyword}, created as a polished ${niche} story. #cinematic #video`,
+        tags: ['cinematic', 'video', 'story', 'creative', 'motion', 'shortfilm'],
+        hook: `Watch ${keyword} come alive in motion.`,
+        cta: 'Follow for more cinematic stories.',
+        scenes: [
+          { narration: `It begins with ${keyword}, revealed through a striking cinematic opening.`, visualPrompt: `${visualBase}, establishing shot, cinematic lighting, realistic detail, smooth slow camera movement, no text` },
+          { narration: `The scene grows richer as light, depth, and natural motion shape the story.`, visualPrompt: `${visualBase}, immersive medium shot, volumetric light, natural motion, strong depth, premium film look, no text` },
+          { narration: `A new perspective uncovers the most memorable detail in this visual journey.`, visualPrompt: `${visualBase}, dynamic close detail, subtle parallax, atmospheric depth, photoreal cinematic composition, no text` },
+          { narration: `The final image leaves a calm and lasting impression worth remembering.`, visualPrompt: `${visualBase}, epic closing wide shot, golden cinematic color, graceful camera pullback, realistic motion, no text` },
+        ],
+      };
+    }
+
+    return {
+      title: keyword.slice(0, 110),
+      description: `فيلم قصير سينمائي مستوحى من ${keyword}، بصياغة بصرية مميزة ضمن ${niche}. #سينما #فيديو`,
+      tags: ['سينما', 'فيديو', 'إبداع', 'قصة', 'مشاهد', 'cinematic'],
+      hook: `شاهد كيف تتحول فكرة ${keyword} إلى مشهد حي.`,
+      cta: 'تابعنا للمزيد من القصص السينمائية.',
+      scenes: [
+        { narration: `تبدأ الحكاية مع ${keyword} في افتتاحية سينمائية تلفت الانتباه.`, visualPrompt: `${visualBase}, establishing shot, cinematic lighting, realistic detail, smooth slow camera movement, no text` },
+        { narration: 'يتسع المشهد وتمنحه الإضاءة والعمق والحركة الطبيعية حضوراً أقوى.', visualPrompt: `${visualBase}, immersive medium shot, volumetric light, natural motion, strong depth, premium film look, no text` },
+        { narration: 'تكشف زاوية جديدة أجمل التفاصيل في هذه الرحلة البصرية القصيرة.', visualPrompt: `${visualBase}, dynamic close detail, subtle parallax, atmospheric depth, photoreal cinematic composition, no text` },
+        { narration: 'تغلق الصورة الأخيرة الحكاية بإحساس هادئ يبقى في الذاكرة.', visualPrompt: `${visualBase}, epic closing wide shot, golden cinematic color, graceful camera pullback, realistic motion, no text` },
+      ],
+    };
+  }
+
   /**
    * Resolves the best available LLM credential for this org and calls it.
    * Fails CLOSED with AI_CREDENTIALS_MISSING (terminal — retrying cannot help)
@@ -134,7 +172,11 @@ export class AiService {
   }
 
   async generateScript(req: ScriptRequest, orgId: string): Promise<{ script: VideoScript; provider: string }> {
-    const cred = await this.requireLlm(orgId);
+    const cred = await this.creds.resolveLlm(orgId);
+    if (!cred) {
+      this.logger.info({ module: 'ai', orgId }, 'script.keyless_fallback');
+      return { script: this.keylessScript(req), provider: 'keyless-template' };
+    }
     const prompt = getPrompt('script', req.promptVersion, req.language);
     const user = renderUserPrompt(prompt.userTemplate, {
       keyword: req.keyword,
