@@ -21,12 +21,12 @@ jobs:
         run: |
           python3 -c "from pathlib import Path; p=Path('packages/video-engine/src/ai/providers-video.ts'); s=p.read_text(); a=s.index('const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));'); b=s.index('/* ----------------------------------------------------------- POLLINATIONS */'); r=s[a:b]; r=r.replace('sse.split(/\\\\\\\\r?\\\\\\\\n/)', '__LTX_SPLIT__'); r=r.replace('\\\\n', '\n'); r=r.replace('__LTX_SPLIT__', 'sse.split(/\\\\r?\\\\n/)'); p.write_text(s[:a]+r+s[b:])"
           git diff --check
-      - name: Validate TypeScript
+      - name: Validate workspace TypeScript
         run: |
           corepack enable
           corepack prepare pnpm@9.15.9 --activate
           pnpm install --frozen-lockfile
-          pnpm --filter @aca/video-engine typecheck
+          pnpm typecheck
       - name: Commit
         run: |
           git config user.name 'github-actions[bot]'
