@@ -77,14 +77,29 @@ export class MediaController {
       const start = Number(m[1]);
       const end = m[2] ? Math.min(Number(m[2]), buf.byteLength - 1) : buf.byteLength - 1;
       if (start < buf.byteLength && end >= start) {
-        return reply
-          .status(206)
-          .headers({ 'content-type': mime, 'content-range': `bytes ${start}-${end}/${buf.byteLength}`, 'accept-ranges': 'bytes', 'cache-control': 'private, max-age=3600' })
-          .send(buf.subarray(start, end + 1));
+        return sendRawBytes(reply, 206, buf.subarray(start, end + 1), {
+          'content-type': mime,
+          'content-range': `bytes ${start}-${end}/${buf.byteLength}`,
+          'accept-ranges': 'bytes',
+          'cache-control': 'private, max-age=3600',
+        });
       }
     }
-    return reply
-      .headers({ 'content-type': mime, 'content-length': String(buf.byteLength), 'accept-ranges': 'bytes', 'cache-control': 'private, max-age=3600' })
-      .send(buf);
+    return sendRawBytes(reply, 200, buf, {
+      'content-type': mime,
+      'content-length': String(buf.byteLength),
+      'accept-ranges': 'bytes',
+      'cache-control': 'private, max-age=3600',
+    });
   }
+}
+
+function sendRawBytes(reply: FastifyReply, status: number, data: Buffer, headers: Record<string, string>): FastifyReply {
+  // Bypass Nest/Fastify serializers completely. Some production adapters
+  // treated Buffer payloads as UTF-8 and inserted EF BF BD replacement bytes.
+  reply.hijack();
+  reply.raw.statusCode = status;
+  for (const [name, value] of Object.entries(headers)) reply.raw.setHeader(name, value);
+  reply.raw.end(data);
+  return reply;
 }
