@@ -216,15 +216,6 @@ export function regenerateVideo(token: string, orgId: string, videoId: string) {
 
 export async function fetchStreamBlob(orgId: string, videoId: string, token: string): Promise<{ blob: Blob; url: string } | null> {
   try {
-    const detail = await getVideo(token, orgId, videoId);
-    const directUrl = detail.ok ? detail.data?.streamUrl : null;
-    if (directUrl) {
-      const res = await fetch(directUrl);
-      if (!res.ok) return null;
-      const blob = await res.blob();
-      return { blob, url: URL.createObjectURL(blob) };
-    }
-
     // Some serverless adapters coerce arbitrary response bytes through UTF-8.
     // Pull bounded Range chunks as Base64 JSON and rebuild the exact bytes in
     // the browser; each response stays small and text-safe.
