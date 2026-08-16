@@ -218,7 +218,7 @@ export async function fetchStreamBlob(orgId: string, videoId: string, token: str
   try {
     // Keep MP4 bytes text-safe across every serverless boundary: the API reads
     // storage and emits Base64 JSON directly, then the browser rebuilds bytes.
-    const chunkSize = 512 * 1024;
+    const chunkSize = 512 * 1024 - 2; // divisible by 3, so Base64 chunks join exactly
     const chunks: Uint8Array[] = [];
     let start = 0;
     let total: number | null = null;
