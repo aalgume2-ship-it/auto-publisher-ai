@@ -252,10 +252,11 @@ export class GenerationService {
       const { videoPath, durationMs } = movingScenes.length === script.scenes.length
         ? await this.composer.composeMoving(movingScenes, audioPath, wd)
         : await this.composer.compose(stillScenes, audioPath, wd);
-      const mp4 = await readFile(videoPath);
-      if (mp4.byteLength < 50_000) throw new Error('render produced a suspiciously small mp4');
+      const mp4Base64 = await readFile(videoPath, { encoding: 'base64' });
+      const mp4Bytes = Buffer.byteLength(mp4Base64, 'base64');
+      if (mp4Bytes < 50_000) throw new Error('render produced a suspiciously small mp4');
       await markStep('upload', 88);
-      const vidStored = await this.store.put(video.orgId, 'shorts-720x1280.mp4', mp4);
+      const vidStored = await this.store.putBase64(video.orgId, 'shorts-720x1280.mp4', mp4Base64);
       const videoAsset = await this.prisma.asset.create({
         data: {
           id: generateId(),
