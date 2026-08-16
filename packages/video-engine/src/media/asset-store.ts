@@ -88,6 +88,32 @@ export class AssetStore {
     return { storageKey, bytes: data.byteLength };
   }
 
+  /** Persist an MP4 that is already Base64 without carrying raw media bytes across service boundaries. */
+  async putBase64(orgId: string, fileName: string, base64: string): Promise<{ storageKey: string; bytes: number }> {
+    const safe = fileName.replace(/[^\w.\-]+/g, '_');
+    const storageKey = `assets/${orgId}/${randomUUID()}/${safe}`;
+    const full = this.fullPath(storageKey);
+    const bytes = Buffer.byteLength(base64, 'base64');
+    await mkdir(dirname(full), { recursive: true });
+    await writeFile(full, Buffer.from(base64, 'base64'));
+    const durableData = Buffer.concat([TEXT_SAFE_BINARY_PREFIX, Buffer.from(base64, 'ascii')]);
+    if (this.s3 && this.bucketAssets) {
+      await this.s3.send(new PutObjectCommand({
+        Bucket: this.bucketAssets,
+        Key: storageKey,
+        Body: durableData,
+        ContentType: 'text/plain; charset=us-ascii',
+      }));
+    } else {
+      await this.prisma.assetBlob.upsert({
+        where: { storageKey },
+        update: {},
+        create: { storageKey, data: durableData },
+      });
+    }
+    return { storageKey, bytes };
+  }
+
   async read(storageKey: string): Promise<Buffer> {
     const full = this.fullPath(storageKey);
     try {
