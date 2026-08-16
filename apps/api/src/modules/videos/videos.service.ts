@@ -186,6 +186,12 @@ export class VideosService {
       },
     });
     if (!v) throw notFound('video not found');
+    const renditionKey = v.renditions[0]?.storageKey;
+    // In production, return S3 directly so large binary media never crosses
+    // the JSON/API proxy or a serverless response adapter. The signed URL is
+    // short-lived and scoped to this exact object. Local/DB-backed installs
+    // keep using the signed API media endpoint.
+    const directStreamUrl = renditionKey ? await this.store.presignedUrl(renditionKey) : null;
     return {
       id: v.id,
       seriesId: v.projectId,
@@ -200,7 +206,7 @@ export class VideosService {
       failureReason: v.failureReason,
       createdAt: v.createdAt,
       publishedAt: v.publishedAt,
-      streamUrl: this.media(v.renditions[0]?.storageKey),
+      streamUrl: directStreamUrl ?? this.media(renditionKey),
       script: v.scripts[0] ? { content: v.scripts[0].content, wordCount: v.scripts[0].wordCount, beats: v.scripts[0].beats } : null,
       scenes: v.scenes.map((s: any) => ({
         index: s.index,
