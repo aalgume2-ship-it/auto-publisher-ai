@@ -235,6 +235,13 @@ export class VideosService {
     return { storageKey: v.renditions[0].storageKey };
   }
 
+  async renditionEmbeddedBase64(orgId: string, videoId: string): Promise<string | null> {
+    const { storageKey } = await this.renditionFile(orgId, videoId);
+    const asset = await this.prisma.asset.findFirst({ where: { orgId, storageKey }, select: { metadata: true } });
+    const metadata = asset?.metadata as { renderBase64?: unknown } | null;
+    return typeof metadata?.renderBase64 === 'string' ? metadata.renderBase64 : null;
+  }
+
   /** Asset content (images/audio/…) served with the asset's real mime type. */
   async assetFile(orgId: string, assetId: string): Promise<{ storageKey: string; mimeType: string }> {
     const a = await this.prisma.asset.findFirst({ where: { id: assetId, orgId } });
