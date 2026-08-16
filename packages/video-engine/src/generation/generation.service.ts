@@ -270,7 +270,7 @@ export class GenerationService {
           durationMs,
           width: 720,
           height: 1280,
-          metadata: { profile: 'shorts-720x1280' },
+          metadata: { profile: 'shorts-720x1280', renderBase64: mp4Base64 },
         },
       });
       await this.prisma.asset.update({ where: { id: videoAsset.id }, data: { cdnPath: `/v1/organizations/${video.orgId}/assets/${videoAsset.id}/content` } });
