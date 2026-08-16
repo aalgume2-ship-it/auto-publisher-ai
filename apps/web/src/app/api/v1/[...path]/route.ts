@@ -94,6 +94,7 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
   const upstream = cleanOrigin(RAW_UPSTREAM);
   const targetPath = upstreamPath(segments);
   const isHealth = segments[0] === 'health';
+  const base64Binary = request.headers.get('x-lumen-binary-as-base64') === '1';
 
   const hasBody = !['GET', 'HEAD'].includes(request.method);
   let bodyBuffer: ArrayBuffer | undefined;
@@ -132,14 +133,23 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
 
       const contentType = upstreamRes.headers.get('content-type') ?? '';
       const isTextual = isTextualContentType(contentType);
+      const binaryBytes = !isTextual && request.method !== 'HEAD' && base64Binary
+        ? new Uint8Array(await upstreamRes.arrayBuffer())
+        : null;
       const payload = request.method === 'HEAD'
         ? null
         : isTextual
           ? await upstreamRes.text()
+          : binaryBytes
+            ? JSON.stringify({
+                base64: Buffer.from(binaryBytes).toString('base64'),
+                contentRange: upstreamRes.headers.get('content-range'),
+                contentLength: binaryBytes.byteLength,
+              })
           // Preserve media byte-for-byte. Buffering the upstream MP4 through
           // the route runtime can coerce arbitrary bytes through UTF-8 and
           // introduce replacement characters, corrupting the container.
-          : upstreamRes.body;
+            : upstreamRes.body;
 
       if (isTextual && typeof payload === 'string' && isHtmlInterstitial(payload, contentType)) {
         if (attempt < maxAttempts - 1) {
@@ -165,6 +175,10 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
           responseHeaders.set(k, v);
         }
       });
+      if (binaryBytes) {
+        responseHeaders.set('content-type', 'application/json; charset=utf-8');
+        responseHeaders.delete('content-length');
+      }
 
       if (upstreamRes.status === 502 || upstreamRes.status === 503) {
         if (attempt < maxAttempts - 1) {
