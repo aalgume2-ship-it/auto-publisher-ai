@@ -27,7 +27,10 @@ export const CreateSeriesBodyDoc = {
 
 export const GenerateVideoBody = z
   .object({
-    keyword: z.string().min(3).max(160),
+    // Studio accepts full story prompts (up to 2,000 characters). Keep the
+    // public API contract aligned so a prompt accepted by the composer cannot
+    // be rejected only after the user starts generation.
+    keyword: z.string().min(3).max(2_000),
     targetSeconds: z.number().int().min(20).max(60).default(45),
     publishNow: z.boolean().default(false),
     channelId: z.string().uuid().optional(),
