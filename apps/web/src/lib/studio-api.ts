@@ -218,12 +218,42 @@ export async function fetchStreamBlob(orgId: string, videoId: string, token: str
   try {
     const detail = await getVideo(token, orgId, videoId);
     const directUrl = detail.ok ? detail.data?.streamUrl : null;
-    const target = directUrl || videoStreamUrl(orgId, videoId, token);
-    // S3 presigned URLs carry their own short-lived authorization. Only send
-    // the bearer token when falling back to the same-origin API endpoint.
-    const res = await fetch(target, directUrl ? undefined : { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) return null;
-    const blob = await res.blob();
+    if (directUrl) {
+      const res = await fetch(directUrl);
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      return { blob, url: URL.createObjectURL(blob) };
+    }
+
+    // Some serverless adapters coerce arbitrary response bytes through UTF-8.
+    // Pull bounded Range chunks as Base64 JSON and rebuild the exact bytes in
+    // the browser; each response stays small and text-safe.
+    const target = videoStreamUrl(orgId, videoId, token);
+    const chunkSize = 512 * 1024;
+    const chunks: Uint8Array[] = [];
+    let start = 0;
+    let total: number | null = null;
+    while (total === null || start < total) {
+      const res = await fetch(target, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Range: `bytes=${start}-${start + chunkSize - 1}`,
+          'X-Lumen-Binary-As-Base64': '1',
+        },
+      });
+      if (!res.ok) return null;
+      const body = await res.json() as { base64?: string; contentRange?: string | null; contentLength?: number };
+      if (!body.base64) return null;
+      const raw = atob(body.base64);
+      const bytes = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+      chunks.push(bytes);
+      const match = body.contentRange ? /bytes\s+\d+-\d+\/(\d+)/i.exec(body.contentRange) : null;
+      if (match) total = Number(match[1]);
+      start += bytes.byteLength;
+      if (!match || bytes.byteLength === 0 || bytes.byteLength < chunkSize) total = start;
+    }
+    const blob = new Blob(chunks as BlobPart[], { type: 'video/mp4' });
     return { blob, url: URL.createObjectURL(blob) };
   } catch { return null; }
 }
