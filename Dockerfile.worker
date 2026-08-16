@@ -48,7 +48,8 @@ RUN pnpm --filter @aca/shared build \
  && pnpm --filter @aca/database build \
  && pnpm --filter @aca/auth build \
  && pnpm --filter @aca/events build \
- && pnpm --filter @aca/video-engine build \
+ && pnpm exec tsc -b packages/video-engine/tsconfig.json --force \
+ && grep -q 'ACA_BASE64_V1' packages/video-engine/dist/media/asset-store.js \
  && pnpm --filter @aca/api build \
  && pnpm --filter @aca/worker build
 
