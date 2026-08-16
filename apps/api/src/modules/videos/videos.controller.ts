@@ -174,39 +174,6 @@ export class VideosController {
     return this.sendFile(reply, storageKey, 'video/mp4', req.headers.range);
   }
 
-  @Get('videos/:videoId/stream-source')
-  @TenantRequired()
-  @RequiresCapabilities('video.view')
-  @ApiOperation({ operationId: 'streamVideoSource', summary: 'Return a direct signed S3 URL for the rendered MP4' })
-  async streamSource(@Param() params: { orgId: string; videoId: string }) {
-    const { storageKey } = await this.videos.renditionFile(params.orgId, params.videoId);
-    const url = await this.store.presignedUrl(storageKey, 3600, `lumen-${params.videoId}.mp4`);
-    return { url, storage: url ? 's3' : 'local' };
-  }
-
-  @Get('videos/:videoId/stream-chunk')
-  @TenantRequired()
-  @RequiresCapabilities('video.view')
-  @ApiOperation({ operationId: 'streamVideoChunk', summary: 'Read a binary-safe Base64 chunk of the rendered MP4' })
-  async streamChunk(
-    @Param() params: { orgId: string; videoId: string },
-    @Query('offset') offsetRaw?: string,
-  ) {
-    const { storageKey } = await this.videos.renditionFile(params.orgId, params.videoId);
-    const buf = await this.store.read(storageKey);
-    const chunkBytes = 512 * 1024;
-    const requested = Number.parseInt(offsetRaw ?? '0', 10);
-    const offset = Number.isFinite(requested) ? Math.max(0, Math.min(requested, buf.byteLength)) : 0;
-    const end = Math.min(offset + chunkBytes, buf.byteLength);
-    return {
-      offset,
-      nextOffset: end,
-      totalBytes: buf.byteLength,
-      done: end >= buf.byteLength,
-      base64: buf.subarray(offset, end).toString('base64'),
-    };
-  }
-
   @Get('assets/:assetId/content')
   @TenantRequired()
   @UseZod({ params: AssetParamsSchema })
@@ -287,15 +254,28 @@ export class VideosController {
       const start = Number(m[1]);
       const end = m[2] ? Math.min(Number(m[2]), buf.byteLength - 1) : buf.byteLength - 1;
       if (start < buf.byteLength && end >= start) {
-        return reply
-          .status(206)
-          .headers({ 'content-type': mime, 'content-range': `bytes ${start}-${end}/${buf.byteLength}`, 'accept-ranges': 'bytes', 'cache-control': 'private, max-age=3600' })
-          .send(buf.subarray(start, end + 1));
+        return this.sendRawBytes(reply, 206, buf.subarray(start, end + 1), {
+          'content-type': mime,
+          'content-range': `bytes ${start}-${end}/${buf.byteLength}`,
+          'accept-ranges': 'bytes',
+          'cache-control': 'private, max-age=3600',
+        });
       }
     }
-    return reply
-      .headers({ 'content-type': mime, 'content-length': String(buf.byteLength), 'accept-ranges': 'bytes', 'cache-control': 'private, max-age=3600' })
-      .send(buf);
+    return this.sendRawBytes(reply, 200, buf, {
+      'content-type': mime,
+      'content-length': String(buf.byteLength),
+      'accept-ranges': 'bytes',
+      'cache-control': 'private, max-age=3600',
+    });
+  }
+
+  private sendRawBytes(reply: FastifyReply, status: number, data: Buffer, headers: Record<string, string>): FastifyReply {
+    reply.hijack();
+    reply.raw.statusCode = status;
+    for (const [name, value] of Object.entries(headers)) reply.raw.setHeader(name, value);
+    reply.raw.end(data);
+    return reply;
   }
 
   /* ------------------------------------------------------------ scheduling */
