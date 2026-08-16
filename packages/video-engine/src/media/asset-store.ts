@@ -17,6 +17,8 @@ import { dirname, join, normalize } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 
+const TEXT_SAFE_BINARY_PREFIX = Buffer.from('ACA_BASE64_V1\n', 'ascii');
+
 export class AssetStore {
   readonly root: string = process.env.ACA_STORAGE_DIR ?? join(tmpdir(), 'aca-storage');
   private readonly s3: S3Client | null;
@@ -59,14 +61,20 @@ export class AssetStore {
     const full = this.fullPath(storageKey);
     await mkdir(dirname(full), { recursive: true });
     await writeFile(full, data); // hot cache
+    // MP4 payloads have been observed crossing one production storage adapter
+    // through UTF-8, replacing high bytes with EF BF BD. Persist them as
+    // marked Base64 text and decode transparently on reads.
+    const durableData = /\.mp4$/i.test(fileName)
+      ? Buffer.concat([TEXT_SAFE_BINARY_PREFIX, Buffer.from(data.toString('base64'), 'ascii')])
+      : data;
 
     if (this.s3 && this.bucketAssets) {
       await this.s3.send(
         new PutObjectCommand({
           Bucket: this.bucketAssets,
           Key: storageKey,
-          Body: data,
-          ContentType: mimeFor(fileName),
+          Body: durableData,
+          ContentType: /\.mp4$/i.test(fileName) ? 'text/plain; charset=us-ascii' : mimeFor(fileName),
         }),
       );
     } else {
@@ -74,7 +82,7 @@ export class AssetStore {
       await this.prisma.assetBlob.upsert({
         where: { storageKey },
         update: {},
-        create: { storageKey, data: Buffer.from(data) },
+        create: { storageKey, data: Buffer.from(durableData) },
       });
     }
     return { storageKey, bytes: data.byteLength };
@@ -92,7 +100,7 @@ export class AssetStore {
         const res = await this.s3.send(new GetObjectCommand({ Bucket: this.bucketAssets, Key: storageKey }));
         const body = res.Body;
         if (!body) throw new Error(`s3 object empty: ${storageKey}`);
-        const data = Buffer.from(await body.transformToByteArray() as unknown as ArrayBuffer);
+        const data = this.decodeDurable(Buffer.from(await body.transformToByteArray() as unknown as ArrayBuffer));
         await mkdir(dirname(full), { recursive: true });
         await writeFile(full, data); // rehydrate hot cache
         return data;
@@ -105,7 +113,7 @@ export class AssetStore {
     }
     const blob = await this.prisma.assetBlob.findUnique({ where: { storageKey }, select: { data: true } });
     if (!blob) throw new Error(`asset bytes missing from disk and database: ${storageKey}`);
-    const data = Buffer.from(blob.data);
+    const data = this.decodeDurable(Buffer.from(blob.data));
     await mkdir(dirname(full), { recursive: true });
     await writeFile(full, data); // rehydrate the hot cache for subsequent reads
     return data;
@@ -134,6 +142,7 @@ export class AssetStore {
   /** Presigned S3 GET URL (production download path). Null when S3 is off. */
   async presignedUrl(storageKey: string, ttlSec?: number, downloadName?: string): Promise<string | null> {
     if (!this.s3 || !this.bucketAssets) return null;
+    if (/\.mp4$/i.test(storageKey)) return null;
     const ttl = ttlSec ?? this.config.s3.presignTtlSec;
     return presign(
       this.s3,
@@ -179,6 +188,13 @@ export class AssetStore {
     const p = normalize(join(this.root, storageKey));
     if (!p.startsWith(normalize(this.root))) throw new Error('storageKey escapes the asset root');
     return p;
+  }
+
+  private decodeDurable(data: Buffer): Buffer {
+    if (data.subarray(0, TEXT_SAFE_BINARY_PREFIX.byteLength).equals(TEXT_SAFE_BINARY_PREFIX)) {
+      return Buffer.from(data.subarray(TEXT_SAFE_BINARY_PREFIX.byteLength).toString('ascii'), 'base64');
+    }
+    return data;
   }
 }
 
