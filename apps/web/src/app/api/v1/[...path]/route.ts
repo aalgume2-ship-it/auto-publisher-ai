@@ -136,10 +136,10 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
         ? null
         : isTextual
           ? await upstreamRes.text()
-          // Materialize an explicit byte view. Some serverless adapters coerce a
-          // proxied ReadableStream through UTF-8, which inserts EF BF BD bytes
-          // into MP4 payloads. Uint8Array keeps the response unambiguously binary.
-          : new Uint8Array(await upstreamRes.arrayBuffer());
+          // Preserve media byte-for-byte. Buffering the upstream MP4 through
+          // the route runtime can coerce arbitrary bytes through UTF-8 and
+          // introduce replacement characters, corrupting the container.
+          : upstreamRes.body;
 
       if (isTextual && typeof payload === 'string' && isHtmlInterstitial(payload, contentType)) {
         if (attempt < maxAttempts - 1) {
@@ -159,7 +159,6 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
         'access-control-allow-headers': 'Content-Type,Authorization,Idempotency-Key,Range',
         'access-control-expose-headers': 'Content-Length,Content-Range,Accept-Ranges',
         'cache-control': 'no-store',
-        'x-lumen-binary-proxy': 'uint8-v2',
       });
       upstreamRes.headers.forEach((v, k) => {
         if (!['content-encoding', 'transfer-encoding'].includes(k.toLowerCase())) {
