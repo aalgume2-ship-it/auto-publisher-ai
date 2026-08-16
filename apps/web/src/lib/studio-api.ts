@@ -182,6 +182,7 @@ export interface VideoDto {
   failureReason?: string | null;
   seo?: { step?: string; progress?: number } | null;
   createdAt: string;
+  streamUrl?: string | null;
   renditions?: Array<{ status: string; url?: string }>;
 }
 
@@ -215,53 +216,14 @@ export function regenerateVideo(token: string, orgId: string, videoId: string) {
 
 export async function fetchStreamBlob(orgId: string, videoId: string, token: string): Promise<{ blob: Blob; url: string } | null> {
   try {
-    // Prefer the signed Amazon S3 object. This bypasses every binary proxy and
-    // lets the browser play/download the exact bytes written by the worker.
-    const sourceRes = await fetch(
-      `/api/v1/organizations/${orgId}/videos/${videoId}/stream-source`,
-      { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' },
-    );
-    if (sourceRes.ok) {
-      const source = await sourceRes.json() as { url: string | null };
-      if (source.url) return { blob: new Blob(), url: source.url };
-    }
-
-    // Database/local-storage fallback: rebuild from Base64 chunks instead of
-    // proxying raw MP4 bytes.
-
-    // serverless adapters coercing arbitrary binary through UTF-8.
-    const chunks: Uint8Array[] = [];
-    let offset = 0;
-    let totalBytes = 0;
-    for (let part = 0; part < 256; part++) {
-      const res = await fetch(
-        `/api/v1/organizations/${orgId}/videos/${videoId}/stream-chunk?offset=${offset}`,
-        { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' },
-      );
-      if (!res.ok) return null;
-      const payload = await res.json() as {
-        offset: number;
-        nextOffset: number;
-        totalBytes: number;
-        done: boolean;
-        base64: string;
-      };
-      const binary = window.atob(payload.base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      chunks.push(bytes);
-      offset = payload.nextOffset;
-      totalBytes = payload.totalBytes;
-      if (payload.done) break;
-    }
-    if (!totalBytes || offset !== totalBytes) return null;
-    const joined = new Uint8Array(totalBytes);
-    let cursor = 0;
-    for (const chunk of chunks) {
-      joined.set(chunk, cursor);
-      cursor += chunk.byteLength;
-    }
-    const blob = new Blob([joined], { type: 'video/mp4' });
+    const detail = await getVideo(token, orgId, videoId);
+    const directUrl = detail.ok ? detail.data?.streamUrl : null;
+    const target = directUrl || videoStreamUrl(orgId, videoId, token);
+    // S3 presigned URLs carry their own short-lived authorization. Only send
+    // the bearer token when falling back to the same-origin API endpoint.
+    const res = await fetch(target, directUrl ? undefined : { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return null;
+    const blob = await res.blob();
     return { blob, url: URL.createObjectURL(blob) };
   } catch { return null; }
 }
