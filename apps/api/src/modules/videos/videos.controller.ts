@@ -23,6 +23,7 @@ import { VideosService } from './videos.service.js';
 import { AssetStore } from '@aca/video-engine';
 import { AutopilotService, AutopilotBodySchema, type AutopilotBody } from './autopilot.service.js';
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 import {
   AssetParamsSchema,
   CreateSeriesBody,
@@ -161,6 +162,33 @@ export class VideosController {
   @ApiOperation({ operationId: 'getVideo', summary: 'Full video detail (script, scenes, renditions, posts)' })
   getVideo(@Param() params: { orgId: string; videoId: string }) {
     return this.videos.getVideo(params.orgId, params.videoId);
+  }
+
+  /** Text-safe MP4 transfer for platforms that can corrupt arbitrary response bytes. */
+  @Get('videos/:videoId/stream-chunk')
+  @TenantRequired()
+  @RequiresCapabilities('video.view')
+  @UseZod({ params: VideoParamsSchema })
+  @ApiOperation({ operationId: 'streamVideoChunk', summary: 'Read a rendered MP4 chunk as Base64 JSON' })
+  async streamChunk(
+    @Param() params: { orgId: string; videoId: string },
+    @Query('start') startValue?: string,
+    @Query('size') sizeValue?: string,
+  ) {
+    const { storageKey } = await this.videos.renditionFile(params.orgId, params.videoId);
+    const content = await this.store.read(storageKey);
+    const start = Math.max(0, Number.parseInt(startValue ?? '0', 10) || 0);
+    const requestedSize = Number.parseInt(sizeValue ?? String(512 * 1024), 10) || 512 * 1024;
+    const size = Math.min(Math.max(1, requestedSize), 512 * 1024);
+    const end = Math.min(start + size, content.byteLength);
+    const chunk = content.subarray(start, end);
+    return {
+      base64: chunk.toString('base64'),
+      start,
+      end,
+      total: content.byteLength,
+      sha256: start === 0 ? createHash('sha256').update(content).digest('hex') : undefined,
+    };
   }
 
   /** Browser <video> source — HTTP Range aware so seeking works. */
