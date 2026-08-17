@@ -178,13 +178,21 @@ export class VideosController {
     const embedded = await this.videos.renditionEmbeddedBase64(params.orgId, params.videoId);
     const start = Math.max(0, Number.parseInt(startValue ?? '0', 10) || 0);
     if (embedded) {
-      const total = Math.floor((embedded.length * 3) / 4) - (embedded.endsWith('==') ? 2 : embedded.endsWith('=') ? 1 : 0);
+      const payload = embedded.base64;
+      const total = Math.floor((payload.length * 3) / 4) - (payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0);
       const requestedSize = Number.parseInt(sizeValue ?? String(512 * 1024), 10) || 512 * 1024;
       const size = Math.min(Math.max(3, requestedSize - (requestedSize % 3)), 512 * 1024 - 2);
       const end = Math.min(start + size, total);
       const base64Start = Math.floor(start / 3) * 4;
       const base64End = Math.ceil(end / 3) * 4;
-      return { base64: embedded.slice(base64Start, base64End), start, end, total };
+      return {
+        base64: payload.slice(base64Start, base64End),
+        start,
+        end,
+        total,
+        source: 'embedded',
+        sha256: start === 0 ? embedded.sha256 : undefined,
+      };
     }
     const { storageKey } = await this.videos.renditionFile(params.orgId, params.videoId);
     const content = await this.store.read(storageKey);
@@ -197,6 +205,7 @@ export class VideosController {
       start,
       end,
       total: content.byteLength,
+      source: 'storage',
       sha256: start === 0 ? createHash('sha256').update(content).digest('hex') : undefined,
     };
   }
