@@ -14,6 +14,7 @@ import { type AiService } from '../ai/ai.service.js';
 import { type AssetStore } from '../media/asset-store.js';
 import { type VideoComposer, probeDurationMs, workDirFor } from '../render/compose.service.js';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { providerNotConfigured } from '../errors.js';
 
 const VOICE_PROVIDER_TTS: Record<string, { provider: string; providerVoiceId: string; name: string }> = {
@@ -255,6 +256,12 @@ export class GenerationService {
       const mp4Base64 = await readFile(videoPath, { encoding: 'base64' });
       const mp4Bytes = Buffer.byteLength(mp4Base64, 'base64');
       if (mp4Bytes < 50_000) throw new Error('render produced a suspiciously small mp4');
+      // This digest is calculated from the exact bytes FFmpeg wrote.  It is
+      // carried alongside the text-safe payload so the API and browser can
+      // prove that no storage/proxy boundary changed the rendered file.
+      const renderSha256 = createHash('sha256')
+        .update(Buffer.from(mp4Base64, 'base64'))
+        .digest('hex');
       await markStep('upload', 88);
       const vidStored = await this.store.putBase64(video.orgId, 'shorts-720x1280.mp4', mp4Base64);
       const videoAsset = await this.prisma.asset.create({
@@ -270,7 +277,7 @@ export class GenerationService {
           durationMs,
           width: 720,
           height: 1280,
-          metadata: { profile: 'shorts-720x1280', renderBase64: mp4Base64 },
+          metadata: { profile: 'shorts-720x1280', renderBase64: mp4Base64, renderSha256 },
         },
       });
       await this.prisma.asset.update({ where: { id: videoAsset.id }, data: { cdnPath: `/v1/organizations/${video.orgId}/assets/${videoAsset.id}/content` } });
