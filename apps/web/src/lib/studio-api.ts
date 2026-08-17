@@ -222,23 +222,34 @@ export async function fetchStreamBlob(orgId: string, videoId: string, token: str
     const chunks: Uint8Array[] = [];
     let start = 0;
     let total: number | null = null;
+    let expectedSha256: string | null = null;
     while (total === null || start < total) {
       const target = `/api/v1/organizations/${orgId}/videos/${videoId}/stream-chunk?start=${start}&size=${chunkSize}`;
       const res = await fetch(target, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return null;
-      const body = await res.json() as { base64?: string; start?: number; end?: number; total?: number };
+      const body = await res.json() as { base64?: string; start?: number; end?: number; total?: number; sha256?: string };
       if (!body.base64) return null;
       const raw = atob(body.base64);
       const bytes = new Uint8Array(raw.length);
       for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
       chunks.push(bytes);
+      if (start === 0 && typeof body.sha256 === 'string') expectedSha256 = body.sha256;
       if (Number.isFinite(body.total)) total = Number(body.total);
-      start += bytes.byteLength;
+      const reportedStart = Number(body.start);
+      const reportedEnd = Number(body.end);
+      if (reportedStart !== start || reportedEnd !== start + bytes.byteLength) return null;
+      start = reportedEnd;
       if (bytes.byteLength === 0 || (total === null && bytes.byteLength < chunkSize)) total = start;
     }
     const blob = new Blob(chunks as BlobPart[], { type: 'video/mp4' });
+    if (total !== null && blob.size !== total) return null;
+    if (expectedSha256 && globalThis.crypto?.subtle) {
+      const digest = await globalThis.crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+      const actual = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+      if (actual !== expectedSha256) return null;
+    }
     return { blob, url: URL.createObjectURL(blob) };
   } catch { return null; }
 }
