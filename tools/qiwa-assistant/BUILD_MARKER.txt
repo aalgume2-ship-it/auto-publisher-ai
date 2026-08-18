@@ -1,0 +1,1 @@
+Trigger observable Windows build for QiwaAssistant.exe.
