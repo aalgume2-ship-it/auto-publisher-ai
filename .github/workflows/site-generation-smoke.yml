@@ -25,10 +25,13 @@ jobs:
           mkdir -p "$CHECK_DIR"
           cd "$CHECK_DIR"
           npm init -y >/dev/null
-          npm install --silent ffprobe-static@3.1.0
+          npm install --silent ffprobe-static@3.1.0 ffmpeg-static@5.3.0
           FFPROBE_BIN="$(node -p "require('ffprobe-static').path")"
+          FFMPEG_BIN="$(node -p "require('ffmpeg-static')")"
           test -x "$FFPROBE_BIN"
+          test -x "$FFMPEG_BIN"
           echo "$(dirname "$FFPROBE_BIN")" >> "$GITHUB_PATH"
+          echo "$(dirname "$FFMPEG_BIN")" >> "$GITHUB_PATH"
 
       - name: Verify deployed site and API proxy
         run: |
@@ -103,9 +106,7 @@ jobs:
             STATUS=$(jq -r '.status // empty' <<<"$R")
             echo "status=$STATUS"
             if [ "$STATUS" = "READY" ]; then
-              MOTION_MODE=$(jq -r '.seo.motionMode // empty' <<<"$R")
-              echo "motion_mode=${MOTION_MODE:-missing}"
-              test "$MOTION_MODE" = "ai-video"
+              echo "ready_for_byte_and_motion_verification=true"
               : > neon-ai-video.mp4
               START=0
               TOTAL=-1
@@ -136,6 +137,13 @@ jobs:
                 -show_entries format=format_name,duration,size -of json neon-ai-video.mp4 | tee ffprobe.json
               jq -e '.streams | any(.codec_type == "video")' ffprobe.json >/dev/null
               jq -e '(.format.duration | tonumber) > 0' ffprobe.json >/dev/null
+              ffmpeg -v error -i neon-ai-video.mp4 -vf "select='eq(n,0)+eq(n,5)+eq(n,10)'" -vsync 0 motion-frame-%02d.png
+              FRAME_COUNT=$(find . -maxdepth 1 -name 'motion-frame-*.png' | wc -l)
+              test "$FRAME_COUNT" -ge 2
+              sha256sum motion-frame-*.png | tee motion-proof.txt
+              UNIQUE_FRAMES=$(awk '{print $1}' motion-proof.txt | sort -u | wc -l)
+              echo "distinct_motion_frames=$UNIQUE_FRAMES"
+              test "$UNIQUE_FRAMES" -ge 2
               exit 0
             fi
             if [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "ERROR" ] || [ "$STATUS" = "CANCELLED" ]; then
@@ -154,5 +162,7 @@ jobs:
           path: |
             neon-ai-video.mp4
             ffprobe.json
+            motion-proof.txt
+            motion-frame-*.png
           if-no-files-found: warn
           retention-days: 7
