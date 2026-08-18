@@ -65,7 +65,7 @@ jobs:
             ORG=$(jq -r '.items[0].organization.id // empty' <<<"$ORGS")
           fi
           SERIES_BODY='{"name":"مدينة الحوت الطائر","niche":"cinematic story","language":"ar"}'
-          SERIES=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: series-${GITHUB_RUN_ID}" -d "$SERIES_BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series")
+          SERIES=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: series-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" -d "$SERIES_BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series")
           SERIES_ID=$(jq -r '.id' <<<"$SERIES")
           test -n "$SERIES_ID"
           echo "org=$ORG" >> "$GITHUB_OUTPUT"
@@ -82,7 +82,7 @@ jobs:
           PROMPT='A brave Arab child runs across moonlit rooftops in a cinematic Middle Eastern city, then leaps onto a luminous flying whale soaring through fast-moving clouds, realistic character and fabric motion, dynamic tracking camera, dramatic blue moonlight, one continuous shot, no text'
           BODY=$(jq -nc --arg k "$PROMPT" '{keyword:$k,targetSeconds:20}')
           TMP=$(mktemp)
-          STATUS=$(curl -LsS -o "$TMP" -w '%{http_code}' -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: neon-video-${GITHUB_RUN_ID}" -d "$BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series/$SERIES/videos")
+          STATUS=$(curl -LsS -o "$TMP" -w '%{http_code}' -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: neon-video-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" -d "$BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series/$SERIES/videos")
           RESP=$(cat "$TMP"); rm -f "$TMP"
           echo "$RESP" | jq '{id:(.video.id // .id),status:(.video.status // .status),title,detail,code}' 2>/dev/null || printf '%s\n' "$RESP" | head -c 1000
           test "$STATUS" -ge 200 -a "$STATUS" -lt 300
