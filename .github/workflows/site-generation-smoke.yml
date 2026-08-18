@@ -78,7 +78,7 @@ jobs:
           test -n "$VIDEO_ID"
           echo "id=$VIDEO_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Wait for READY and download generated MP4
+      - name: Wait for READY and verify generated MP4 byte-for-byte
         env:
           TOKEN: ${{ steps.auth.outputs.token }}
           ORG: ${{ steps.project.outputs.org }}
@@ -91,9 +91,36 @@ jobs:
             STATUS=$(jq -r '.status // empty' <<<"$R")
             echo "status=$STATUS"
             if [ "$STATUS" = "READY" ]; then
-              curl -fLsS --retry 3 -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VIDEO_ID/stream" -o neon-ai-video.mp4
+              : > neon-ai-video.mp4
+              START=0
+              TOTAL=-1
+              EXPECTED_SHA=''
+              SOURCE=''
+              while [ "$TOTAL" -lt 0 ] || [ "$START" -lt "$TOTAL" ]; do
+                CHUNK=$(curl -fLsS --retry 3 -H "Authorization: Bearer $TOKEN" \
+                  "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VIDEO_ID/stream-chunk?start=$START&size=524286")
+                CHUNK_START=$(jq -r '.start' <<<"$CHUNK")
+                CHUNK_END=$(jq -r '.end' <<<"$CHUNK")
+                TOTAL=$(jq -r '.total' <<<"$CHUNK")
+                test "$CHUNK_START" -eq "$START"
+                if [ "$START" -eq 0 ]; then
+                  SOURCE=$(jq -r '.source // "unknown"' <<<"$CHUNK")
+                  EXPECTED_SHA=$(jq -r '.sha256 // empty' <<<"$CHUNK")
+                  echo "stream_source=$SOURCE total=$TOTAL expected_sha256=${EXPECTED_SHA:-missing}"
+                fi
+                jq -r '.base64' <<<"$CHUNK" | base64 --decode >> neon-ai-video.mp4
+                START=$CHUNK_END
+              done
               test "$(stat -c%s neon-ai-video.mp4)" -gt 30000
+              test "$(stat -c%s neon-ai-video.mp4)" -eq "$TOTAL"
+              ACTUAL_SHA=$(sha256sum neon-ai-video.mp4 | awk '{print $1}')
+              echo "actual_sha256=$ACTUAL_SHA"
+              if [ -n "$EXPECTED_SHA" ]; then test "$ACTUAL_SHA" = "$EXPECTED_SHA"; fi
               file neon-ai-video.mp4
+              ffprobe -v error -show_entries stream=index,codec_name,codec_type,width,height,duration \
+                -show_entries format=format_name,duration,size -of json neon-ai-video.mp4 | tee ffprobe.json
+              jq -e '.streams | any(.codec_type == "video")' ffprobe.json >/dev/null
+              jq -e '(.format.duration | tonumber) > 0' ffprobe.json >/dev/null
               exit 0
             fi
             if [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "ERROR" ] || [ "$STATUS" = "CANCELLED" ]; then
@@ -105,10 +132,12 @@ jobs:
           exit 1
 
       - name: Upload generated video proof
-        if: success()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: neon-ai-video
-          path: neon-ai-video.mp4
-          if-no-files-found: error
+          path: |
+            neon-ai-video.mp4
+            ffprobe.json
+          if-no-files-found: warn
           retention-days: 7
