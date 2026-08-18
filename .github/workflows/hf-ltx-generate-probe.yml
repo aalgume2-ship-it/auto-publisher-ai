@@ -15,6 +15,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
+      - name: Install video verifier
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: Generate one-second real AI video through public ZeroGPU
         run: |
           set -euo pipefail
@@ -41,9 +46,17 @@ jobs:
           fi
           test "$(stat -c%s probe.mp4)" -gt 30000
           file probe.mp4
+          ffprobe -v error -show_entries stream=index,codec_name,codec_type,width,height,duration \
+            -show_entries format=format_name,duration,size -of json probe.mp4 | tee ffprobe.json
+          jq -e '.streams | any(.codec_type == "video")' ffprobe.json >/dev/null
+          ffmpeg -v error -i probe.mp4 -vf "select='eq(n,0)+eq(n,5)'" -vsync 0 frame-%02d.png
+          test "$(sha256sum frame-*.png | awk '{print $1}' | sort -u | wc -l)" -gt 1
       - uses: actions/upload-artifact@v4
         with:
           name: hf-ltx-real-video-probe
-          path: probe.mp4
+          path: |
+            probe.mp4
+            ffprobe.json
+            frame-*.png
           if-no-files-found: error
           retention-days: 2
