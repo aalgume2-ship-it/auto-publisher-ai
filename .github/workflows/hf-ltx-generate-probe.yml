@@ -20,11 +20,11 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends ffmpeg
 
-      - name: Generate one-second real AI video through public ZeroGPU
+      - name: Generate five-second real AI video through public ZeroGPU
         run: |
           set -euo pipefail
           BASE='https://lightricks-ltx-2-3.hf.space'
-          BODY=$(jq -nc '{data:[null,"Neon city at night, cinematic lateral tracking shot, wet street reflections, natural motion",1.0,false,42,true,768,512]}')
+          BODY=$(jq -nc '{data:[null,"Neon city at night, cinematic lateral tracking shot, wet street reflections, natural motion",5.0,false,42,true,768,512]}')
           RESP=$(curl -fsSL --retry 3 --retry-delay 2 -H 'content-type: application/json' -d "$BODY" "$BASE/gradio_api/call/generate_video")
           echo "$RESP" | jq '{event_id}'
           EVENT=$(jq -r '.event_id // empty' <<<"$RESP")
