@@ -159,7 +159,6 @@ export class GenerationService {
       let cursor = 0;
       const windows: { startMs: number; durationMs: number }[] = [];
       const movingScenes: { clipPath: string; caption: string; durationMs: number }[] = [];
-      const stillScenes: { imagePath: string; caption: string; durationMs: number }[] = [];
       for (let i = 0; i < script.scenes.length; i += 1) {
         const scene = script.scenes[i]!;
         const isLast = i === script.scenes.length - 1;
@@ -185,7 +184,6 @@ export class GenerationService {
           },
         });
         await this.prisma.asset.update({ where: { id: imgAsset.id }, data: { cdnPath: `/v1/organizations/${video.orgId}/assets/${imgAsset.id}/content` } });
-        stillScenes[i] = { imagePath: this.store.fullPath(imgStored.storageKey), caption: scene.narration, durationMs };
         this.assertDimensionsCoherent(imgAsset.id);
         await this.prisma.scene.create({
           data: {
@@ -209,6 +207,12 @@ export class GenerationService {
         try {
           await mapPool(script.scenes, videoCred.def.id === 'hf-ltx' ? 1 : 2, async (scene, i) => {
             const w = windows[i]!;
+            // The public ZeroGPU queue accepts one generation at a time. A
+            // short cooldown prevents a successful first clip from causing
+            // the next scene to be throttled and falsely downgraded to stills.
+            if (videoCred.def.id === 'hf-ltx' && i > 0) {
+              await new Promise((resolve) => setTimeout(resolve, 8_000));
+            }
             const buf = await this.ai.generateSceneClip(videoCred, scene.visualPrompt, this.ai.sceneImageUrl(scene.visualPrompt, 1000 + i * 77), w.durationMs / 1000);
             const clipStored = await this.store.put(video.orgId, `clip-${i}.mp4`, buf);
             const clipAsset = await this.prisma.asset.create({
@@ -233,14 +237,11 @@ export class GenerationService {
             await markStep(`clips ${clipsDone}/${script.scenes.length}`, 52 + Math.round((clipsDone / script.scenes.length) * 18));
           });
         } catch (err) {
-          // The public ZeroGPU queue can be unavailable or out of quota. It is
-          // the keyless tier only, so keep the job useful by rendering the
-          // generated scene art with deterministic camera motion. Paid/BYOK
-          // provider failures still surface normally.
-          if (videoCred.source !== 'keyless') throw err;
-          movingScenes.length = 0;
-          seoState['motionFallback'] = 'animated-stills';
-          await markStep('motion fallback', 70);
+          // Never label animated still images as an AI-generated video. If a
+          // real moving-picture provider fails, surface the failure so the job
+          // can retry instead of silently returning a slideshow.
+          const detail = err instanceof Error ? err.message : String(err);
+          throw new Error(`real AI video generation failed (${videoCred.def.id}): ${detail}`, { cause: err });
         }
       }
 
@@ -250,9 +251,10 @@ export class GenerationService {
       await markStep('render', 72);
 
       /* 4 ── compose (real ffmpeg render; moving path when clips exist) */
-      const { videoPath, durationMs } = movingScenes.length === script.scenes.length
-        ? await this.composer.composeMoving(movingScenes, audioPath, wd)
-        : await this.composer.compose(stillScenes, audioPath, wd);
+      if (movingScenes.length !== script.scenes.length) {
+        throw new Error(`real AI video generation incomplete: ${movingScenes.length}/${script.scenes.length} moving scenes`);
+      }
+      const { videoPath, durationMs } = await this.composer.composeMoving(movingScenes, audioPath, wd);
       const mp4Base64 = await readFile(videoPath, { encoding: 'base64' });
       const mp4Bytes = Buffer.byteLength(mp4Base64, 'base64');
       if (mp4Bytes < 50_000) throw new Error('render produced a suspiciously small mp4');
@@ -333,7 +335,7 @@ export class GenerationService {
           cta: script.cta,
           durationMs,
           qualityScore: Math.min(95, 60 + script.scenes.length * 6),
-          seo: { keyword, provider, engine, wallMs: Date.now() - t0, step: 'ready' },
+          seo: { ...seoState, keyword, provider, engine, motionMode: 'ai-video', wallMs: Date.now() - t0, step: 'ready', progress: 100 },
         },
       });
     } catch (err) {
