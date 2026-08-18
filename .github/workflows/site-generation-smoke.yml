@@ -18,6 +18,11 @@ jobs:
     env:
       SITE_ORIGIN: https://auto-publisher-ai-web.vercel.app
     steps:
+      - name: Install video verifier
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: Verify deployed site and API proxy
         run: |
           set -euo pipefail
@@ -52,7 +57,7 @@ jobs:
             ORGS=$(curl -fLsS -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations")
             ORG=$(jq -r '.items[0].organization.id // empty' <<<"$ORGS")
           fi
-          SERIES_BODY='{"name":"Neon AI Video Test","niche":"cinematic","language":"en"}'
+          SERIES_BODY='{"name":"مدينة الحوت الطائر","niche":"cinematic story","language":"ar"}'
           SERIES=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: series-${GITHUB_RUN_ID}" -d "$SERIES_BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series")
           SERIES_ID=$(jq -r '.id' <<<"$SERIES")
           test -n "$SERIES_ID"
@@ -67,7 +72,7 @@ jobs:
           SERIES: ${{ steps.project.outputs.series }}
         run: |
           set -euo pipefail
-          PROMPT='Neon city at night, smooth lateral tracking shot following the subject, strong parallax, wet reflections and cinematic motion'
+          PROMPT='قصة سينمائية حقيقية الحركة: طفل شجاع يركض فوق أسطح مدينة عربية ليلية ثم يقفز على ظهر حوت مضيء يطير بين الغيوم، تتحرك الشخصيات والملابس والغيوم بوضوح، حركة كاميرا تتبع واقعية، إضاءة قمرية، بدون صور ثابتة وبدون عرض شرائح'
           BODY=$(jq -nc --arg k "$PROMPT" '{keyword:$k,targetSeconds:20}')
           TMP=$(mktemp)
           STATUS=$(curl -LsS -o "$TMP" -w '%{http_code}' -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: neon-video-${GITHUB_RUN_ID}" -d "$BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series/$SERIES/videos")
@@ -91,6 +96,9 @@ jobs:
             STATUS=$(jq -r '.status // empty' <<<"$R")
             echo "status=$STATUS"
             if [ "$STATUS" = "READY" ]; then
+              MOTION_MODE=$(jq -r '.seo.motionMode // empty' <<<"$R")
+              echo "motion_mode=${MOTION_MODE:-missing}"
+              test "$MOTION_MODE" = "ai-video"
               : > neon-ai-video.mp4
               START=0
               TOTAL=-1
