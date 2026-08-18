@@ -6,6 +6,11 @@ on:
     paths:
       - "tools/qiwa-assistant/**"
       - ".github/workflows/build-qiwa-assistant.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "tools/qiwa-assistant/**"
+      - ".github/workflows/build-qiwa-assistant.yml"
   workflow_dispatch:
 
 permissions:
@@ -35,6 +40,7 @@ jobs:
           retention-days: 30
 
       - name: Publish stable download release
+        if: github.event_name == 'push'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
