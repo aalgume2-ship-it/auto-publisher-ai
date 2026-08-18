@@ -44,7 +44,7 @@ jobs:
           ID="$(date +%s)-$RANDOM"
           EMAIL="site-smoke-$ID@trial.lumen.app"
           PASSWORD="Smoke${ID//-/}Aa9!xZ7#"
-          BODY=$(jq -nc --arg e "$EMAIL" --arg p "$PASSWORD" '{email:$e,password:$p,displayName:"Production Site Smoke",locale:"en",timezone:"Asia/Riyadh"}')
+          BODY=$(jq -nc --arg e "$EMAIL" --arg p "$PASSWORD" --arg n "Site Smoke $ID" '{email:$e,password:$p,displayName:$n,locale:"en",timezone:"Asia/Riyadh"}')
           RESP=$(curl -fLsS -H 'content-type: application/json' -H "Idempotency-Key: auth-$ID" -d "$BODY" "$SITE_ORIGIN/api/v1/auth/register")
           TOKEN=$(jq -r '.tokens.accessToken // empty' <<<"$RESP")
           ORG=$(jq -r '.workspace.id // empty' <<<"$RESP")
