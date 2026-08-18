@@ -20,8 +20,15 @@ jobs:
     steps:
       - name: Install video verifier
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends ffmpeg
+          set -euo pipefail
+          CHECK_DIR="$RUNNER_TEMP/video-checker"
+          mkdir -p "$CHECK_DIR"
+          cd "$CHECK_DIR"
+          npm init -y >/dev/null
+          npm install --silent ffprobe-static@3.1.0
+          FFPROBE_BIN="$(node -p "require('ffprobe-static').path")"
+          test -x "$FFPROBE_BIN"
+          echo "$(dirname "$FFPROBE_BIN")" >> "$GITHUB_PATH"
 
       - name: Verify deployed site and API proxy
         run: |
