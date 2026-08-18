@@ -25,3 +25,4 @@ jobs:
         with:
           name: QiwaAssistant-Windows
           path: QiwaAssistant-Windows.zip
+          retention-days: 30
