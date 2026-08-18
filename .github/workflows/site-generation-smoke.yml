@@ -79,7 +79,7 @@ jobs:
           SERIES: ${{ steps.project.outputs.series }}
         run: |
           set -euo pipefail
-          PROMPT='قصة سينمائية حقيقية الحركة: طفل شجاع يركض فوق أسطح مدينة عربية ليلية ثم يقفز على ظهر حوت مضيء يطير بين الغيوم، تتحرك الشخصيات والملابس والغيوم بوضوح، حركة كاميرا تتبع واقعية، إضاءة قمرية، بدون صور ثابتة وبدون عرض شرائح'
+          PROMPT='A brave Arab child runs across moonlit rooftops in a cinematic Middle Eastern city, then leaps onto a luminous flying whale soaring through fast-moving clouds, realistic character and fabric motion, dynamic tracking camera, dramatic blue moonlight, one continuous shot, no text'
           BODY=$(jq -nc --arg k "$PROMPT" '{keyword:$k,targetSeconds:20}')
           TMP=$(mktemp)
           STATUS=$(curl -LsS -o "$TMP" -w '%{http_code}' -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: neon-video-${GITHUB_RUN_ID}" -d "$BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series/$SERIES/videos")
