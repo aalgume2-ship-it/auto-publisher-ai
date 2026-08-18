@@ -107,13 +107,18 @@ async function hfLtxGenerate(req: ClipRequest): Promise<Buffer> {
   const base = 'https://lightricks-ltx-2-3.hf.space';
   // ZeroGPU is shared public compute, so keep each scene compact and vertical.
   const duration = Math.min(5, Math.max(1, Math.round(req.windowSec)));
+  // LTX's public Space can return an opaque SSE error when a long prompt
+  // overflows its tokenizer. Keep the full request model-friendly and use the
+  // deterministic seed that is exercised by the real-motion probe.
+  const corePrompt = req.prompt.replace(/[\\r\\n]+/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 240);
+  const motionPrompt = `${corePrompt}, continuous natural motion, cinematic tracking camera, coherent subject identity, realistic temporal consistency, no text, no still frame`;
   const body = {
     data: [
       null,
-      `${req.prompt}, continuous natural motion, cinematic camera movement, coherent subject identity, realistic temporal consistency, no slideshow, no still frame`,
+      motionPrompt,
       duration,
       false,
-      Math.floor(Math.random() * 2_000_000_000),
+      42,
       true,
       768,
       512,
