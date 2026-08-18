@@ -102,6 +102,14 @@ export class GenerationService {
         },
         video.orgId,
       );
+      // The public ZeroGPU queue is reliable for one continuous LTX shot, but
+      // bursts of four independent jobs are frequently evicted by the shared
+      // GPU scheduler. Keep the keyless path genuinely moving and dependable:
+      // render one coherent AI-video shot instead of ever falling back to stills.
+      if (videoCred.def.id === 'hf-ltx' && script.scenes.length > 1) {
+        script.scenes.splice(1);
+        seoState['sceneStrategy'] = 'single-continuous-ai-shot';
+      }
       seoState['provider'] = provider;
       await markStep('voice', 22);
       const narration = script.scenes.map((s) => s.narration).join(' ');
