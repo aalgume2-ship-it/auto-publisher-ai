@@ -2,7 +2,7 @@ name: Build Qiwa Assistant
 
 on:
   push:
-    branches: ["codex/qiwa-desktop-assistant"]
+    branches: ["main", "codex/qiwa-desktop-assistant"]
     paths:
       - "tools/qiwa-assistant/**"
       - ".github/workflows/build-qiwa-assistant.yml"
