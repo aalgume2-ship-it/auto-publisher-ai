@@ -9,6 +9,7 @@ public sealed class LocalBridge : IDisposable
 {
     private readonly HttpListener _listener = new();
     private readonly WebView2 _web;
+    private readonly ScheduleStore _schedule = new();
     private readonly CancellationTokenSource _cts = new();
     private Task? _loop;
 
@@ -54,6 +55,9 @@ public sealed class LocalBridge : IDisposable
                 "/expired" => await Filter("expired"),
                 "/expiring" => await Filter("expiring"),
                 "/find" => await Find(ctx.Request),
+                "/schedule" => ScheduleSummary(ctx.Request),
+                "/schedule/import" => await ImportSchedule(ctx.Request),
+                "/schedule/lead" => UpdateLead(ctx.Request),
                 _ => new { ok = false, error = "unknown_route" }
             };
             await Json(res, payload, 200);
@@ -62,6 +66,52 @@ public sealed class LocalBridge : IDisposable
         {
             await Json(res, new { ok = false, error = ex.Message }, 500);
         }
+    }
+
+    object ScheduleSummary(HttpListenerRequest req)
+    {
+        var now = DateTime.Today;
+        int year = int.TryParse(req.QueryString["year"], out var y) ? y : now.Year;
+        int month = int.TryParse(req.QueryString["month"], out var m) && m is >= 1 and <= 12 ? m : now.Month;
+        var all = _schedule.Load();
+        var due = _schedule.Due();
+        var monthItems = _schedule.Month(year, month);
+        return new
+        {
+            ok = true,
+            today = now.ToString("yyyy-MM-dd"),
+            total = all.Count,
+            dueCount = due.Count,
+            monthCount = monthItems.Count,
+            due,
+            monthItems
+        };
+    }
+
+    async Task<object> ImportSchedule(HttpListenerRequest req)
+    {
+        if (!req.HttpMethod.Equals("POST", StringComparison.OrdinalIgnoreCase)) return new { ok = false, error = "post_required" };
+        int leadDays = int.TryParse(req.QueryString["leadDays"], out var d) ? Math.Clamp(d, 0, 30) : 3;
+        using var reader = new StreamReader(req.InputStream, req.ContentEncoding ?? Encoding.UTF8);
+        var csv = await reader.ReadToEndAsync();
+        var imported = _schedule.ImportCsv(csv, leadDays);
+        return new
+        {
+            ok = imported > 0,
+            imported,
+            leadDays,
+            dueCount = _schedule.Due().Count,
+            total = _schedule.Load().Count,
+            error = imported == 0 ? "لم أتعرف على الملف. المطلوب أعمدة: رقم الإقامة + تاريخ انتهاء الإقامة، والاسم اختياري." : null
+        };
+    }
+
+    object UpdateLead(HttpListenerRequest req)
+    {
+        if (!req.HttpMethod.Equals("POST", StringComparison.OrdinalIgnoreCase)) return new { ok = false, error = "post_required" };
+        int leadDays = int.TryParse(req.QueryString["days"], out var d) ? Math.Clamp(d, 0, 30) : 3;
+        _schedule.UpdateLeadDays(leadDays);
+        return new { ok = true, leadDays, total = _schedule.Load().Count, dueCount = _schedule.Due().Count };
     }
 
     async Task<object> Find(HttpListenerRequest req)
