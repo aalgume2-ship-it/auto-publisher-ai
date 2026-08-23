@@ -241,6 +241,10 @@ export class VideoComposer {
       '-filter_complex', filters.join(';'),
       '-map', '[vout]',
       '-map', `${audioIndex}:a`,
+      // Keep the requested video duration when narration is shorter. apad is
+      // harmless when narration already spans the full timeline; -shortest
+      // still stops exactly when the concatenated AI clips end.
+      '-af', 'apad',
       '-shortest',
       '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '29', '-r', String(fps),
       '-threads', '1',
@@ -295,6 +299,7 @@ export class VideoComposer {
       '-filter_complex', filters.join(';'),
       '-map', '[vout]',
       '-map', `${audioIndex}:a`,
+      '-af', 'apad',
       '-shortest',
       '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '29', '-r', String(fps),
       '-threads', '1',
