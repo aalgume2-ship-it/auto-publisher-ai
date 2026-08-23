@@ -291,6 +291,10 @@ export class AiService {
 
   /* ----------------------------------------------------------------- CLIPS */
 
+  async resolveBunnyStorage(orgId: string) {
+    return this.creds.resolveBunnyStorage(orgId);
+  }
+
   async resolveVideoCred(orgId: string): Promise<VideoCredential | null> {
     return this.creds.resolveVideo(orgId);
   }
