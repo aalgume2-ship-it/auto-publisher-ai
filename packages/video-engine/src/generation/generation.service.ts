@@ -13,7 +13,7 @@ import { generateId, type DbClient } from '@aca/database';
 import { type AiService } from '../ai/ai.service.js';
 import { type AssetStore } from '../media/asset-store.js';
 import { uploadMp4ToBunnyStorage } from '../media/bunny-storage.js';
-import { type VideoComposer, probeDurationMs, workDirFor } from '../render/compose.service.js';
+import { type VideoComposer, workDirFor } from '../render/compose.service.js';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { providerNotConfigured } from '../errors.js';
@@ -21,6 +21,7 @@ import { providerNotConfigured } from '../errors.js';
 const VOICE_PROVIDER_TTS: Record<string, { provider: string; providerVoiceId: string; name: string }> = {
   gtts: { provider: 'gtts', providerVoiceId: 'ar-male-1', name: 'صوت عربي فصيح (gTTS)' },
   openai: { provider: 'openai', providerVoiceId: 'alloy', name: 'OpenAI Alloy (HD)' },
+  'runway-eleven-v3': { provider: 'runway', providerVoiceId: 'Elias-ar-eleven-v3', name: 'Runway Eleven v3 — Elias Arabic' },
 };
 
 /** Order-preserving async pool (network concurrency without rate-limit storms). */
@@ -114,15 +115,14 @@ export class GenerationService {
       const readingSeconds = Math.max(15, Math.round(wordCount / 2.2));
 
       // system rows the pipeline needs (voice record per provider)
-      const vmeta = VOICE_PROVIDER_TTS[provider === 'openai' ? 'openai' : 'gtts']!;
+      /* 2 ── voiceover (real TTS) */
+      const tts = await this.ai.synthesizeVoice(narration, video.language, video.orgId);
+      const vmeta = VOICE_PROVIDER_TTS[tts.provider] ?? VOICE_PROVIDER_TTS['gtts']!;
       const voice = await this.prisma.voice.upsert({
         where: { provider_providerVoiceId: { provider: vmeta.provider, providerVoiceId: vmeta.providerVoiceId } },
         create: { id: generateId(), provider: vmeta.provider, providerVoiceId: vmeta.providerVoiceId, name: vmeta.name, gender: 'male', languages: ['ar'] },
         update: {},
       });
-
-      /* 2 ── voiceover (real TTS) */
-      const tts = await this.ai.synthesizeVoice(narration, video.language, video.orgId);
       const { audioPath, durationMs: voiceMs } = await this.composer.concatAudio(tts.chunks, wd);
       const scriptRow = await this.prisma.script.create({
         data: {
@@ -158,7 +158,7 @@ export class GenerationService {
       });
 
       /* 3 ── per-scene visuals (moving AI clips when a video key exists) */
-      const engine = `${provider}-gtts-${videoCred.def.id}-clips`;
+      const engine = `${provider}-${tts.provider}-${videoCred.def.id}-clips`;
       const sceneWords = script.scenes.map((s) => s.narration.split(/\s+/).filter(Boolean).length);
       const totalWords = sceneWords.reduce((a, b) => a + b, 0) || 1;
       const timelineMs = Math.max(voiceMs, targetSeconds * 1_000);
@@ -320,7 +320,15 @@ export class GenerationService {
       if (movingScenes.length !== script.scenes.length) {
         throw new Error(`real AI video generation incomplete: ${movingScenes.length}/${script.scenes.length} moving scenes`);
       }
-      const { videoPath, durationMs } = await this.composer.composeMoving(movingScenes, audioPath, wd);
+      const requestsNoText = /بدون\s+(?:نص|نصوص|كتابة)|no\s+(?:text|captions|subtitles)/iu.test(keyword);
+      const professionalRunway = videoCred.def.id === 'runway';
+      seoState['voiceProvider'] = tts.provider;
+      seoState['nativeAudio'] = professionalRunway;
+      seoState['burnedCaptions'] = !(requestsNoText || professionalRunway);
+      const { videoPath, durationMs } = await this.composer.composeMoving(movingScenes, audioPath, wd, {
+        burnCaptions: !(requestsNoText || professionalRunway),
+        mixClipAudio: professionalRunway,
+      });
       const mp4Base64 = await readFile(videoPath, { encoding: 'base64' });
       const mp4Bytes = Buffer.byteLength(mp4Base64, 'base64');
       if (mp4Bytes < 50_000) throw new Error('render produced a suspiciously small mp4');

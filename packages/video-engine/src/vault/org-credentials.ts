@@ -185,17 +185,22 @@ export class OrgCredentialsService {
       const env = this.envVideoKeyFor(pollinations);
       if (env) return { def: pollinations, apiKey: env, source: 'env' };
     }
-    // Free, keyless fallback: real text-to-video on Lightricks' public ZeroGPU Space.
-    const hfLtx = VIDEO_PROVIDERS.find((d) => d.id === 'hf-ltx');
-    if (hfLtx) return { def: hfLtx, apiKey: '', source: 'keyless' };
+    // A configured professional provider must always beat the shared keyless
+    // fallback. The previous order made a saved Runway/Luma/Kling key
+    // unreachable and silently downgraded every render to public ZeroGPU.
     for (const def of VIDEO_PROVIDERS) {
+      if (def.id === 'hf-ltx' || def.id === 'pollinations') continue;
       const stored = await this.readSecret(orgId, 'VIDEO_ENGINE', def.id);
       if (stored?.secret) return { def, apiKey: stored.secret, source: 'org' };
     }
     for (const def of VIDEO_PROVIDERS) {
+      if (def.id === 'hf-ltx' || def.id === 'pollinations') continue;
       const env = this.envVideoKeyFor(def);
       if (env) return { def, apiKey: env, source: 'env' };
     }
+    // Free, keyless fallback: real text-to-video on Lightricks' public ZeroGPU Space.
+    const hfLtx = VIDEO_PROVIDERS.find((d) => d.id === 'hf-ltx');
+    if (hfLtx) return { def: hfLtx, apiKey: '', source: 'keyless' };
     return null;
   }
 

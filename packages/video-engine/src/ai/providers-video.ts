@@ -36,13 +36,13 @@ export const VIDEO_PROVIDERS: readonly VideoProviderDef[] = [
   },
   {
     id: 'runway',
-    label: 'Runway Gen-3 Alpha Turbo',
-    model: 'gen3a_turbo',
+    label: 'Runway Veo 3.1 Fast + native audio',
+    model: 'veo3.1_fast',
     consoleUrl: 'https://dev.runwayml.com',
-    priceHint: 'pay-as-you-go (~$0.25 / 5s clip)',
+    priceHint: 'pay-as-you-go; realistic 720p motion with synchronized native audio',
     envKey: 'RUNWAY_API_KEY',
     supportsFirstFrame: true,
-    supportedDurations: [5, 10],
+    supportedDurations: [4, 6, 8],
   },
   {
     id: 'luma',
@@ -202,15 +202,18 @@ async function pollinationsGenerate(apiKey: string, req: ClipRequest): Promise<B
 /* ----------------------------------------------------------------- RUNWAY */
 
 async function runwaySubmit(apiKey: string, req: ClipRequest): Promise<string> {
-  const duration = req.windowSec > 7 ? 10 : 5;
+  const duration = req.windowSec >= 7 ? 8 : req.windowSec >= 5 ? 6 : 4;
   const body: Record<string, unknown> = {
-    model: 'gen3a_turbo',
-    promptText: `${req.prompt}, cinematic camera motion, vertical`,
+    model: 'veo3.1_fast',
+    promptText: `${req.prompt}, photorealistic live-action cinematography, continuous natural human motion, physically accurate lighting, synchronized realistic environmental sound and Foley, no subtitles, no written text, no watermark`,
     duration,
-    ratio: '768:1280',
+    ratio: '720:1280',
+    audio: true,
+    negativePrompt: 'animation, illustration, still image, slideshow, frozen frame, subtitles, captions, text, logo, watermark, distorted hands, duplicate people',
   };
   if (req.firstFrameUrl) body['promptImage'] = [{ uri: req.firstFrameUrl, position: 'first' }];
-  const { status, data } = await http('https://api.dev.runwayml.com/v1/image_to_video', {
+  const endpoint = req.firstFrameUrl ? 'image_to_video' : 'text_to_video';
+  const { status, data } = await http(`https://api.dev.runwayml.com/v1/${endpoint}`, {
     method: 'POST',
     headers: { ...bearer(apiKey), 'x-runway-version': '2024-11-06' },
     body: JSON.stringify(body),
@@ -298,6 +301,40 @@ export async function generateClip(cred: VideoCredential, req: ClipRequest): Pro
   if (!res.ok) throw new Error(`${cred.def.id} cdn ${res.status}: clip download failed`);
   const buf = Buffer.from(await res.arrayBuffer());
   if (buf.length < 30_000) throw new Error(`${cred.def.id} returned a suspiciously small clip`);
+  return buf;
+}
+
+/**
+ * Natural Arabic narration through Runway's hosted Eleven v3 endpoint. Using
+ * the same Runway credential as video generation avoids requiring a second
+ * vendor key just to replace the robotic keyless voice.
+ */
+export async function generateRunwaySpeech(apiKey: string, text: string, languageCode = 'ar'): Promise<Buffer> {
+  const { status, data } = await http('https://api.dev.runwayml.com/v1/text_to_speech', {
+    method: 'POST',
+    headers: { ...bearer(apiKey), 'x-runway-version': '2024-11-06' },
+    body: JSON.stringify({
+      model: 'eleven_v3',
+      promptText: text,
+      voice: { type: 'runway-preset', presetId: 'Elias' },
+      languageCode,
+      applyTextNormalization: 'auto',
+      stability: 0.48,
+      similarityBoost: 0.78,
+      style: 0.22,
+      speed: 0.96,
+      useSpeakerBoost: true,
+    }),
+  });
+  const d = (data ?? {}) as { id?: string; error?: string; message?: string };
+  if ((status !== 200 && status !== 201) || !d.id) {
+    throw new Error(`runway speech submit ${status}: ${(d.error ?? d.message ?? 'no task id').slice(0, 200)}`);
+  }
+  const audioUrl = await runwayPoll(apiKey, d.id);
+  const res = await fetch(audioUrl, { headers: { 'user-agent': 'autocreator-pipeline/1.0' } });
+  if (!res.ok) throw new Error(`runway speech cdn ${res.status}: audio download failed`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length < 2_000) throw new Error('runway speech returned a suspiciously small audio file');
   return buf;
 }
 

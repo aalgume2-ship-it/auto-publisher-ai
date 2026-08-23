@@ -5,7 +5,8 @@
  *   script  → first configured LLM credential (org vault → env): OpenAI /
  *             Groq / Gemini / OpenRouter / Pollinations — all REAL.
  *             No credential anywhere → deterministic prompt-derived script.
- *   voice   → OpenAI tts-1 when the resolved credential is OpenAI;
+ *   voice   → Runway Eleven v3 when Runway video is configured; otherwise
+ *             OpenAI tts-1 when the resolved credential is OpenAI;
  *             otherwise gTTS (key-less REAL Arabic speech).
  *   visuals → Pollinations image API (still genuinely key-less — verified).
  * Every method THROWS on provider failure: the pipeline marks the video
@@ -25,7 +26,7 @@ import { createLogger, type Logger } from '@aca/logger';
 import { PipelineError } from '../errors.js';
 import { type OrgCredentialsService } from '../vault/org-credentials.js';
 import { LLM_PROVIDERS, chatCompletion, type LlmCredential } from './providers.js';
-import { generateClip, type VideoCredential } from './providers-video.js';
+import { generateClip, generateRunwaySpeech, type VideoCredential } from './providers-video.js';
 import { getPrompt, renderUserPrompt } from './prompts/registry.js';
 
 export const SceneSchema = z.object({
@@ -276,6 +277,15 @@ export class AiService {
 
   /** Real voiceover: OpenAI tts when that credential resolved, else gTTS chunked MP3(s). No silent mock. */
   async synthesizeVoice(text: string, language: string, orgId: string): Promise<{ chunks: Buffer[]; provider: string; mime: string }> {
+    const videoCred = await this.creds.resolveVideo(orgId);
+    if (videoCred?.def.id === 'runway') {
+      const chunks = await withRetry(
+        'tts-runway-eleven-v3',
+        async () => [await generateRunwaySpeech(videoCred.apiKey, text, language.startsWith('ar') ? 'ar' : 'en')],
+        this.logger,
+      );
+      return { chunks, provider: 'runway-eleven-v3', mime: 'audio/mpeg' };
+    }
     const cred = await this.creds.resolveLlm(orgId);
     if (cred?.def.id === 'openai') {
       const chunks = await withRetry('tts-openai', async () => {
