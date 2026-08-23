@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Cpu, KeyRound, ShieldEllipsis, Video } from 'lucide-react';
+import { Cloud, Cpu, KeyRound, ShieldEllipsis, Video } from 'lucide-react';
 import AppShell from '../../../components/dashboard/app-shell';
 import { GlassCard, SectionHeader } from '../../../components/ui/chrome';
 import { HoverLift, Reveal } from '../../../components/ui/reveal';
@@ -37,6 +37,14 @@ interface VideoItem {
 interface Integrations {
   ai: { active: { provider: string; source: string } | null; items: AiItem[] };
   video: { active: { provider: string; source: string } | null; items: VideoItem[] };
+  bunny: {
+    configured: boolean;
+    source: 'org' | 'env' | null;
+    hint: string | null;
+    storageZone: string | null;
+    cdnHostname: string | null;
+    storageEndpoint: string;
+  };
   youtube: { configured: boolean; source: 'org' | 'env' | null; hint: string | null; redirectUri: string | null };
   tiktok: { configured: boolean; source: 'org' | 'env' | null; hint: string | null; redirectUri: string | null };
 }
@@ -59,6 +67,10 @@ export default function SettingsPage() {
   const [apiKey, setApiKey] = useState('');
   const [videoProvider, setVideoProvider] = useState('runway');
   const [videoKey, setVideoKey] = useState('');
+  const [bunnyZone, setBunnyZone] = useState('');
+  const [bunnyKey, setBunnyKey] = useState('');
+  const [bunnyHostname, setBunnyHostname] = useState('');
+  const [bunnyEndpoint, setBunnyEndpoint] = useState('storage.bunnycdn.com');
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [tiktokKey, setTiktokKey] = useState('');
@@ -120,6 +132,36 @@ export default function SettingsPage() {
     setBusy(`vdel:${id}`); setError(null);
     try { await api.del(`/v1/organizations/${session.orgId}/settings/integrations/video/${id}`, session.accessToken); setNotice('حُذف مفتاح الفيديو — سيعود المحرك لوضع المشاهد السينمائية الثابتة'); await load(); }
     catch (e) { setError(arabicMessage(e as never)); }
+    finally { setBusy(null); }
+  };
+
+  const saveBunny = async () => {
+    if (!session?.orgId || bunnyZone.trim().length < 2 || bunnyKey.trim().length < 8 || bunnyHostname.trim().length < 4) {
+      return setError('أدخل اسم Storage Zone والمفتاح واسم مضيف CDN من Bunny');
+    }
+    setBusy('bunny'); setError(null); setNotice(null);
+    try {
+      await api.put(`/v1/organizations/${session.orgId}/settings/integrations/delivery/bunny`, {
+        storageZone: bunnyZone.trim(),
+        accessKey: bunnyKey.trim(),
+        cdnHostname: bunnyHostname.trim().replace(/^https?:\/\//, '').replace(/\/+$/, ''),
+        storageEndpoint: bunnyEndpoint.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '') || 'storage.bunnycdn.com',
+      }, session.accessToken);
+      setNotice('تم التحقق من Bunny وحفظ مفتاح التخزين مشفراً — الفيديوهات المكتملة ستُعرض من CDN.');
+      setBunnyKey('');
+      await load();
+    } catch (e) { setError(arabicMessage(e as never)); }
+    finally { setBusy(null); }
+  };
+
+  const deleteBunny = async () => {
+    if (!session?.orgId) return;
+    setBusy('bunny'); setError(null);
+    try {
+      await api.del(`/v1/organizations/${session.orgId}/settings/integrations/delivery/bunny`, session.accessToken);
+      setNotice('تم فصل Bunny وحذف المفتاح من الخزنة');
+      await load();
+    } catch (e) { setError(arabicMessage(e as never)); }
     finally { setBusy(null); }
   };
 
@@ -195,6 +237,26 @@ export default function SettingsPage() {
             <div className="field"><label>API key</label><input dir="ltr" type="password" placeholder="Paste video provider key" value={videoKey} onChange={(e) => setVideoKey(e.target.value)} /></div>
             <button className="btn btn-primary btn-block" onClick={() => void saveVideoKey()} disabled={busy === `video:${videoProvider}`}><Video size={16} /> {busy === `video:${videoProvider}` ? 'Validating…' : 'Validate & Save'}</button>
             <p className="form-note">{chosenVideo?.priceHint}</p>
+          </GlassCard>
+        </Reveal>
+
+        <Reveal delay={0.1}>
+          <GlassCard>
+            <SectionHeader eyebrow="Video Delivery" title="Bunny Storage + CDN." body="Mirror every completed MP4 to Bunny for fast playback and downloads. Bunny delivers the file; the AI engine still creates it." />
+            {data?.bunny.configured ? (
+              <div className="alert ok">
+                Connected: <strong>{data.bunny.storageZone}</strong> → {data.bunny.cdnHostname}
+                <button className="btn btn-ghost" style={{ marginInlineStart: 10 }} onClick={() => void deleteBunny()} disabled={busy === 'bunny'}>Disconnect</button>
+              </div>
+            ) : (
+              <>
+                <div className="field"><label>Storage Zone name</label><input dir="ltr" value={bunnyZone} onChange={(e) => setBunnyZone(e.target.value)} placeholder="lumen-videos" /></div>
+                <div className="field"><label>Storage Zone password / API key</label><input dir="ltr" type="password" value={bunnyKey} onChange={(e) => setBunnyKey(e.target.value)} placeholder="FTP & API Access password" /></div>
+                <div className="field"><label>CDN hostname</label><input dir="ltr" value={bunnyHostname} onChange={(e) => setBunnyHostname(e.target.value)} placeholder="lumen-videos.b-cdn.net" /></div>
+                <div className="field"><label>Storage endpoint</label><input dir="ltr" value={bunnyEndpoint} onChange={(e) => setBunnyEndpoint(e.target.value)} placeholder="storage.bunnycdn.com" /></div>
+                <button className="btn btn-primary btn-block" onClick={() => void saveBunny()} disabled={busy === 'bunny'}><Cloud size={16} /> {busy === 'bunny' ? 'Validating…' : 'Validate & Connect'}</button>
+              </>
+            )}
           </GlassCard>
         </Reveal>
       </div>
