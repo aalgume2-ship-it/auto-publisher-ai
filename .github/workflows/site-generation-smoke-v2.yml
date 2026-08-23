@@ -1,0 +1,126 @@
+name: site-generation-smoke-v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/site-generation-smoke-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  strict-video-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SITE_ORIGIN: https://auto-publisher-ai-web.vercel.app
+    steps:
+      - name: Ensure media verifier
+        run: |
+          set -euo pipefail
+          command -v ffprobe >/dev/null || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+          command -v ffmpeg >/dev/null
+          command -v ffprobe >/dev/null
+
+      - name: Verify production
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 5 --retry-delay 3 "$SITE_ORIGIN/api/v1/health/live"
+          curl -fLsS --retry 5 --retry-delay 3 "$SITE_ORIGIN/api/v1/health/ready"
+
+      - name: Create session
+        id: auth
+        run: |
+          set -euo pipefail
+          ID="$(date +%s)-$RANDOM"
+          EMAIL="strict-smoke-$ID@trial.lumen.app"
+          PASSWORD="Smoke${ID//-/}Aa9!xZ7#"
+          BODY=$(jq -nc --arg e "$EMAIL" --arg p "$PASSWORD" --arg n "Strict Smoke $ID" '{email:$e,password:$p,displayName:$n,locale:"en",timezone:"Asia/Riyadh"}')
+          RESP=$(curl -fLsS -H 'content-type: application/json' -H "Idempotency-Key: auth-$ID" -d "$BODY" "$SITE_ORIGIN/api/v1/auth/register")
+          TOKEN=$(jq -r '.tokens.accessToken // empty' <<<"$RESP")
+          ORG=$(jq -r '.workspace.id // empty' <<<"$RESP")
+          test -n "$TOKEN"
+          test -n "$ORG"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+          echo "org=$ORG" >> "$GITHUB_OUTPUT"
+
+      - name: Create project and video
+        id: video
+        env:
+          TOKEN: ${{ steps.auth.outputs.token }}
+          ORG: ${{ steps.auth.outputs.org }}
+        run: |
+          set -euo pipefail
+          SERIES_BODY='{"name":"مدينة الحوت الطائر","niche":"cinematic story","language":"ar"}'
+          SERIES=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: series-${GITHUB_RUN_ID}" -d "$SERIES_BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series")
+          SERIES_ID=$(jq -r '.id // empty' <<<"$SERIES")
+          test -n "$SERIES_ID"
+          PROMPT='Neon city at night, cinematic lateral tracking shot, wet street reflections, natural motion'
+          BODY=$(jq -nc --arg k "$PROMPT" '{keyword:$k,targetSeconds:20}')
+          RESP=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: video-${GITHUB_RUN_ID}" -d "$BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series/$SERIES_ID/videos")
+          VIDEO_ID=$(jq -r '.video.id // .id // empty' <<<"$RESP")
+          test -n "$VIDEO_ID"
+          echo "id=$VIDEO_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Wait READY and reconstruct exact MP4
+        env:
+          TOKEN: ${{ steps.auth.outputs.token }}
+          ORG: ${{ steps.auth.outputs.org }}
+          VIDEO_ID: ${{ steps.video.outputs.id }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 1200))
+          while [ $SECONDS -lt $deadline ]; do
+            R=$(curl -fLsS -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VIDEO_ID")
+            STATUS=$(jq -r '.status // empty' <<<"$R")
+            echo "status=$STATUS"
+            if [ "$STATUS" = "READY" ]; then
+              : > neon-ai-video.mp4
+              START=0
+              TOTAL=-1
+              EXPECTED_SHA=''
+              while [ "$TOTAL" -lt 0 ] || [ "$START" -lt "$TOTAL" ]; do
+                CHUNK=$(curl -fLsS --retry 4 -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VIDEO_ID/stream-chunk?start=$START&size=524286")
+                CHUNK_START=$(jq -r '.start' <<<"$CHUNK")
+                CHUNK_END=$(jq -r '.end' <<<"$CHUNK")
+                TOTAL=$(jq -r '.total' <<<"$CHUNK")
+                test "$CHUNK_START" -eq "$START"
+                if [ "$START" -eq 0 ]; then EXPECTED_SHA=$(jq -r '.sha256 // empty' <<<"$CHUNK"); fi
+                jq -r '.base64' <<<"$CHUNK" | base64 --decode >> neon-ai-video.mp4
+                START=$CHUNK_END
+              done
+              SIZE=$(stat -c%s neon-ai-video.mp4)
+              test "$SIZE" -eq "$TOTAL"
+              test "$SIZE" -gt 30000
+              ACTUAL_SHA=$(sha256sum neon-ai-video.mp4 | awk '{print $1}')
+              test -z "$EXPECTED_SHA" || test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+              ffprobe -v error -show_entries stream=index,codec_name,codec_type,width,height,duration -show_entries format=format_name,duration,size -of json neon-ai-video.mp4 | tee ffprobe.json
+              jq -e '.streams | any(.codec_type == "video")' ffprobe.json >/dev/null
+              jq -e '(.format.duration | tonumber) > 0' ffprobe.json >/dev/null
+              ffmpeg -v error -i neon-ai-video.mp4 -vf "select='eq(n,0)+eq(n,5)+eq(n,10)'" -vsync 0 motion-frame-%02d.png
+              sha256sum motion-frame-*.png | tee motion-proof.txt
+              test "$(awk '{print $1}' motion-proof.txt | sort -u | wc -l)" -ge 2
+              exit 0
+            fi
+            if [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "ERROR" ] || [ "$STATUS" = "CANCELLED" ]; then
+              echo "$R" | jq '{status,failureReason,seo}'
+              exit 1
+            fi
+            sleep 5
+          done
+          echo 'Timed out waiting for READY'
+          exit 1
+
+      - name: Upload strict proof
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neon-ai-video-strict
+          path: |
+            neon-ai-video.mp4
+            ffprobe.json
+            motion-proof.txt
+            motion-frame-*.png
+          retention-days: 7
