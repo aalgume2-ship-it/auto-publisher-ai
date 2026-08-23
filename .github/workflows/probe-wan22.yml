@@ -1,0 +1,56 @@
+name: probe-wan22
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-wan22.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Generate Wan 2.2 clip
+        run: |
+          set -euo pipefail
+          BASE='https://zerogpu-aoti-wan2-2-fp8da-aoti.hf.space'
+          PROMPT='A young man in a rainy night market discovers an old camera, photorealistic live action, realistic face and hands, slow cinematic dolly in, wet neon reflections, natural body movement, no text'
+          NEG='low quality, blurry, distorted face, malformed hands, duplicate person, animation, illustration, subtitles, text, logo, watermark'
+          BODY=$(jq -nc --arg p "$PROMPT" --arg n "$NEG" '{data:[$p,$n,2,1,3,4,42,false]}')
+          SUBMIT=$(curl -fLsS --retry 4 --retry-delay 2 -H 'content-type: application/json' -H 'accept: application/json' -d "$BODY" "$BASE/gradio_api/call/generate_video")
+          EVENT=$(jq -r '.event_id // empty' <<<"$SUBMIT")
+          test -n "$EVENT"
+          curl -fLsS --retry 2 -H 'accept: text/event-stream' "$BASE/gradio_api/call/generate_video/$EVENT" -o result.sse
+          cat result.sse
+          ! grep -qi '^event: error' result.sse
+          DATA=$(grep '^data:' result.sse | tail -1 | sed 's/^data:[[:space:]]*//')
+          URL=$(jq -r '.. | objects | .url? // empty' <<<"$DATA" | head -1)
+          PATHV=$(jq -r '.. | objects | .path? // empty' <<<"$DATA" | head -1)
+          if [ -z "$URL" ] && [ -n "$PATHV" ]; then URL="$BASE/gradio_api/file=$PATHV"; fi
+          test -n "$URL"
+          curl -fLsS --retry 3 "$URL" -o probe-wan22.mp4
+          test "$(stat -c%s probe-wan22.mp4)" -gt 30000
+          ffprobe -v error -show_entries stream=codec_type,codec_name,width,height -show_entries format=duration,size -of json probe-wan22.mp4
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: wan22-probe-video
+          path: probe-wan22.mp4
+
+      - name: Publish status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          STATE=failure; [ "$JOB_STATUS" = success ] && STATE=success
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          jq -nc --arg state "$STATE" --arg context 'wan22-probe' --arg desc "Wan2.2 ZeroGPU probe: $JOB_STATUS" --arg target "$RUN_URL" '{state:$state,context:$context,description:$desc,target_url:$target}' >/tmp/status.json
+          curl -fLsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'content-type: application/json' --data @/tmp/status.json "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}"
