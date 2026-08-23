@@ -1,0 +1,111 @@
+name: repair-ltx-distilled
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/repair-ltx-distilled.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+  statuses: write
+
+jobs:
+  patch-and-deploy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch official LTX Video Distilled ZeroGPU route
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('packages/video-engine/src/ai/providers-video.ts')
+          s = p.read_text()
+          old = """async function hfLtxDistilledGenerate(req: ClipRequest): Promise<Buffer> {
+            const duration = Math.min(5, Math.max(1, Math.round(req.windowSec)));
+            return gradioGenerate(
+              'https://lightricks-ltx-2-distilled.hf.space',
+              'generate_video',
+              [null, compactMotionPrompt(req, 260), duration, false, 42, true, 768, 512],
+              'hf-ltx-distilled',
+            );
+          }"""
+          new = """async function hfLtxDistilledGenerate(req: ClipRequest): Promise<Buffer> {
+            // Official Lightricks ZeroGPU Space: LTX Video 0.9.8 13B Distilled.
+            // Its public Gradio API is `text_to_video` and accepts the complete
+            // UI input tuple documented by the Space, not the LTX-2.3 tuple.
+            // Keep the request short and single-pass to minimize shared GPU use.
+            const duration = Math.min(3, Math.max(1, Math.round(req.windowSec)));
+            const negative = 'worst quality, inconsistent motion, blurry, jittery, distorted, subtitles, text, logo, watermark';
+            return gradioGenerate(
+              'https://lightricks-ltx-video-distilled.hf.space',
+              'text_to_video',
+              [
+                compactMotionPrompt(req, 260),
+                negative,
+                null,
+                null,
+                704,
+                512,
+                'text-to-video',
+                duration,
+                9,
+                42,
+                false,
+                3.0,
+                false,
+              ],
+              'hf-ltx-distilled-official',
+            );
+          }"""
+          if old not in s:
+              raise SystemExit('expected old LTX distilled block not found; refusing blind patch')
+          p.write_text(s.replace(old, new))
+          PY
+          git diff --check
+          git diff -- packages/video-engine/src/ai/providers-video.ts
+
+      - name: Commit fix
+        id: commit
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/video-engine/src/ai/providers-video.ts
+          git commit -m 'fix(video): use official LTX distilled ZeroGPU API'
+          git push origin HEAD:main
+          SHA=$(git rev-parse HEAD)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch AWS production deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl -fLsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-aws.yml/dispatches" \
+            -d '{"ref":"main"}'
+
+      - name: Publish repair status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PATCH_SHA: ${{ steps.commit.outputs.sha }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          SHA="${PATCH_SHA:-$GITHUB_SHA}"
+          STATE=failure; [ "$JOB_STATUS" = success ] && STATE=success
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          jq -nc --arg state "$STATE" --arg target "$RUN_URL" --arg desc "Official LTX distilled repair: $JOB_STATUS" --arg context "ltx-distilled-repair" '{state:$state,target_url:$target,description:$desc,context:$context}' > /tmp/status.json
+          curl -fLsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' -H 'content-type: application/json' --data @/tmp/status.json "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${SHA}"
