@@ -7,7 +7,9 @@ RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 # Copy workspace definition first for caching
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json prisma.config.ts ./
 
-# Copy all package.json files to leverage pnpm workspace
+# Copy all package.json files required by the API dependency graph so pnpm can
+# resolve workspace:* dependencies during the install layer (Railway uses this
+# legacy root Dockerfile for autocreator-api).
 COPY apps/api/package.json ./apps/api/package.json
 COPY apps/web/package.json ./apps/web/package.json
 COPY packages/auth/package.json ./packages/auth/package.json
@@ -16,6 +18,7 @@ COPY packages/database/package.json ./packages/database/package.json
 COPY packages/events/package.json ./packages/events/package.json
 COPY packages/logger/package.json ./packages/logger/package.json
 COPY packages/shared/package.json ./packages/shared/package.json
+COPY packages/video-engine/package.json ./packages/video-engine/package.json
 COPY packages/eslint-config/package.json ./packages/eslint-config/package.json
 COPY packages/typescript-config/package.json ./packages/typescript-config/package.json
 
@@ -31,15 +34,18 @@ COPY scripts ./scripts
 # Generate Prisma client
 RUN pnpm --filter @aca/database exec prisma generate || true
 
-# Build only required packages for API (shared, config, logger, database, auth, api)
-RUN pnpm --filter @aca/shared build || true
-RUN pnpm --filter @aca/config build || true
-RUN pnpm --filter @aca/logger build || true
-RUN pnpm --filter @aca/database build || true
-RUN pnpm --filter @aca/auth build || true
-RUN pnpm --filter @aca/api build || pnpm exec tsc -p apps/api/tsconfig.json || true
+# Build the complete API workspace dependency graph. Do not hide build errors:
+# a green container image must contain a valid dist/main.js and video engine.
+RUN pnpm --filter @aca/shared build
+RUN pnpm --filter @aca/config build
+RUN pnpm --filter @aca/logger build
+RUN pnpm --filter @aca/events build
+RUN pnpm --filter @aca/database build
+RUN pnpm --filter @aca/auth build
+RUN pnpm --filter @aca/video-engine build
+RUN pnpm --filter @aca/api build
 
-RUN ls -lh apps/api/dist/ || (echo "dist missing, listing apps/api:" && ls -la apps/api/)
+RUN test -f apps/api/dist/main.js && ls -lh apps/api/dist/
 
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
