@@ -1,0 +1,100 @@
+name: free-story3d-pr-proof
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/free-story3d-pr-proof.yml']
+permissions:
+  contents: read
+  statuses: write
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      SITE_ORIGIN: https://auto-publisher-ai-web.vercel.app
+    steps:
+      - name: Install verifier
+        run: |
+          set -euo pipefail
+          npm init -y >/dev/null
+          npm install --silent ffprobe-static@3.1.0 ffmpeg-static@5.3.0
+          echo "$(dirname "$(node -p "require('ffprobe-static').path")")" >> "$GITHUB_PATH"
+          echo "$(dirname "$(node -p "require('ffmpeg-static')")")" >> "$GITHUB_PATH"
+      - name: Create Arabic 3D story video
+        id: create
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 10 --retry-all-errors --retry-delay 4 "$SITE_ORIGIN/api/v1/health/live"
+          curl -fLsS --retry 10 --retry-all-errors --retry-delay 4 "$SITE_ORIGIN/api/v1/health/ready"
+          ID="$(date +%s)-$RANDOM"
+          EMAIL="story3d-pr-$ID@trial.lumen.app"
+          PASSWORD="Story${ID//-/}Aa9!xZ7#"
+          AUTH=$(jq -nc --arg e "$EMAIL" --arg p "$PASSWORD" --arg n "Story3D $ID" '{email:$e,password:$p,displayName:$n,locale:"ar",timezone:"Asia/Riyadh"}' | curl -fLsS -H 'content-type: application/json' -H "Idempotency-Key: auth-$ID" --data-binary @- "$SITE_ORIGIN/api/v1/auth/register")
+          TOKEN=$(jq -r '.tokens.accessToken // empty' <<<"$AUTH")
+          ORG=$(jq -r '.workspace.id // empty' <<<"$AUTH")
+          test -n "$TOKEN"; test -n "$ORG"
+          SERIES=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: series-${GITHUB_RUN_ID}" -d '{"name":"قصة الطبيب والطفل","niche":"premium semi realistic 3D Arabic social story","language":"ar"}' "$SITE_ORIGIN/api/v1/organizations/$ORG/series")
+          SID=$(jq -r '.id // empty' <<<"$SERIES"); test -n "$SID"
+          PROMPT='قصة عربية قصيرة بأسلوب رسوم ثلاثية الأبعاد شبه واقعية وراقية. في مستشفى دافئ ومضيء، طبيب عربي شاب لطيف يرتدي ملابس طبية زرقاء يطمئن طفلاً صغيراً خائفاً قبل فحص بسيط. يضع الطبيب السماعة على دمية دب أولاً فيضحك الطفل، ثم يسمح للطفل أن يسمع دقات قلبه بنفسه فيتحول الخوف إلى فضول وابتسامة. في النهاية يلوح الطفل للطبيب وهو يغادر مع والدته. حافظ على نفس ملامح الطبيب والطفل والملابس في جميع اللقطات، تعبيرات طبيعية، حركة بشرية ناعمة، إضاءة سينمائية دافئة، عمق ميدان، تكوين عمودي 9:16، بدون كتابة داخل الصورة أو شعارات أو علامات مائية.'
+          BODY=$(jq -nc --arg k "$PROMPT" '{keyword:$k,targetSeconds:20}')
+          VIDEO=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: video-${GITHUB_RUN_ID}" -d "$BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series/$SID/videos")
+          VID=$(jq -r '.video.id // .id // empty' <<<"$VIDEO"); test -n "$VID"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+          echo "org=$ORG" >> "$GITHUB_OUTPUT"
+          echo "video=$VID" >> "$GITHUB_OUTPUT"
+      - name: Wait for READY and verify MP4
+        env:
+          TOKEN: ${{ steps.create.outputs.token }}
+          ORG: ${{ steps.create.outputs.org }}
+          VIDEO_ID: ${{ steps.create.outputs.video }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS+1500))
+          while [ $SECONDS -lt $deadline ]; do
+            R=$(curl -fLsS -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VIDEO_ID")
+            STATUS=$(jq -r '.status // empty' <<<"$R")
+            echo "status=$STATUS step=$(jq -r '.seo.step // empty' <<<"$R")"
+            if [ "$STATUS" = READY ]; then
+              : > story3d-final.mp4
+              START=0; TOTAL=-1; EXPECTED=''
+              while [ "$TOTAL" -lt 0 ] || [ "$START" -lt "$TOTAL" ]; do
+                C=$(curl -fLsS --retry 5 --retry-all-errors -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VIDEO_ID/stream-chunk?start=$START&size=524286")
+                S=$(jq -r .start <<<"$C"); E=$(jq -r .end <<<"$C"); TOTAL=$(jq -r .total <<<"$C")
+                test "$S" -eq "$START"
+                [ "$START" -ne 0 ] || EXPECTED=$(jq -r '.sha256 // empty' <<<"$C")
+                jq -r .base64 <<<"$C" | base64 --decode >> story3d-final.mp4
+                START=$E
+              done
+              SIZE=$(stat -c%s story3d-final.mp4); test "$SIZE" -eq "$TOTAL"; test "$SIZE" -gt 30000
+              SHA=$(sha256sum story3d-final.mp4 | awk '{print $1}')
+              [ -z "$EXPECTED" ] || test "$SHA" = "$EXPECTED"
+              ffprobe -v error -show_entries stream=index,codec_name,codec_type,width,height,duration -show_entries format=format_name,duration,size -of json story3d-final.mp4 | tee ffprobe.json
+              jq -e '.streams|any(.codec_type=="video")' ffprobe.json >/dev/null
+              jq -e '(.format.duration|tonumber)>0' ffprobe.json >/dev/null
+              ffmpeg -v error -i story3d-final.mp4 -vf "select='eq(n,0)+eq(n,8)+eq(n,16)'" -vsync 0 frame-%02d.png
+              sha256sum frame-*.png | tee motion-proof.txt
+              test "$(awk '{print $1}' motion-proof.txt|sort -u|wc -l)" -ge 2
+              echo "$SHA" > video-sha256.txt
+              echo "$R" | jq '{status,seo}' > final-status.json
+              exit 0
+            fi
+            if [ "$STATUS" = FAILED ] || [ "$STATUS" = ERROR ] || [ "$STATUS" = CANCELLED ]; then
+              echo "$R" | jq '{status,failureReason,seo}' | tee failure.json
+              exit 1
+            fi
+            sleep 5
+          done
+          exit 1
+      - name: Upload verified 3D story video
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: free-story3d-final-video
+          path: |
+            story3d-final.mp4
+            ffprobe.json
+            motion-proof.txt
+            frame-*.png
+            video-sha256.txt
+            final-status.json
+          retention-days: 7
