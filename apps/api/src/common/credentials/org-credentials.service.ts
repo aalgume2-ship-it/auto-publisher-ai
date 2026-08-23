@@ -22,6 +22,7 @@ export type VaultCapability = 'LLM' | 'PUBLISHER' | 'VIDEO_ENGINE';
 const GOOGLE_OAUTH_PROVIDER = 'google-oauth';
 const TIKTOK_OAUTH_PROVIDER = 'tiktok-oauth';
 const META_OAUTH_PROVIDER = 'meta-oauth';
+const BUNNY_STORAGE_PROVIDER = 'bunny-storage';
 const VAULT_LABEL = 'primary';
 
 interface VaultPayload {
@@ -44,6 +45,13 @@ export interface TikTokClientCreds {
 export interface MetaClientCreds {
   appId: string;
   appSecret: string;
+  source: 'org' | 'env';
+}
+export interface BunnyStorageCreds {
+  storageZone: string;
+  accessKey: string;
+  cdnHostname: string;
+  storageEndpoint: string;
   source: 'org' | 'env';
 }
 
@@ -182,6 +190,53 @@ export class OrgCredentialsService {
   /** Which env key would activate a given provider (for guidance strings). */
   static envKeyOf(providerId: string): string {
     return LLM_PROVIDER_MAP.get(providerId)?.envKey ?? providerId.toUpperCase();
+  }
+
+  /** Bunny Storage delivery credentials: encrypted org vault → env fallback. */
+  async resolveBunnyStorage(orgId: string): Promise<BunnyStorageCreds | null> {
+    const stored = await this.readSecret(orgId, 'PUBLISHER', BUNNY_STORAGE_PROVIDER);
+    const storageZone = typeof stored?.['storageZone'] === 'string' ? (stored['storageZone'] as string) : '';
+    const accessKey = typeof stored?.['accessKey'] === 'string' ? (stored['accessKey'] as string) : '';
+    const cdnHostname = typeof stored?.['cdnHostname'] === 'string' ? (stored['cdnHostname'] as string) : '';
+    const storageEndpoint =
+      typeof stored?.['storageEndpoint'] === 'string'
+        ? (stored['storageEndpoint'] as string)
+        : 'storage.bunnycdn.com';
+    if (storageZone && accessKey && cdnHostname) {
+      return { storageZone, accessKey, cdnHostname, storageEndpoint, source: 'org' };
+    }
+    const envZone = process.env.BUNNY_STORAGE_ZONE ?? '';
+    const envKey = process.env.BUNNY_STORAGE_API_KEY ?? '';
+    const envHost = process.env.BUNNY_CDN_HOSTNAME ?? '';
+    if (envZone && envKey && envHost) {
+      return {
+        storageZone: envZone,
+        accessKey: envKey,
+        cdnHostname: envHost,
+        storageEndpoint: process.env.BUNNY_STORAGE_ENDPOINT ?? 'storage.bunnycdn.com',
+        source: 'env',
+      };
+    }
+    return null;
+  }
+
+  async saveBunnyStorage(
+    orgId: string,
+    input: { storageZone: string; accessKey: string; cdnHostname: string; storageEndpoint?: string },
+  ): Promise<void> {
+    await this.writeSecret(orgId, 'PUBLISHER', BUNNY_STORAGE_PROVIDER, {
+      secret: input.accessKey,
+      storageZone: input.storageZone,
+      accessKey: input.accessKey,
+      cdnHostname: input.cdnHostname,
+      storageEndpoint: input.storageEndpoint ?? 'storage.bunnycdn.com',
+      hint: OrgCredentialsService.hint(input.accessKey),
+      validatedAt: new Date().toISOString(),
+    });
+  }
+
+  async deleteBunnyStorage(orgId: string): Promise<boolean> {
+    return this.deleteSecret(orgId, 'PUBLISHER', BUNNY_STORAGE_PROVIDER);
   }
 
   /** Google OAuth client for channel linking: org vault → env → null. */
