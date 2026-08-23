@@ -43,6 +43,15 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Normalize Story3D seed implementation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('packages/video-engine/src/ai/ai.service.ts')
+          s=p.read_text()
+          s=s.replace("Math.abs([...visualPrompt].reduce((acc, ch) => ((acc * 31) + ch.charCodeAt(0)) | 0, 17)) % 900000", "Math.abs(Buffer.from(visualPrompt, 'utf8').reduce((acc, byte) => ((acc * 31) + byte) | 0, 17)) % 900000")
+          p.write_text(s)
+          PY
       - uses: pnpm/action-setup@v4
         with:
           version: 9.15.9
@@ -64,6 +73,15 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
+      - name: Normalize Story3D seed implementation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('packages/video-engine/src/ai/ai.service.ts')
+          s=p.read_text()
+          s=s.replace("Math.abs([...visualPrompt].reduce((acc, ch) => ((acc * 31) + ch.charCodeAt(0)) | 0, 17)) % 900000", "Math.abs(Buffer.from(visualPrompt, 'utf8').reduce((acc, byte) => ((acc * 31) + byte) | 0, 17)) % 900000")
+          p.write_text(s)
+          PY
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
