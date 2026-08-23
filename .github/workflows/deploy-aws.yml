@@ -43,13 +43,25 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Normalize Story3D seed implementation
+      - name: Normalize Story3D + free Wan ZeroGPU fallback
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p=Path('packages/video-engine/src/ai/ai.service.ts')
           s=p.read_text()
           s=s.replace("Math.abs([...visualPrompt].reduce((acc, ch) => ((acc * 31) + ch.charCodeAt(0)) | 0, 17)) % 900000", "Math.abs(Buffer.from(visualPrompt, 'utf8').reduce((acc, byte) => ((acc * 31) + byte) | 0, 17)) % 900000")
+          p.write_text(s)
+
+          p=Path('packages/video-engine/src/ai/providers-video.ts')
+          s=p.read_text()
+          s=s.replace("id: 'hf-ltx',\n    label: 'LTX ZeroGPU multi-route',\n    model: 'ltx-2.x',", "id: 'hf-ltx',\n    label: 'Free ZeroGPU multi-route',\n    model: 'wan2.1+ltx-2.x',")
+          s=s.replace("priceHint: 'free shared ZeroGPU; no API key required; multi-space failover',\n    envKey: '',\n    supportsFirstFrame: false,", "priceHint: 'free shared ZeroGPU; no API key required; Wan + LTX multi-space failover',\n    envKey: '',\n    supportsFirstFrame: true,")
+          marker="async function hfLtxGenerate(req: ClipRequest): Promise<Buffer> {"
+          if 'hfWan21I2VGenerate' not in s:
+              wan="""async function hfWan21I2VGenerate(req: ClipRequest): Promise<Buffer> {\n  if (!req.firstFrameUrl) throw new Error('hf-wan21 requires a first-frame image');\n  const duration = Math.min(3.3, Math.max(1, req.windowSec));\n  const negative = 'static, blurry, low quality, subtitles, text, logo, watermark, extra fingers, deformed hands, face morphing, duplicate subject, identity drift';\n  return gradioGenerate(\n    'https://multimodalart-wan2-1-fast.hf.space',\n    'generate_video',\n    [\n      { path: req.firstFrameUrl, url: req.firstFrameUrl, orig_name: 'scene.jpg', mime_type: 'image/jpeg', meta: { _type: 'gradio.FileData' } },\n      compactMotionPrompt(req, 320),\n      768,\n      432,\n      negative,\n      duration,\n      1,\n      4,\n      42,\n      True,\n    ],\n    'hf-wan21-fast',\n  );\n}\n\n"""
+              wan=wan.replace('True','true')
+              s=s.replace(marker, wan+marker)
+          s=s.replace("const routes: Array<[string, () => Promise<Buffer>]> = [\n    ['ltx-distilled', () => hfLtxDistilledGenerate(req)],", "const routes: Array<[string, () => Promise<Buffer>]> = [\n    ...(req.firstFrameUrl ? [['wan21-fast', () => hfWan21I2VGenerate(req)] as [string, () => Promise<Buffer>]] : []),\n    ['ltx-distilled', () => hfLtxDistilledGenerate(req)],")
           p.write_text(s)
           PY
       - uses: pnpm/action-setup@v4
@@ -73,13 +85,25 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
-      - name: Normalize Story3D seed implementation
+      - name: Normalize Story3D + free Wan ZeroGPU fallback
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p=Path('packages/video-engine/src/ai/ai.service.ts')
           s=p.read_text()
           s=s.replace("Math.abs([...visualPrompt].reduce((acc, ch) => ((acc * 31) + ch.charCodeAt(0)) | 0, 17)) % 900000", "Math.abs(Buffer.from(visualPrompt, 'utf8').reduce((acc, byte) => ((acc * 31) + byte) | 0, 17)) % 900000")
+          p.write_text(s)
+
+          p=Path('packages/video-engine/src/ai/providers-video.ts')
+          s=p.read_text()
+          s=s.replace("id: 'hf-ltx',\n    label: 'LTX ZeroGPU multi-route',\n    model: 'ltx-2.x',", "id: 'hf-ltx',\n    label: 'Free ZeroGPU multi-route',\n    model: 'wan2.1+ltx-2.x',")
+          s=s.replace("priceHint: 'free shared ZeroGPU; no API key required; multi-space failover',\n    envKey: '',\n    supportsFirstFrame: false,", "priceHint: 'free shared ZeroGPU; no API key required; Wan + LTX multi-space failover',\n    envKey: '',\n    supportsFirstFrame: true,")
+          marker="async function hfLtxGenerate(req: ClipRequest): Promise<Buffer> {"
+          if 'hfWan21I2VGenerate' not in s:
+              wan="""async function hfWan21I2VGenerate(req: ClipRequest): Promise<Buffer> {\n  if (!req.firstFrameUrl) throw new Error('hf-wan21 requires a first-frame image');\n  const duration = Math.min(3.3, Math.max(1, req.windowSec));\n  const negative = 'static, blurry, low quality, subtitles, text, logo, watermark, extra fingers, deformed hands, face morphing, duplicate subject, identity drift';\n  return gradioGenerate(\n    'https://multimodalart-wan2-1-fast.hf.space',\n    'generate_video',\n    [\n      { path: req.firstFrameUrl, url: req.firstFrameUrl, orig_name: 'scene.jpg', mime_type: 'image/jpeg', meta: { _type: 'gradio.FileData' } },\n      compactMotionPrompt(req, 320),\n      768,\n      432,\n      negative,\n      duration,\n      1,\n      4,\n      42,\n      True,\n    ],\n    'hf-wan21-fast',\n  );\n}\n\n"""
+              wan=wan.replace('True','true')
+              s=s.replace(marker, wan+marker)
+          s=s.replace("const routes: Array<[string, () => Promise<Buffer>]> = [\n    ['ltx-distilled', () => hfLtxDistilledGenerate(req)],", "const routes: Array<[string, () => Promise<Buffer>]> = [\n    ...(req.firstFrameUrl ? [['wan21-fast', () => hfWan21I2VGenerate(req)] as [string, () => Promise<Buffer>]] : []),\n    ['ltx-distilled', () => hfLtxDistilledGenerate(req)],")
           p.write_text(s)
           PY
 
