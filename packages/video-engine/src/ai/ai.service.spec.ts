@@ -47,7 +47,7 @@ describe('AiService keyless story script', () => {
     expect(narration.split(/\s+/).length).toBeGreaterThanOrEqual(45);
     expect(narration.split(/\s+/).length).toBeLessThanOrEqual(70);
     expect(result.script.scenes.every((scene) => scene.visualPrompt.includes('same exact main subject'))).toBe(true);
-    expect(result.script.scenes.every((scene) => scene.visualPrompt.includes('same environment weather and time of day'))).toBe(true);
+    expect(result.script.scenes.every((scene) => scene.visualPrompt.includes('same environment geography, architecture, weather, lighting direction and time of day'))).toBe(true);
     expect(result.script.scenes[0]?.narration).toContain('ثعلب');
     expect(result.script.scenes[3]?.narration).toContain('الشجاعة');
   });
