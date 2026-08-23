@@ -31,7 +31,10 @@ export const GenerateVideoBody = z
     // public API contract aligned so a prompt accepted by the composer cannot
     // be rejected only after the user starts generation.
     keyword: z.string().min(3).max(2_000),
-    targetSeconds: z.number().int().min(20).max(60).default(40),
+    // Old cached Studio builds still submit 45 seconds. Treat that legacy
+    // choice as the new canonical 40-second story so production remains
+    // correct while the updated frontend propagates through its CDN.
+    targetSeconds: z.number().int().min(20).max(60).default(40).transform((seconds) => (seconds === 45 ? 40 : seconds)),
     publishNow: z.boolean().default(false),
     channelId: z.string().uuid().optional(),
   })
@@ -42,7 +45,7 @@ export const GenerateVideoBodyDoc = {
   required: ['keyword'],
   properties: {
     keyword: { type: 'string', example: 'حقائق مدهشة عن الفضاء والثقوب السوداء' },
-    targetSeconds: { type: 'integer', example: 45 },
+    targetSeconds: { type: 'integer', example: 40 },
     publishNow: { type: 'boolean', example: false },
     channelId: { type: 'string', format: 'uuid' },
   },
