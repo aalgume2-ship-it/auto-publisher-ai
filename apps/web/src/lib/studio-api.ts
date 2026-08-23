@@ -214,14 +214,31 @@ export function regenerateVideo(token: string, orgId: string, videoId: string) {
   return call<{ jobId?: string }>('POST', `/organizations/${orgId}/videos/${videoId}/regenerate`, undefined, token);
 }
 
+/**
+ * Turn API media URLs into browser-facing URLs.
+ *
+ * The API returns signed local media links as `/v1/media/raw?...`, while the
+ * web application reaches that API through its same-origin `/api/v1` proxy.
+ * Treating the signed link as unusable forced the client to rebuild the whole
+ * MP4 in memory and produced a permanent spinner on mobile browsers.
+ */
+export function playableVideoUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  if (/^https:\/\//i.test(value)) return value;
+  if (value.startsWith('/api/v1/')) return value;
+  if (value.startsWith('/v1/')) return `/api${value}`;
+  return null;
+}
+
 export async function fetchStreamBlob(orgId: string, videoId: string, token: string): Promise<{ blob: Blob | null; url: string } | null> {
   try {
     // Prefer the public Bunny CDN mirror when configured. It supports native
     // Range playback and avoids rebuilding a large MP4 in browser memory.
     const video = await getVideo(token, orgId, videoId);
     const directUrl = video.ok ? video.data?.streamUrl : null;
-    if (directUrl && /^https:\/\//i.test(directUrl)) {
-      return { blob: null, url: directUrl };
+    const playableUrl = playableVideoUrl(directUrl);
+    if (playableUrl) {
+      return { blob: null, url: playableUrl };
     }
     // Keep MP4 bytes text-safe across every serverless boundary: the API reads
     // storage and emits Base64 JSON directly, then the browser rebuilds bytes.

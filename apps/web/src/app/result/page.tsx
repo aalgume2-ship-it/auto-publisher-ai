@@ -7,7 +7,7 @@ import { Check, Link2, RefreshCcw } from 'lucide-react';
 import StudioNav from '../../components/studio/StudioNav';
 import ActionBar from '../../components/studio/ActionBar';
 import { loadStudioSession } from '../../lib/studio-session';
-import { fetchStreamBlob, regenerateVideo } from '../../lib/studio-api';
+import { fetchStreamBlob, playableVideoUrl, regenerateVideo } from '../../lib/studio-api';
 
 function ResultInner() {
   const router = useRouter();
@@ -18,9 +18,10 @@ function ResultInner() {
   const height = Number(sp.get('h') || 720);
   const seconds = Number(sp.get('sec') || 6);
   const model = sp.get('model') || 'Lumen';
+  const sharedMedia = playableVideoUrl(sp.get('media'));
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [src, setSrc] = useState<string | null>(null);
+  const [src, setSrc] = useState<string | null>(sharedMedia);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -29,6 +30,7 @@ function ResultInner() {
 
   // Load the authenticated stream.
   useEffect(() => {
+    if (sharedMedia) { setSrc(sharedMedia); return; }
     if (!videoId || !orgId || !token) return;
     let cancelled = false;
     (async () => {
@@ -36,7 +38,7 @@ function ResultInner() {
       if (!cancelled && res) setSrc(res.url);
     })();
     return () => { cancelled = true; };
-  }, [videoId, orgId, token]);
+  }, [videoId, orgId, token, sharedMedia]);
 
   useEffect(() => { if (toast) { const t = window.setTimeout(() => setToast(null), 2200); return () => window.clearTimeout(t); } }, [toast]);
   function notify(msg: string) { setToast(msg); }
@@ -66,12 +68,19 @@ function ResultInner() {
       notify('Download started');
     } catch { notify('Could not start download'); } finally { setBusy(null); }
   }
+  function shareUrl(): string {
+    if (!src || src.startsWith('blob:')) return location.href;
+    const url = new URL(location.href);
+    url.searchParams.set('media', src);
+    return url.toString();
+  }
   async function share() {
-    if (navigator.share) { try { await navigator.share({ title: 'Lumen Studio render', text: 'Made with Lumen', url: location.href }); return; } catch {} }
+    const url = shareUrl();
+    if (navigator.share) { try { await navigator.share({ title: 'Lumen Studio render', text: 'Made with Lumen', url }); return; } catch {} }
     await copyLink();
   }
   async function copyLink() {
-    try { await navigator.clipboard.writeText(location.href); notify('Link copied to clipboard'); }
+    try { await navigator.clipboard.writeText(shareUrl()); notify('Playable link copied'); }
     catch { notify('Copy not available'); }
   }
 
