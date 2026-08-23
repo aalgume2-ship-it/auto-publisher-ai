@@ -14,7 +14,7 @@ type Phase = 'booting' | 'processing' | 'completed' | 'failed';
 const MODEL_DIRECTION: Record<string, string> = {
   'lumen-pro': 'photorealistic live-action cinema, real locations, physically plausible human motion',
   'human-presenter': 'photorealistic Arabic human presenter, same exact adult identity in every shot, natural speech gestures and facial micro-expressions, direct-to-camera framing',
-  'story-3d': 'premium feature-film 3D animation, consistent character design and proportions, expressive but believable motion',
+  'story-3d': 'premium feature-film 3D animation, same exact stylized semi-realistic character design in every shot, expressive eyes and face, believable body proportions, polished materials, family-friendly social storytelling',
 };
 
 const STYLE_DIRECTION: Record<string, string> = {
@@ -24,19 +24,26 @@ const STYLE_DIRECTION: Record<string, string> = {
   'arabic-drama': 'high-end contemporary Arabic television drama, authentic wardrobe and locations, warm cinematic grade',
   studio: 'professional broadcast studio lighting, clean key and soft fill, realistic lens rendering',
   'soft-daylight': 'soft natural daylight, realistic exposure, gentle contrast and lifelike colors',
+  'social-3d': 'premium family-friendly 3D animated social short, stylized semi-realistic characters, expressive large eyes and faces, clean detailed environments, warm soft cinematic light, polished materials, strong readable posing, vertical short-form storytelling, Arabic social-video composition with room for a bold lower caption',
 };
 
 function professionalPrompt(draft: ReturnType<typeof loadDraft>): string {
+  const story3d = draft.model === 'story-3d' || draft.style === 'social-3d';
   return [
     draft.prompt,
+    story3d ? 'STORY3D SOCIAL SHORT FORMAT' : '',
     MODEL_DIRECTION[draft.model] ?? MODEL_DIRECTION['lumen-pro'],
     STYLE_DIRECTION[draft.style] ?? STYLE_DIRECTION.documentary,
     `${draft.aspect} vertical-first composition`,
     'one coherent story with direct continuity between shots',
     'stable face, stable body proportions, stable wardrobe and location',
-    'physically correct hands and fingers, natural blinking, breathing and weight shifts',
+    story3d
+      ? 'clear readable emotion, consistent stylized anatomy, clean hands, gentle camera push and parallax, polished 3D render, no random identity changes'
+      : 'physically correct hands and fingers, natural blinking, breathing and weight shifts',
     'realistic motion blur, camera parallax, shadows, reflections and environmental interaction',
-    'no waxy skin, no beauty-filter face, no warped anatomy, no extra fingers, no morphing, no duplicate people, no flicker, no subtitles, no written text, no logo, no watermark',
+    story3d
+      ? 'Arabic narration and large clean Arabic subtitle at the lower safe area; no watermark, no random text, no logo'
+      : 'no waxy skin, no beauty-filter face, no warped anatomy, no extra fingers, no morphing, no duplicate people, no flicker, no subtitles, no written text, no logo, no watermark',
   ].filter(Boolean).join('. ');
 }
 
@@ -79,7 +86,7 @@ function GenerateInner() {
       if (cancelledRef.current) return;
       if (outcome.kind === 'completed') {
         setPhase('completed');
-        window.setTimeout(() => router.push(`/result?mode=api&videoId=${job.videoId}&orgId=${job.orgId}&w=1280&h=720&sec=${job.targetSeconds}&model=${draft.model}`), 800);
+        window.setTimeout(() => router.push(`/result?mode=api&videoId=${job.videoId}&orgId=${job.orgId}&w=720&h=1280&sec=${job.targetSeconds}&model=${draft.model}`), 800);
         return;
       }
       if (outcome.kind === 'session') { setError('انتهت جلسة الاختبار. أعد تحميل الصفحة.'); setPhase('failed'); return; }
