@@ -112,12 +112,12 @@ describe('OrganizationsService.createOrganization', () => {
     expect(tx.organization.create).toHaveBeenCalledTimes(1);
   });
 
-  it('auto-derived slug retries with numeric suffix on collision', async () => {
+  it('auto-derived slug retries with a collision-safe unique suffix', async () => {
     const tx = makeFake();
-    tx.organization.create.mockRejectedValueOnce(p2002()).mockResolvedValueOnce(orgRow({ slug: 'noor-media-holding-2' }));
+    tx.organization.create.mockRejectedValueOnce(p2002()).mockImplementationOnce(async ({ data }: { data: { slug: string } }) => orgRow({ slug: data.slug }));
     const svc = makeService(tx);
     const dto = await svc.createOrganization({ kind: 'user', userId: USER_ID }, { name: 'Noor Media Holding' });
-    expect(dto.slug).toBe('noor-media-holding-2');
+    expect(dto.slug).toMatch(/^noor-media-holding-[a-z0-9]{10}$/);
     expect(tx.organization.create).toHaveBeenCalledTimes(2);
   });
 });
