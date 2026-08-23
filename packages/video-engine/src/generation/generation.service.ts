@@ -12,6 +12,7 @@ import type { AppConfig } from '@aca/config';
 import { generateId, type DbClient } from '@aca/database';
 import { type AiService } from '../ai/ai.service.js';
 import { type AssetStore } from '../media/asset-store.js';
+import { uploadMp4ToBunnyStorage } from '../media/bunny-storage.js';
 import { type VideoComposer, probeDurationMs, workDirFor } from '../render/compose.service.js';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -294,6 +295,26 @@ export class GenerationService {
       await this.prisma.videoRendition.create({
         data: { id: generateId(), videoId, profile: 'shorts-720x1280', storageKey: vidStored.storageKey, bytes: BigInt(vidStored.bytes), durationMs, status: 'COMPLETED', completedAt: new Date() },
       });
+
+      // Bunny is a delivery layer, not the AI generator. Keep the durable S3
+      // copy as the source of truth, then mirror the completed MP4 to Bunny.
+      // A CDN outage must never turn a successfully rendered video into FAILED.
+      const bunnyCred = await this.ai.resolveBunnyStorage(video.orgId);
+      if (bunnyCred) {
+        try {
+          const delivered = await uploadMp4ToBunnyStorage(
+            bunnyCred,
+            `videos/${video.orgId}/${videoId}/shorts-720x1280.mp4`,
+            Buffer.from(mp4Base64, 'base64'),
+          );
+          seoState['bunnyCdnUrl'] = delivered.cdnUrl;
+          seoState['delivery'] = 'bunny-storage';
+        } catch (deliveryError) {
+          const detail = deliveryError instanceof Error ? deliveryError.message : String(deliveryError);
+          seoState['bunnyDeliveryError'] = detail.slice(0, 180);
+          console.warn(`[generation:${videoId}] Bunny delivery failed: ${detail.slice(0, 240)}`);
+        }
+      }
 
       const thumbBuf = await this.composer.thumbnail(videoPath, wd);
       const thumbStored = await this.store.put(video.orgId, 'thumbnail.jpg', thumbBuf);
