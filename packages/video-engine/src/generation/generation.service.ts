@@ -103,14 +103,10 @@ export class GenerationService {
         },
         video.orgId,
       );
-      // The public ZeroGPU queue is reliable for one continuous LTX shot, but
-      // bursts of four independent jobs are frequently evicted by the shared
-      // GPU scheduler. Keep the keyless path genuinely moving and dependable:
-      // render one coherent AI-video shot instead of ever falling back to stills.
-      if (videoCred.def.id === 'hf-ltx' && script.scenes.length > 1) {
-        script.scenes.splice(1);
-        seoState['sceneStrategy'] = 'single-continuous-ai-shot';
-      }
+      // Keep the complete four-beat story. The public LTX queue is called
+      // sequentially below, so each beat receives a real moving clip without
+      // creating a burst that overwhelms shared ZeroGPU capacity.
+      seoState['sceneStrategy'] = 'multi-shot-ai-story';
       seoState['provider'] = provider;
       await markStep('voice', 22);
       const narration = script.scenes.map((s) => s.narration).join(' ');
@@ -165,13 +161,16 @@ export class GenerationService {
       const engine = `${provider}-gtts-${videoCred.def.id}-clips`;
       const sceneWords = script.scenes.map((s) => s.narration.split(/\s+/).filter(Boolean).length);
       const totalWords = sceneWords.reduce((a, b) => a + b, 0) || 1;
+      const timelineMs = Math.max(voiceMs, targetSeconds * 1_000);
       let cursor = 0;
       const windows: { startMs: number; durationMs: number }[] = [];
       const movingScenes: { clipPath: string; caption: string; durationMs: number }[] = [];
       for (let i = 0; i < script.scenes.length; i += 1) {
         const scene = script.scenes[i]!;
         const isLast = i === script.scenes.length - 1;
-        const durationMs = isLast ? Math.max(3_000, voiceMs - cursor) : Math.max(3_000, Math.round((sceneWords[i]! / totalWords) * voiceMs));
+        const durationMs = isLast
+          ? Math.max(3_000, timelineMs - cursor)
+          : Math.max(3_000, Math.round((sceneWords[i]! / totalWords) * timelineMs));
         windows.push({ startMs: cursor, durationMs });
         if (i > 0) await new Promise((r) => setTimeout(r, 6_000)); // pollinations anon tier: 1 image at a time (429 otherwise)
         await markStep(`scenes ${i + 1}/${script.scenes.length}`, 30 + Math.round(((i + 1) / script.scenes.length) * 20));
