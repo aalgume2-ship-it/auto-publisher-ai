@@ -50,6 +50,14 @@ export default function CreatePanel({ initial, onGenerate, busy = false }: { ini
     });
   }
 
+  function useArabic3dPreset() {
+    setModel('story-3d');
+    setStyle('social-3d');
+    setAspect('9:16');
+    setDuration(40);
+    setPrompt('قصة عربية قصيرة بأسلوب رسوم ثلاثية الأبعاد شبه واقعية ومصقولة. حافظ على نفس الشخصية الرئيسية وملابسها وملامحها في جميع المشاهد. استخدم تعبيرات وجه واضحة وعيون معبّرة، بيئات نظيفة ومفصلة، إضاءة سينمائية ناعمة، وحركة كاميرا هادئة. أضف تعليقاً صوتياً عربياً واضحاً ونصاً عربياً كبيراً ومقروءاً في المنطقة السفلية الآمنة من الفيديو، مثل فيديوهات القصص العمودية القصيرة على منصات التواصل.');
+  }
+
   return (
     <motion.div initial={{ opacity: 0, y: 22 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .5 }} className="hf-create">
       <section className="hf-prompt-card">
@@ -60,6 +68,7 @@ export default function CreatePanel({ initial, onGenerate, busy = false }: { ini
             <button type="button" className="hf-tool" onClick={() => inputRef.current?.click()}><Upload size={16} /> Add media</button>
             <button type="button" className="hf-tool" onClick={() => setPrompt((p) => p ? `${p}. تصوير حي واقعي، شخصية ثابتة، حركة بشرية طبيعية، إضاءة وعدسات سينمائية احترافية` : 'مقدّم عربي واقعي يتحدث أمام الكاميرا في موقع حقيقي، بحركة وتعبيرات طبيعية وتصوير سينمائي احترافي')}><Wand2 size={16} /> حسّن الواقعية</button>
             <button type="button" className="hf-tool" onClick={() => setPrompt('قصة قصيرة واقعية عن شاب عربي يعثر على محفظة في شارع مزدحم، يبحث عن صاحبها ثم يعيدها إليه؛ مشاهد مترابطة وشخصية واحدة ثابتة وتصوير سينمائي حي')}><Sparkles size={16} /> قصة احترافية</button>
+            <button type="button" className="hf-tool" onClick={useArabic3dPreset}><Sparkles size={16} /> قصة 3D عربية</button>
           </div>
           <button type="button" className="hf-generate" disabled={!canGo || busy} onClick={go}>{busy ? 'Generating…' : 'Generate'} <Zap size={17} /></button>
         </div>
