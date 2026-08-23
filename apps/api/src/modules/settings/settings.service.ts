@@ -75,6 +75,8 @@ export class SettingsService {
     const videoStored = await this.creds.listNamespace(orgId, 'VIDEO_ENGINE');
     const videoActive = await this.creds.resolveVideo(orgId);
     const videoStoredMap = new Map(videoStored.map((s) => [s.provider, s]));
+    const bunny = await this.creds.resolveBunnyStorage(orgId);
+    const bunnyStored = await this.creds.readSecret(orgId, 'PUBLISHER', 'bunny-storage');
     const videoEnvConfigured = (id: string): boolean => {
       const ai = this.config.ai as Record<string, string | undefined>;
       const v = { runway: ai['runwayApiKey'], luma: ai['lumaApiKey'], 'fal-kling': ai['falKey'] }[id];
@@ -111,6 +113,16 @@ export class SettingsService {
         source: tiktok?.source ?? null,
         hint: tiktok ? (typeof tiktokStored?.['hint'] === 'string' ? (tiktokStored['hint'] as string) : 'env •••') : null,
         redirectUri: this.tiktokRedirectUri(),
+      },
+      bunny: {
+        configured: Boolean(bunny),
+        source: bunny?.source ?? null,
+        hint: bunny
+          ? (typeof bunnyStored?.['hint'] === 'string' ? (bunnyStored['hint'] as string) : 'env •••')
+          : null,
+        storageZone: bunny?.storageZone ?? null,
+        cdnHostname: bunny?.cdnHostname ?? null,
+        storageEndpoint: bunny?.storageEndpoint ?? 'storage.bunnycdn.com',
       },
     };
   }
@@ -152,6 +164,42 @@ export class SettingsService {
   async deleteVideoKey(orgId: string, providerId: string) {
     const removed = await this.creds.deleteSecret(orgId, 'VIDEO_ENGINE', providerId);
     if (!removed) throw new ApiError('NOT_FOUND', 'Not Found', { detail: 'لا يوجد مفتاح محفوظ لهذا المزود' });
+    return { ok: true as const };
+  }
+
+  async saveBunnyStorage(
+    orgId: string,
+    input: { storageZone: string; accessKey: string; cdnHostname: string; storageEndpoint?: string },
+  ) {
+    const endpoint = (input.storageEndpoint ?? 'storage.bunnycdn.com').toLowerCase();
+    const probeUrl = `https://${endpoint}/${encodeURIComponent(input.storageZone)}/`;
+    let response: Response;
+    try {
+      response = await fetch(probeUrl, {
+        headers: { AccessKey: input.accessKey, Accept: 'application/json' },
+        signal: AbortSignal.timeout(20_000),
+      });
+    } catch (err) {
+      throw badKey(`تعذر الوصول إلى Bunny Storage: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (!response.ok) {
+      const detail = (await response.text().catch(() => '')).slice(0, 180);
+      throw badKey(`رفضت Bunny بيانات التخزين (HTTP ${response.status})${detail ? ` — ${detail}` : ''}`);
+    }
+    await this.creds.saveBunnyStorage(orgId, { ...input, storageEndpoint: endpoint });
+    return {
+      ok: true as const,
+      provider: 'bunny-storage',
+      hint: OrgCredentialsService.hint(input.accessKey),
+      storageZone: input.storageZone,
+      cdnHostname: input.cdnHostname,
+      validatedAt: new Date().toISOString(),
+    };
+  }
+
+  async deleteBunnyStorage(orgId: string) {
+    const removed = await this.creds.deleteBunnyStorage(orgId);
+    if (!removed) throw new ApiError('NOT_FOUND', 'Not Found', { detail: 'لا يوجد ربط Bunny محفوظ لهذه المنظمة' });
     return { ok: true as const };
   }
 
