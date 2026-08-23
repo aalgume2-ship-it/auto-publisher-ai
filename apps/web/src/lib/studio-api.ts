@@ -214,8 +214,15 @@ export function regenerateVideo(token: string, orgId: string, videoId: string) {
   return call<{ jobId?: string }>('POST', `/organizations/${orgId}/videos/${videoId}/regenerate`, undefined, token);
 }
 
-export async function fetchStreamBlob(orgId: string, videoId: string, token: string): Promise<{ blob: Blob; url: string } | null> {
+export async function fetchStreamBlob(orgId: string, videoId: string, token: string): Promise<{ blob: Blob | null; url: string } | null> {
   try {
+    // Prefer the public Bunny CDN mirror when configured. It supports native
+    // Range playback and avoids rebuilding a large MP4 in browser memory.
+    const video = await getVideo(token, orgId, videoId);
+    const directUrl = video.ok ? video.data?.streamUrl : null;
+    if (directUrl && /^https:\/\//i.test(directUrl)) {
+      return { blob: null, url: directUrl };
+    }
     // Keep MP4 bytes text-safe across every serverless boundary: the API reads
     // storage and emits Base64 JSON directly, then the browser rebuilds bytes.
     const chunkSize = 512 * 1024 - 2; // divisible by 3, so Base64 chunks join exactly
