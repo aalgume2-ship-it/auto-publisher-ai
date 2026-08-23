@@ -113,35 +113,72 @@ export class AiService {
     const keyword = req.keyword.trim().replace(/\s+/g, ' ') || 'موضوع ملهم';
     const niche = req.niche.trim().replace(/\s+/g, ' ') || 'محتوى عام';
     const english = req.language.toLowerCase().startsWith('en');
-    const visualBase = keyword.replace(/[\r\n]+/g, ' ').slice(0, 500);
+    // JavaScript's `\b` is ASCII-oriented and does not create a reliable word
+    // boundary after Arabic letters. Match an explicit separator instead so
+    // direction-only clauses never leak into narration or subtitles.
+    const technicalDirection = /^(?:حركة|تصوير|لقطة|الكاميرا|بدون نصوص|نسبة الأبعاد|motion|camera|cinematic|tracking shot|no text|aspect ratio)(?:\s|:|-|$)/iu;
+    const rawBeats = keyword
+      .split(/[.!?؟،؛]+/u)
+      .map((part) => part.trim())
+      .filter((part) => part.length >= 4 && !technicalDirection.test(part));
+    const beats = rawBeats.length > 0 ? rawBeats : [keyword];
+    const storyAnchor = beats.slice(0, 2).join('، ').slice(0, 180);
+
+    // A full story prompt is not a caption. Distribute its clauses into four
+    // concise beats so a 20-second request stays near 20 seconds and subtitles
+    // remain readable. Each bucket takes a few words from every source clause,
+    // preserving both setting and subject instead of truncating the first line.
+    const buckets: string[][] = Array.from({ length: 4 }, () => []);
+    beats.forEach((beat, index) => {
+      const bucket = Math.min(3, Math.floor((index * 4) / beats.length));
+      buckets[bucket]!.push(beat);
+    });
+    const desiredWords = Math.max(english ? 8 : 5, Math.floor((req.targetSeconds * (english ? 1.8 : 1.15)) / 4));
+    const compactBucket = (parts: string[], fallback: string): string => {
+      if (parts.length === 0) return fallback;
+      const perPart = Math.max(2, Math.floor(desiredWords / parts.length));
+      return parts
+        .map((part) => part.split(/\s+/).slice(0, perPart).join(' '))
+        .join(english ? ', ' : '، ')
+        .trim();
+    };
+    const compactBeats = buckets.map((parts, index) =>
+      compactBucket(
+        parts,
+        english
+          ? ['the journey begins', 'the challenge grows', 'a decisive moment arrives', 'the world changes at last'][index]!
+          : ['تبدأ الرحلة بهدوء', 'يشتد التحدي فجأة', 'تحين لحظة القرار', 'يتغير العالم أخيراً'][index]!,
+      ),
+    );
+    const title = beats.slice(0, 2).join(' — ').slice(0, 110);
 
     if (english) {
       return {
-        title: keyword.slice(0, 110),
+        title,
         description: `A cinematic short film inspired by ${keyword}, created as a polished ${niche} story. #cinematic #video`,
         tags: ['cinematic', 'video', 'story', 'creative', 'motion', 'shortfilm'],
-        hook: `Watch ${keyword} come alive in motion.`,
+        hook: `Watch ${title} come alive in motion.`,
         cta: 'Follow for more cinematic stories.',
         scenes: [
-          { narration: `It begins with ${keyword}, revealed through a striking cinematic opening.`, visualPrompt: `${visualBase}, establishing shot, cinematic lighting, realistic detail, smooth slow camera movement, no text` },
-          { narration: `The scene grows richer as light, depth, and natural motion shape the story.`, visualPrompt: `${visualBase}, immersive medium shot, volumetric light, natural motion, strong depth, premium film look, no text` },
-          { narration: `A new perspective uncovers the most memorable detail in this visual journey.`, visualPrompt: `${visualBase}, dynamic close detail, subtle parallax, atmospheric depth, photoreal cinematic composition, no text` },
-          { narration: `The final image leaves a calm and lasting impression worth remembering.`, visualPrompt: `${visualBase}, epic closing wide shot, golden cinematic color, graceful camera pullback, realistic motion, no text` },
+          { narration: `At first, ${compactBeats[0]}.`, visualPrompt: `${storyAnchor}; ${compactBeats[0]}, establishing shot, cinematic lighting, realistic motion, no text` },
+          { narration: `Then, ${compactBeats[1]}.`, visualPrompt: `${storyAnchor}; ${compactBeats[1]}, immersive tracking shot, natural subject motion, strong depth, no text` },
+          { narration: `At the turning point, ${compactBeats[2]}.`, visualPrompt: `${storyAnchor}; ${compactBeats[2]}, dynamic close shot, coherent character identity, cinematic motion, no text` },
+          { narration: `In the end, ${compactBeats[3]}.`, visualPrompt: `${storyAnchor}; ${compactBeats[3]}, epic closing wide shot, graceful camera pullback, realistic motion, no text` },
         ],
       };
     }
 
     return {
-      title: keyword.slice(0, 110),
+      title,
       description: `فيلم قصير سينمائي مستوحى من ${keyword}، بصياغة بصرية مميزة ضمن ${niche}. #سينما #فيديو`,
       tags: ['سينما', 'فيديو', 'إبداع', 'قصة', 'مشاهد', 'cinematic'],
-      hook: `شاهد كيف تتحول فكرة ${keyword} إلى مشهد حي.`,
+      hook: `شاهد كيف تتحول حكاية ${title} إلى مشهد حي.`,
       cta: 'تابعنا للمزيد من القصص السينمائية.',
       scenes: [
-        { narration: `تبدأ الحكاية مع ${keyword} في افتتاحية سينمائية تلفت الانتباه.`, visualPrompt: `${visualBase}, establishing shot, cinematic lighting, realistic detail, smooth slow camera movement, no text` },
-        { narration: 'يتسع المشهد وتمنحه الإضاءة والعمق والحركة الطبيعية حضوراً أقوى.', visualPrompt: `${visualBase}, immersive medium shot, volumetric light, natural motion, strong depth, premium film look, no text` },
-        { narration: 'تكشف زاوية جديدة أجمل التفاصيل في هذه الرحلة البصرية القصيرة.', visualPrompt: `${visualBase}, dynamic close detail, subtle parallax, atmospheric depth, photoreal cinematic composition, no text` },
-        { narration: 'تغلق الصورة الأخيرة الحكاية بإحساس هادئ يبقى في الذاكرة.', visualPrompt: `${visualBase}, epic closing wide shot, golden cinematic color, graceful camera pullback, realistic motion, no text` },
+        { narration: `في البداية، ${compactBeats[0]}.`, visualPrompt: `${storyAnchor}; ${compactBeats[0]}, establishing shot, cinematic lighting, realistic motion, no text` },
+        { narration: `ثم، ${compactBeats[1]}.`, visualPrompt: `${storyAnchor}; ${compactBeats[1]}, immersive tracking shot, natural subject motion, strong depth, no text` },
+        { narration: `وعند التحول، ${compactBeats[2]}.`, visualPrompt: `${storyAnchor}; ${compactBeats[2]}, dynamic close shot, coherent character identity, cinematic motion, no text` },
+        { narration: `وفي النهاية، ${compactBeats[3]}.`, visualPrompt: `${storyAnchor}; ${compactBeats[3]}, epic closing wide shot, graceful camera pullback, realistic motion, no text` },
       ],
     };
   }
