@@ -1,0 +1,59 @@
+name: probe-minimax-h3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/probe-minimax-h3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Generate MiniMax H3 portrait clip with soundtrack
+        run: |
+          set -euo pipefail
+          BASE='https://multimodalart-minimax-h3.hf.space'
+          PROMPT='A young Saudi man in his late twenties walks through a rainy neon night market and discovers an old film camera on a wooden stall. Premium photorealistic live action, realistic skin and hands, subtle nervous expression, slow cinematic dolly-in, shallow depth of field, wet reflections, physically realistic motion. Soundtrack: rain, distant market chatter, footsteps, cloth movement and a quiet camera shutter. No subtitles, no text, no watermark.'
+          BODY=$(jq -nc --arg p "$PROMPT" '{data:[$p,null,null,"768x1344 · 9:16 full",2,18,42,false]}')
+          SUBMIT=$(curl -fLsS --retry 8 --retry-all-errors --retry-delay 5 -H 'content-type: application/json' -H 'accept: application/json' -d "$BODY" "$BASE/gradio_api/call/generate")
+          EVENT=$(jq -r '.event_id // empty' <<<"$SUBMIT")
+          test -n "$EVENT"
+          curl -fLsS --retry 3 --retry-all-errors -H 'accept: text/event-stream' "$BASE/gradio_api/call/generate/$EVENT" -o result.sse
+          cat result.sse
+          ! grep -qi '^event: error' result.sse
+          DATA=$(grep '^data:' result.sse | tail -1 | sed 's/^data:[[:space:]]*//')
+          URL=$(jq -r '.. | objects | .url? // empty' <<<"$DATA" | head -1)
+          PATHV=$(jq -r '.. | objects | .path? // empty' <<<"$DATA" | head -1)
+          if [ -z "$URL" ] && [ -n "$PATHV" ]; then URL="$BASE/gradio_api/file=$PATHV"; fi
+          test -n "$URL"
+          curl -fLsS --retry 4 --retry-all-errors "$URL" -o minimax-h3-probe.mp4
+          test "$(stat -c%s minimax-h3-probe.mp4)" -gt 50000
+          ffprobe -v error -show_entries stream=codec_type,codec_name,width,height,sample_rate -show_entries format=duration,size -of json minimax-h3-probe.mp4 | tee probe.json
+          ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 minimax-h3-probe.mp4 | grep -q '768,1344'
+          ffprobe -v error -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 minimax-h3-probe.mp4 | grep -q audio
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: minimax-h3-probe-video
+          path: |
+            minimax-h3-probe.mp4
+            probe.json
+
+      - name: Publish status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          STATE=failure; [ "$JOB_STATUS" = success ] && STATE=success
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          jq -nc --arg state "$STATE" --arg context 'minimax-h3-probe' --arg desc "MiniMax H3 ZeroGPU probe: $JOB_STATUS" --arg target "$RUN_URL" '{state:$state,context:$context,description:$desc,target_url:$target}' >/tmp/status.json
+          curl -fLsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'content-type: application/json' --data @/tmp/status.json "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}"
