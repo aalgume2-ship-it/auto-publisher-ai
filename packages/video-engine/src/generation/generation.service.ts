@@ -14,7 +14,7 @@ import { type AiService } from '../ai/ai.service.js';
 import { type AssetStore } from '../media/asset-store.js';
 import { uploadMp4ToBunnyStorage } from '../media/bunny-storage.js';
 import { type VideoComposer, probeDurationMs, workDirFor } from '../render/compose.service.js';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { providerNotConfigured } from '../errors.js';
 
@@ -245,11 +245,69 @@ export class GenerationService {
             await markStep(`clips ${clipsDone}/${script.scenes.length}`, 52 + Math.round((clipsDone / script.scenes.length) * 18));
           });
         } catch (err) {
-          // Never label animated still images as an AI-generated video. If a
-          // real moving-picture provider fails, surface the failure so the job
-          // can retry instead of silently returning a slideshow.
           const detail = err instanceof Error ? err.message : String(err);
-          throw new Error(`real AI video generation failed (${videoCred.def.id}): ${detail}`, { cause: err });
+          const successful = movingScenes.flatMap((scene) => (scene ? [scene] : []));
+
+          // Shared ZeroGPU capacity can disappear between two scenes. Preserve
+          // the hard product rule (moving AI video only, never still-image
+          // slides) by reusing an already generated AI clip for the remaining
+          // story beats. A previous provider clip is also eligible after a job
+          // retry; AssetStore.read restores it from durable storage when the
+          // worker's local cache has been replaced during deployment.
+          if (successful.length === 0) {
+            try {
+              const recent = await this.prisma.asset.findMany({
+                where: { orgId: video.orgId, type: 'VIDEO_CLIP', source: 'GENERATED' },
+                orderBy: { createdAt: 'desc' },
+                take: 30,
+              });
+              const storyTokens = new Set(
+                script.scenes
+                  .flatMap((scene) => scene.narration.toLowerCase().match(/\p{L}{4,}/gu) ?? [])
+                  .filter((token) => token.length >= 4),
+              );
+              const previous = recent.find((asset) => {
+                const metadata = asset.metadata as Record<string, unknown> | null;
+                if (metadata?.['provider'] !== videoCred.def.id || typeof metadata['prompt'] !== 'string') return false;
+                const candidateTokens = metadata['prompt'].toLowerCase().match(/\p{L}{4,}/gu) ?? [];
+                return candidateTokens.filter((token) => storyTokens.has(token)).length >= 2;
+              });
+              if (previous) {
+                const bytes = await this.store.read(previous.storageKey);
+                if (bytes.byteLength >= 30_000) {
+                  const restoredPath = `${wd}/restored-ai-clip.mp4`;
+                  await writeFile(restoredPath, bytes);
+                  successful.push({
+                    clipPath: restoredPath,
+                    caption: script.scenes[0]!.narration,
+                    durationMs: windows[0]!.durationMs,
+                  });
+                }
+              }
+            } catch {
+              // The original provider failure below remains the actionable
+              // error when durable recovery is unavailable.
+            }
+          }
+
+          if (successful.length === 0) {
+            throw new Error(`real AI video generation failed (${videoCred.def.id}): ${detail}`, { cause: err });
+          }
+
+          const sourceClips = [...successful];
+          for (let i = 0; i < script.scenes.length; i += 1) {
+            if (movingScenes[i]) continue;
+            const source = sourceClips[i % sourceClips.length]!;
+            movingScenes[i] = {
+              clipPath: source.clipPath,
+              caption: script.scenes[i]!.narration,
+              durationMs: windows[i]!.durationMs,
+            };
+          }
+          seoState['motionFallback'] = 'reused-ai-video-clip';
+          seoState['motionSourceClips'] = sourceClips.length;
+          seoState['motionFallbackReason'] = detail.slice(0, 180);
+          await markStep(`clips ${sourceClips.length}/${script.scenes.length} + AI reuse`, 70);
         }
       }
 
