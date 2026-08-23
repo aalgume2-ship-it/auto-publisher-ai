@@ -1,0 +1,142 @@
+name: apply-story3d-fallback
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-story3d-fallback.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch reliable 3D social-story mode
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # 1) Add a vertical social 3D style preset.
+          p = Path('apps/web/src/lib/create.ts')
+          s = p.read_text()
+          needle = "  { id: 'soft-daylight', name: 'ضوء نهاري', from: '#fff0b5', to: '#84b9e8' },\n"
+          add = needle + "  { id: 'social-3d', name: 'قصة 3D عربية', from: '#ff9f7a', to: '#6f7cff' },\n"
+          if "id: 'social-3d'" not in s:
+              s = s.replace(needle, add)
+          p.write_text(s)
+
+          # 2) Teach the generation prompt what this format means.
+          p = Path('apps/web/src/app/generate/page.tsx')
+          s = p.read_text()
+          needle = "  'soft-daylight': 'soft natural daylight, realistic exposure, gentle contrast and lifelike colors',\n"
+          add = needle + "  'social-3d': 'premium family-friendly 3D animated social short, stylized semi-realistic characters, expressive eyes and faces, clean detailed environments, warm soft cinematic light, polished materials, strong readable posing, vertical short-form storytelling',\n"
+          if "'social-3d':" not in s:
+              s = s.replace(needle, add)
+          p.write_text(s)
+
+          # 3) Add one-click preset to the Create page.
+          p = Path('apps/web/src/components/studio/CreatePanel.tsx')
+          s = p.read_text()
+          needle = "            <button type=\"button\" className=\"hf-tool\" onClick={() => setPrompt('قصة قصيرة واقعية عن شاب عربي يعثر على محفظة في شارع مزدحم، يبحث عن صاحبها ثم يعيدها إليه؛ مشاهد مترابطة وشخصية واحدة ثابتة وتصوير سينمائي حي')}><Sparkles size={16} /> قصة احترافية</button>\n"
+          add = needle + "            <button type=\"button\" className=\"hf-tool\" onClick={() => { setModel('story-3d'); setStyle('social-3d'); setAspect('9:16'); setPrompt('قصة عربية قصيرة بأسلوب رسوم ثلاثية الأبعاد شبه واقعية، شخصية رئيسية واحدة ثابتة في كل المشاهد، تعبيرات وجه واضحة، إضاءة ناعمة، حركة كاميرا سينمائية هادئة، تعليق صوتي عربي، ونص عربي كبير وواضح أسفل الفيديو.'); }}><Sparkles size={16} /> قصة 3D عربية</button>\n"
+          if 'قصة 3D عربية</button>' not in s:
+              s = s.replace(needle, add)
+          p.write_text(s)
+
+          # 4) Export a deterministic local motion renderer using the already bundled ffmpeg.
+          p = Path('packages/video-engine/src/render/compose.service.ts')
+          s = p.read_text()
+          marker = "export async function probeDurationMs(file: string): Promise<number> {"
+          helper = r'''export async function renderAnimatedStillClip(imagePath: string, outPath: string, durationSec: number, direction = 1): Promise<void> {
+  const fps = 24;
+  const safeDuration = Math.max(2, Math.min(12, durationSec));
+  const zoom = direction % 2 === 0
+    ? "z='min(1+0.0008*on,1.10)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+    : "z='max(1.10-0.0008*on,1.0)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'";
+  await run(ffmpegPath, [
+    '-y', '-nostdin', '-hide_banner', '-v', 'warning',
+    '-loop', '1', '-framerate', String(fps), '-t', safeDuration.toFixed(3), '-i', imagePath,
+    '-vf', `scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,zoompan=${zoom}:d=1:s=720x1280:fps=${fps},setsar=1,format=yuv420p`,
+    '-t', safeDuration.toFixed(3),
+    '-c:v', 'libx264', '-preset', 'superfast', '-crf', '21', '-r', String(fps),
+    '-threads', '1', '-movflags', '+faststart',
+    outPath,
+  ], 180_000);
+}
+
+'''
+          if 'export async function renderAnimatedStillClip' not in s:
+              s = s.replace(marker, helper + marker)
+          p.write_text(s)
+
+          # 5) When shared video GPUs are unavailable, 3D Story mode remains usable:
+          # generate a real AI scene image, turn it into a high-quality motion clip,
+          # then the normal composer adds Arabic voiceover + captions across scenes.
+          p = Path('packages/video-engine/src/ai/ai.service.ts')
+          s = p.read_text()
+          import_needle = "import { getPrompt, renderUserPrompt } from './prompts/registry.js';\n"
+          import_add = import_needle + "import { renderAnimatedStillClip, workDirFor } from '../render/compose.service.js';\nimport { readFile, writeFile } from 'node:fs/promises';\nimport { join } from 'node:path';\n"
+          if 'renderAnimatedStillClip' not in s:
+              s = s.replace(import_needle, import_add)
+
+          old = '''  async generateSceneClip(cred: VideoCredential, visualPrompt: string, firstFrameUrl: string | null, windowSec: number): Promise<Buffer> {
+    if (cred.def.id === 'hf-ltx') {
+      // One keyless attempt already tries two independent free Spaces. Avoid
+      // repeating overloaded shared queues three times and tripling latency.
+      return generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec });
+    }
+    return withRetry(`clip-${cred.def.id}`, () => generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec }), this.logger);
+  }
+'''
+          new = '''  async generateSceneClip(cred: VideoCredential, visualPrompt: string, firstFrameUrl: string | null, windowSec: number): Promise<Buffer> {
+    if (cred.def.id === 'hf-ltx') {
+      try {
+        return await generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec });
+      } catch (videoError) {
+        const isStory3d = /(?:3d animation|3d animated|feature-film 3d|social short|stylized semi-realistic|قصة 3d|ثلاثية الأبعاد)/iu.test(visualPrompt);
+        if (!isStory3d) throw videoError;
+
+        this.logger.warn({ module: 'ai' }, 'shared video GPU unavailable — using reliable 3D social-story motion fallback');
+        const seed = Math.abs([...visualPrompt].reduce((acc, ch) => ((acc * 31) + ch.charCodeAt(0)) | 0, 17)) % 900000;
+        const image = await this.generateSceneImage(
+          `${visualPrompt}, premium polished 3D animated social-story frame, stylized semi-realistic human characters, expressive large eyes, clean anatomy, detailed environment, soft cinematic lighting, vertical 9:16, no text, no watermark`,
+          seed,
+        );
+        const wd = workDirFor('story3d-clip', `${Date.now()}-${seed}`);
+        const { mkdir } = await import('node:fs/promises');
+        await mkdir(wd, { recursive: true });
+        const imagePath = join(wd, 'frame.jpg');
+        const outPath = join(wd, 'motion.mp4');
+        await writeFile(imagePath, image.data);
+        await renderAnimatedStillClip(imagePath, outPath, Math.min(8, Math.max(3, windowSec)), seed % 2);
+        const mp4 = await readFile(outPath);
+        if (mp4.length < 30_000) throw new Error('3D social-story fallback produced a suspiciously small clip');
+        return mp4;
+      }
+    }
+    return withRetry(`clip-${cred.def.id}`, () => generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec }), this.logger);
+  }
+'''
+          if old not in s:
+              raise SystemExit('generateSceneClip target block not found')
+          s = s.replace(old, new)
+          p.write_text(s)
+
+          Path('STORY3D_FALLBACK_READY.md').write_text('Reliable vertical 3D social-story mode installed.\n')
+          PY
+
+      - name: Commit production patch
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/web/src/lib/create.ts apps/web/src/app/generate/page.tsx apps/web/src/components/studio/CreatePanel.tsx packages/video-engine/src/render/compose.service.ts packages/video-engine/src/ai/ai.service.ts STORY3D_FALLBACK_READY.md
+          git diff --cached --quiet && exit 0
+          git commit -m 'feat(video): add reliable Arabic 3D social-story mode'
+          git push origin HEAD:main
