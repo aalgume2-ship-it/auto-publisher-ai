@@ -276,9 +276,10 @@ export class VideoComposer {
   /**
    * Renders the final cut from REAL moving clips (AI video generation).
    * Every clip is normalized to its exact narration window (trim when long,
-   * gentle setpts stretch ≤1.6 when short — stays cinematic), scaled/cropped
-   * uniformly, concatenated, captions burned, voiceover muxed. Same OOM-safe
-   * encoder contract as the stills path (512Mi containers).
+   * gentle slow-motion plus seamless looping when short), scaled/cropped
+   * uniformly, concatenated, captions burned, and the voiceover is tempo-fit
+   * and loudness-normalized to the requested timeline. Same OOM-safe encoder
+   * contract as the stills path (512Mi containers).
    */
   async composeMoving(
     scenes: MovingComposeScene[],
@@ -294,6 +295,13 @@ export class VideoComposer {
 
     const fps = 24;
     const clipDurations = await Promise.all(scenes.map((s) => probeDurationMs(s.clipPath)));
+    const narrationDurationMs = await probeDurationMs(audioPath);
+    const totalSeconds = scenes.reduce((sum, scene) => sum + scene.durationMs, 0) / 1000;
+    const totalS = totalSeconds.toFixed(3);
+    // atempo is source duration / requested duration. Keep it inside FFmpeg's
+    // supported range; narration generation targets the same window so this is
+    // normally only a subtle correction.
+    const narrationTempo = Math.min(2, Math.max(0.5, (narrationDurationMs / 1000) / totalSeconds));
     const clipHasAudio = options.mixClipAudio
       ? await Promise.all(scenes.map((s) => probeHasAudio(s.clipPath)))
       : scenes.map(() => false);
@@ -303,13 +311,12 @@ export class VideoComposer {
     scenes.forEach((s, i) => {
       const windowS = s.durationMs / 1000;
       const clipS = clipDurations[i]! / 1000;
-      const stretch = Math.min(1.6, Math.max(1, windowS / clipS)); // >1 ⇒ gentle slow-mo fill
-      const effS = clipS * stretch;
-      inputs.push('-i', s.clipPath);
+      const stretch = Math.min(1.35, Math.max(1, windowS / clipS)); // >1 ⇒ gentle slow-mo
+      const needsLoop = clipS * stretch < windowS - 0.05;
+      inputs.push(...(needsLoop ? ['-stream_loop', '-1'] : []), '-i', s.clipPath);
       const speed = stretch > 1 ? `setpts=${stretch.toFixed(3)}*PTS,` : '';
-      const trim = effS > windowS + 0.05 ? `,trim=duration=${windowS.toFixed(2)},setpts=PTS-STARTPTS` : '';
       filters.push(
-        `[${i}:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=${fps},${speed}setsar=1,format=yuv420p${trim}[v${i}]`,
+        `[${i}:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=${fps},${speed}trim=duration=${windowS.toFixed(3)},setpts=PTS-STARTPTS,setsar=1,format=yuv420p[v${i}]`,
       );
       if (mixNativeAudio) {
         const audioSpeed = stretch > 1 ? `atempo=${(1 / stretch).toFixed(3)},` : '';
@@ -330,14 +337,17 @@ export class VideoComposer {
     } else {
       filters.push(`[vcat]subtitles='${assPath.replace(/'/g, "'\\''")}':fontsdir='${FONTS_DIR.replace(/'/g, "'\\''")}'[vout]`);
     }
+    filters.push(
+      `[${audioIndex}:a]aresample=48000,atempo=${narrationTempo.toFixed(4)},highpass=f=80,lowpass=f=12000,loudnorm=I=-16:TP=-1.5:LRA=7,aresample=48000,apad,atrim=duration=${totalS},asetpts=PTS-STARTPTS[voice]`,
+    );
     if (mixNativeAudio) {
-      const totalS = (scenes.reduce((sum, s) => sum + s.durationMs, 0) / 1000).toFixed(3);
       filters.push(`${scenes.map((_, i) => `[a${i}]`).join('')}concat=n=${scenes.length}:v=0:a=1[ambient]`);
-      filters.push(`[ambient]volume=0.22[ambientlow]`);
-      filters.push(`[${audioIndex}:a]aresample=48000,apad,atrim=duration=${totalS},volume=1[voice]`);
+      filters.push(`[ambient]volume=0.16[ambientlow]`);
       // FFmpeg 4.1 (bundled for production) predates amix normalize=. Its
       // default 1/inputs scaling is compensated after the mix.
-      filters.push('[ambientlow][voice]amix=inputs=2:duration=first,volume=1.6[aout]');
+      filters.push('[ambientlow][voice]amix=inputs=2:duration=first,volume=1.25[aout]');
+    } else {
+      filters.push('[voice]anull[aout]');
     }
 
     const videoPath = join(workDir, 'final.mp4');
@@ -347,8 +357,7 @@ export class VideoComposer {
       '-i', audioPath,
       '-filter_complex', filters.join(';'),
       '-map', '[vout]',
-      '-map', mixNativeAudio ? '[aout]' : `${audioIndex}:a`,
-      ...(mixNativeAudio ? [] : ['-af', 'apad']),
+      '-map', '[aout]',
       '-shortest',
       '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '29', '-r', String(fps),
       '-threads', '1',
