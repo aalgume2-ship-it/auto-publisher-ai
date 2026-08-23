@@ -1,5 +1,5 @@
 name: deploy-aws
-# Operations restart: 2026-08-23T22:24:00+03:00 — force video-provider rollout
+# Operations restart: 2026-08-23T23:35:00+03:00 — force latest cinematic worker rollout
 
 on:
   workflow_dispatch:
