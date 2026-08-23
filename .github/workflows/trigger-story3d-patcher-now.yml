@@ -1,0 +1,24 @@
+name: trigger-story3d-patcher-now
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/trigger-story3d-patcher-now.yml']
+  workflow_dispatch:
+permissions:
+  actions: write
+  contents: read
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dispatch reliable Story3D patcher
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl -fLsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'content-type: application/json' \
+            --data '{"ref":"main"}' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/apply-story3d-fallback.yml/dispatches"
