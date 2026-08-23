@@ -103,7 +103,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /* ------------------------------------------------------ HUGGING FACE LTX */
 
-async function hfLtxGenerate(req: ClipRequest): Promise<Buffer> {
+async function hfLtxPrimaryGenerate(req: ClipRequest): Promise<Buffer> {
   const base = 'https://lightricks-ltx-2-3.hf.space';
   // ZeroGPU is shared public compute, so keep each scene compact and vertical.
   const duration = Math.min(5, Math.max(1, Math.round(req.windowSec)));
@@ -164,6 +164,97 @@ async function hfLtxGenerate(req: ClipRequest): Promise<Buffer> {
     return buf;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * Public zero-cost fallback used when the official LTX Space has no shared GPU
+ * capacity. Omni's lite endpoint returns a short real H.264 clip; the moving
+ * composer stretches/cuts it to the requested scene window and adds narration.
+ */
+async function hfOmniGenerate(req: ClipRequest): Promise<Buffer> {
+  const base = 'https://saravutw-omni-videos-custom.hf.space';
+  const corePrompt = req.prompt.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 420);
+  const motionPrompt = [
+    corePrompt,
+    'live-action continuous natural motion',
+    'realistic people wearing complete modest clothing',
+    'cinematic handheld camera',
+    'no nudity',
+    'no subtitles',
+    'no text',
+    'no logos',
+  ].join(', ');
+  const body = {
+    data: [
+      1, // scene count
+      3, // seconds per scene; lowest shared-GPU cost
+      384,
+      '9:16',
+      motionPrompt,
+      motionPrompt,
+      null,
+      null,
+      null,
+    ],
+  };
+  const apiName = '_submit_t2v_manual';
+  const submit = await fetch(`${base}/gradio_api/call/${apiName}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!submit.ok) throw new Error(`hf-omni submit ${submit.status}: ${(await submit.text()).slice(0, 180)}`);
+  const submitted = (await submit.json()) as { event_id?: string };
+  if (!submitted.event_id) throw new Error('hf-omni submit returned no event id');
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), CLIP_TIMEOUT_MS);
+  try {
+    const result = await fetch(`${base}/gradio_api/call/${apiName}/${submitted.event_id}`, {
+      headers: { accept: 'text/event-stream' },
+      signal: ctrl.signal,
+    });
+    if (!result.ok) throw new Error(`hf-omni result ${result.status}: ${(await result.text()).slice(0, 180)}`);
+    const sse = await result.text();
+    if (/event:\s*error/i.test(sse)) throw new Error(`hf-omni generation failed: ${sse.slice(-500)}`);
+    const dataLines = sse.split(/\r?\n/).filter((line) => line.startsWith('data:'));
+    let file: { url?: string | null; path?: string } | null = null;
+    for (let i = dataLines.length - 1; i >= 0; i -= 1) {
+      try {
+        const parsed = JSON.parse(dataLines[i]!.slice(5).trim()) as unknown;
+        if (!Array.isArray(parsed) || !parsed[1] || typeof parsed[1] !== 'object') continue;
+        const video = (parsed[1] as { video?: unknown }).video;
+        if (video && typeof video === 'object') {
+          file = video as { url?: string | null; path?: string };
+          break;
+        }
+      } catch { /* heartbeat/progress line */ }
+    }
+    if (!file) throw new Error('hf-omni completed without a video file');
+    const videoUrl = file.url || (file.path ? `${base}/gradio_api/file=${encodeURIComponent(file.path)}` : '');
+    if (!videoUrl) throw new Error('hf-omni output had no downloadable URL');
+    const dl = await fetch(videoUrl);
+    if (!dl.ok) throw new Error(`hf-omni download ${dl.status}`);
+    const buf = Buffer.from(await dl.arrayBuffer());
+    if (buf.length < 30_000) throw new Error('hf-omni returned a suspiciously small clip');
+    return buf;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function hfLtxGenerate(req: ClipRequest): Promise<Buffer> {
+  try {
+    return await hfOmniGenerate(req);
+  } catch (omniError) {
+    try {
+      return await hfLtxPrimaryGenerate(req);
+    } catch (ltxError) {
+      const omni = omniError instanceof Error ? omniError.message : String(omniError);
+      const ltx = ltxError instanceof Error ? ltxError.message : String(ltxError);
+      throw new Error(`free video providers failed; omni: ${omni}; ltx: ${ltx}`);
+    }
   }
 }
 
