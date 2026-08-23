@@ -1,0 +1,131 @@
+name: apply-cinematic-engine-now
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-cinematic-engine-now.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+  statuses: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply cinematic production patch
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          changed=[]
+
+          p=Path('packages/video-engine/src/render/compose.service.ts')
+          s=p.read_text()
+          s2=s.replace("'-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '29', '-r', String(fps),",
+                       "'-c:v', 'libx264', '-preset', 'superfast', '-crf', '22', '-r', String(fps),")
+          s2=s2.replace("'-c:a', 'aac', '-b:a', '96k',", "'-c:a', 'aac', '-b:a', '128k',")
+          s2=s2.replace("[${audioIndex}:a]aresample=48000,atempo=${narrationTempo.toFixed(4)},highpass=f=80,lowpass=f=12000,loudnorm=I=-16:TP=-1.5:LRA=7,aresample=48000,apad,atrim=duration=${totalS},asetpts=PTS-STARTPTS[voice]",
+                        "[${audioIndex}:a]aresample=48000,atempo=${narrationTempo.toFixed(4)},highpass=f=75,lowpass=f=14500,equalizer=f=180:t=q:w=1.0:g=1.5,equalizer=f=3200:t=q:w=1.1:g=2.0,acompressor=threshold=0.12:ratio=2.4:attack=15:release=180:makeup=1.15,loudnorm=I=-15:TP=-1.2:LRA=6,aresample=48000,apad,atrim=duration=${totalS},asetpts=PTS-STARTPTS[voice]")
+          s2=s2.replace("filters.push(`[ambient]volume=0.16[ambientlow]`);", "filters.push(`[ambient]highpass=f=45,lowpass=f=15000,volume=0.20[ambientlow]`);")
+          if s2!=s:
+              p.write_text(s2); changed.append(str(p))
+
+          p=Path('packages/video-engine/src/ai/ai.service.ts')
+          s=p.read_text()
+          old="""const continuity = [
+      storyAnchor,
+      'same exact main subject in every shot',
+      'identical appearance colors and proportions',
+      'same environment weather and time of day',
+      'each shot continues directly from the previous action',
+    ].join(', ');"""
+          new="""const continuity = [
+      storyAnchor,
+      'IDENTITY LOCK: same exact main subject in every shot',
+      'identical face geometry, age, hair, skin tone, wardrobe, accessories, body proportions and colors',
+      'no identity drift, no duplicate subject, no wardrobe changes, no face morphing',
+      'same environment geography, architecture, weather, lighting direction and time of day',
+      'physical continuity: each shot begins from the exact action and screen direction where the previous shot ended',
+      'photorealistic live-action cinematography, natural anatomy, realistic skin texture, physically plausible motion',
+      'premium commercial color science, controlled highlights, realistic shadows, rich dynamic range',
+    ].join(', ');"""
+          s2=s.replace(old,new)
+          replacements={
+            'establishing shot, cinematic lighting, realistic continuous motion, no text':'24mm establishing shot, slow controlled dolly-in, motivated cinematic lighting, layered foreground parallax, realistic continuous motion, natural motion blur, no text',
+            'immersive tracking shot, natural subject motion, strong depth, no text':'35mm medium tracking shot, stabilized lateral follow, natural subject motion, foreground occlusion, strong depth separation, realistic motion blur, no text',
+            'dynamic close shot, coherent identity, cinematic motion, no text':'50mm intimate action close-up, subtle handheld micro-motion, coherent locked identity, expressive natural movement, shallow depth of field, cinematic motion, no text',
+            'closing wide shot, graceful camera pullback, realistic motion, no text':'28mm cinematic closing wide shot, graceful crane-and-pullback reveal, locked identity and environment continuity, realistic motion, natural atmospheric depth, no text',
+          }
+          for a,b in replacements.items(): s2=s2.replace(a,b)
+          if s2!=s:
+              p.write_text(s2); changed.append(str(p))
+
+          p=Path('packages/video-engine/src/ai/providers-video.ts')
+          s=p.read_text()
+          a="return `${core}, photorealistic live-action, continuous natural subject motion, cinematic tracking camera, coherent identity, realistic temporal consistency, physically plausible movement, no text, no subtitles, no logo, no still frame`;"
+          b="return `${core}, premium photorealistic live-action commercial cinematography, identity locked across frames, anatomically correct face hands and body, continuous natural subject motion, deliberate cinematic camera movement, foreground parallax, realistic lens behavior and motion blur, consistent lighting and wardrobe, strong temporal consistency, physically plausible movement, rich dynamic range, natural skin texture, cinematic depth of field, no animation, no illustration, no morphing, no duplicate subject, no text, no subtitles, no logo, no watermark, no still frame`;"
+          s2=s.replace(a,b)
+          if s2!=s:
+              p.write_text(s2); changed.append(str(p))
+
+          p=Path('packages/video-engine/src/generation/generation.service.ts')
+          s=p.read_text()
+          s2=s.replace("await mapPool(script.scenes, 2, async (scene, i) => {", "await mapPool(script.scenes, videoCred.def.id === 'hf-ltx' ? 1 : 2, async (scene, i) => {")
+          s2=s2.replace("seoState['sceneStrategy'] = 'multi-shot-ai-story';", "seoState['sceneStrategy'] = 'cinematic-continuity-multi-shot';\n      seoState['qualityProfile'] = 'cinematic-photoreal-v2';")
+          if s2!=s:
+              p.write_text(s2); changed.append(str(p))
+
+          if not changed:
+              print('Patch already present; nothing to change')
+          else:
+              print('Changed:', *changed, sep='\n- ')
+          PY
+          git diff --check
+
+      - name: Commit source changes
+        id: c
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/video-engine/src/ai/ai.service.ts packages/video-engine/src/ai/providers-video.ts packages/video-engine/src/render/compose.service.ts packages/video-engine/src/generation/generation.service.ts
+          git commit -m 'feat(video): cinematic photoreal quality profile v2'
+          git push origin HEAD:main
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger AWS production deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl -fLsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'content-type: application/json' \
+            -d '{"ref":"main"}' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-aws.yml/dispatches"
+
+      - name: Publish apply status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ job.status }}
+          SHA: ${{ steps.c.outputs.sha || github.sha }}
+        run: |
+          STATE=failure; [ "$OUTCOME" = success ] && STATE=success
+          jq -nc --arg state "$STATE" --arg context cinematic-engine-v2 --arg desc "Cinematic engine patch and AWS deploy dispatch: $OUTCOME" '{state:$state,context:$context,description:$desc}' >/tmp/status.json
+          curl -fLsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'content-type: application/json' --data @/tmp/status.json "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/$SHA"
