@@ -18,7 +18,9 @@
  * via seo.step, never raw stack traces.
  *
  * The keyless script fallback is deliberately deterministic and prompt-derived;
- * moving pictures still come from a real video provider.
+ * moving pictures still come from a real video provider. For the explicit
+ * Story 3D social format, shared-GPU outages fall back to AI scene artwork
+ * animated locally with ffmpeg so that the product remains usable.
  */
 import { z } from 'zod';
 import type { AppConfig } from '@aca/config';
@@ -28,6 +30,65 @@ import { type OrgCredentialsService } from '../vault/org-credentials.js';
 import { LLM_PROVIDERS, chatCompletion, type LlmCredential } from './providers.js';
 import { generateClip, generateRunwaySpeech, type VideoCredential } from './providers-video.js';
 import { getPrompt, renderUserPrompt } from './prompts/registry.js';
+import { createRequire } from 'node:module';
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+const localRequire = createRequire(import.meta.url);
+
+function resolveStoryFfmpeg(): string {
+  const env = process.env.FFMPEG_PATH;
+  if (env && existsSync(env)) return env;
+  for (const pkg of ['@ffmpeg-installer/linux-x64', 'ffmpeg-static']) {
+    try {
+      const pkgJson = localRequire.resolve(`${pkg}/package.json`);
+      const binary = join(dirname(pkgJson), 'ffmpeg');
+      if (existsSync(binary)) return binary;
+    } catch {}
+    try {
+      const candidate = localRequire(pkg) as unknown;
+      const binary = typeof candidate === 'string'
+        ? candidate
+        : (candidate as { path?: string } | null)?.path ?? (candidate as { default?: string } | null)?.default;
+      if (typeof binary === 'string' && existsSync(binary)) return binary;
+    } catch {}
+  }
+  return 'ffmpeg';
+}
+
+const storyFfmpeg = resolveStoryFfmpeg();
+
+async function renderStoryMotionClip(imagePath: string, outputPath: string, durationSec: number, direction: number): Promise<void> {
+  const fps = 24;
+  const duration = Math.max(3, Math.min(8, durationSec));
+  const zoom = direction % 2 === 0
+    ? "z='min(1+0.0008*on,1.11)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+    : "z='max(1.11-0.0008*on,1.0)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'";
+  const args = [
+    '-y', '-nostdin', '-hide_banner', '-v', 'warning',
+    '-loop', '1', '-framerate', String(fps), '-t', duration.toFixed(3), '-i', imagePath,
+    '-vf', `scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,zoompan=${zoom}:d=1:s=720x1280:fps=${fps},setsar=1,format=yuv420p`,
+    '-t', duration.toFixed(3),
+    '-c:v', 'libx264', '-preset', 'superfast', '-crf', '21', '-r', String(fps),
+    '-threads', '1', '-movflags', '+faststart',
+    outputPath,
+  ];
+  await new Promise<void>((resolvePromise, rejectPromise) => {
+    const child = spawn(storyFfmpeg, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    const timeout = setTimeout(() => child.kill('SIGKILL'), 180_000);
+    child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    child.on('error', (error) => { clearTimeout(timeout); rejectPromise(error); });
+    child.on('close', (code) => {
+      clearTimeout(timeout);
+      if (code === 0) resolvePromise();
+      else rejectPromise(new Error(`story3d ffmpeg exited ${code}: ${stderr.slice(-700)}`));
+    });
+  });
+}
 
 export const SceneSchema = z.object({
   narration: z.string().min(10),
@@ -367,7 +428,33 @@ export class AiService {
   async resolveVideoCred(orgId: string): Promise<VideoCredential | null> { return this.creds.resolveVideo(orgId); }
 
   async generateSceneClip(cred: VideoCredential, visualPrompt: string, firstFrameUrl: string | null, windowSec: number): Promise<Buffer> {
-    if (cred.def.id === 'hf-ltx') return generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec });
+    if (cred.def.id === 'hf-ltx') {
+      try {
+        return await generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec });
+      } catch (videoError) {
+        const story3d = /(?:3d animation|3d animated|feature-film 3d|social short|stylized semi-realistic|قصة 3d|ثلاثية الأبعاد)/iu.test(visualPrompt);
+        if (!story3d) throw videoError;
+
+        this.logger.warn({ module: 'ai' }, 'shared video GPU unavailable; rendering reliable 3D social-story motion clip');
+        const seed = Math.abs([...visualPrompt].reduce((acc, ch) => ((acc * 31) + ch.charCodeAt(0)) | 0, 17)) % 900000;
+        const enriched = `${visualPrompt}, premium polished 3D animated social-story frame, stylized semi-realistic human characters, expressive large eyes, clean anatomy, detailed environment, soft cinematic lighting, smooth materials, family-friendly short-form aesthetic, vertical 9:16, no text, no watermark`;
+        let image: { data: Buffer; provider: string };
+        try {
+          image = await withRetry('story3d-image', () => this.imageViaPollinations(enriched, seed), this.logger);
+        } catch {
+          image = await this.generateSceneImage(enriched, seed);
+        }
+        const wd = join(tmpdir(), 'aca-render', 'story3d-clip', `${Date.now()}-${seed}-${Math.random().toString(36).slice(2, 8)}`);
+        await mkdir(wd, { recursive: true });
+        const framePath = join(wd, 'frame.jpg');
+        const clipPath = join(wd, 'clip.mp4');
+        await writeFile(framePath, image.data);
+        await renderStoryMotionClip(framePath, clipPath, windowSec, seed % 2);
+        const clip = await readFile(clipPath);
+        if (clip.byteLength < 30_000) throw new Error('3D social-story fallback produced a suspiciously small clip');
+        return clip;
+      }
+    }
     return withRetry(`clip-${cred.def.id}`, () => generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec }), this.logger);
   }
 
