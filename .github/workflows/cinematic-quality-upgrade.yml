@@ -1,0 +1,111 @@
+name: cinematic-quality-upgrade
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cinematic-quality-upgrade.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Patch cinematic engine
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          compose = Path('packages/video-engine/src/render/compose.service.ts')
+          s = compose.read_text()
+          old = "'-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '29', '-r', String(fps),"
+          new = "'-c:v', 'libx264', '-preset', 'superfast', '-crf', '22', '-r', String(fps),"
+          if s.count(old) != 2:
+              raise SystemExit(f'expected 2 encoder profiles, got {s.count(old)}')
+          s = s.replace(old, new)
+          if s.count("'-c:a', 'aac', '-b:a', '96k',") < 2:
+              raise SystemExit('expected AAC profiles')
+          s = s.replace("'-c:a', 'aac', '-b:a', '96k',", "'-c:a', 'aac', '-b:a', '128k',")
+          old_voice = "[${audioIndex}:a]aresample=48000,atempo=${narrationTempo.toFixed(4)},highpass=f=80,lowpass=f=12000,loudnorm=I=-16:TP=-1.5:LRA=7,aresample=48000,apad,atrim=duration=${totalS},asetpts=PTS-STARTPTS[voice]"
+          new_voice = "[${audioIndex}:a]aresample=48000,atempo=${narrationTempo.toFixed(4)},highpass=f=75,lowpass=f=14500,equalizer=f=180:t=q:w=1.0:g=1.5,equalizer=f=3200:t=q:w=1.1:g=2.0,acompressor=threshold=0.12:ratio=2.4:attack=15:release=180:makeup=1.15,loudnorm=I=-15:TP=-1.2:LRA=6,aresample=48000,apad,atrim=duration=${totalS},asetpts=PTS-STARTPTS[voice]"
+          if old_voice not in s:
+              raise SystemExit('voice filter signature not found')
+          s = s.replace(old_voice, new_voice)
+          compose.write_text(s)
+
+          ai = Path('packages/video-engine/src/ai/ai.service.ts')
+          s = ai.read_text()
+          old_cont = "const continuity = [\n      storyAnchor,\n      'same exact main subject in every shot',\n      'identical appearance colors and proportions',\n      'same environment weather and time of day',\n      'each shot continues directly from the previous action',\n    ].join(', ');"
+          new_cont = "const continuity = [\n      storyAnchor,\n      'IDENTITY LOCK: same exact main subject in every shot',\n      'identical face geometry, age, hair, skin tone, wardrobe, accessories, body proportions and colors',\n      'no identity drift, no duplicate subject, no wardrobe changes, no face morphing',\n      'same environment geography, architecture, weather, lighting direction and time of day',\n      'physical continuity: each shot begins from the exact action and screen direction where the previous shot ended',\n      'photorealistic live-action cinematography, natural anatomy, realistic skin texture, physically plausible motion',\n    ].join(', ');"
+          if old_cont not in s:
+              raise SystemExit('continuity block not found')
+          s = s.replace(old_cont, new_cont)
+
+          repl = {
+            "establishing shot, cinematic lighting, realistic continuous motion, no text": "24mm establishing shot, slow controlled dolly-in, motivated cinematic lighting, layered foreground parallax, realistic continuous motion, natural motion blur, no text",
+            "immersive tracking shot, natural subject motion, strong depth, no text": "35mm medium tracking shot, stabilized lateral follow, natural subject motion, foreground occlusion and strong depth separation, realistic motion blur, no text",
+            "dynamic close shot, coherent identity, cinematic motion, no text": "50mm intimate action close-up, subtle handheld micro-motion, coherent locked identity, expressive but natural movement, shallow depth of field, cinematic motion, no text",
+            "closing wide shot, graceful camera pullback, realistic motion, no text": "28mm cinematic closing wide shot, graceful crane-and-pullback reveal, locked identity and environment continuity, realistic motion, natural atmospheric depth, no text",
+          }
+          for old, new in repl.items():
+              if old not in s:
+                  raise SystemExit(f'camera phrase missing: {old}')
+              s = s.replace(old, new)
+          ai.write_text(s)
+
+          providers = Path('packages/video-engine/src/ai/providers-video.ts')
+          s = providers.read_text()
+          old_prompt = "return `${core}, photorealistic live-action, continuous natural subject motion, cinematic tracking camera, coherent identity, realistic temporal consistency, physically plausible movement, no text, no subtitles, no logo, no still frame`;"
+          new_prompt = "return `${core}, premium photorealistic live-action commercial cinematography, identity locked across frames, anatomically correct face hands and body, continuous natural subject motion, deliberate cinematic camera movement, foreground parallax, realistic lens behavior and motion blur, consistent lighting and wardrobe, strong temporal consistency, physically plausible movement, rich dynamic range, natural skin texture, no animation, no illustration, no morphing, no duplicate subject, no text, no subtitles, no logo, no watermark, no still frame`;"
+          if old_prompt not in s:
+              raise SystemExit('compact motion prompt not found')
+          providers.write_text(s.replace(old_prompt, new_prompt))
+          PY
+
+      - name: Validate workspace
+        run: |
+          pnpm install --no-frozen-lockfile --ignore-scripts
+          pnpm exec tsc -b packages/video-engine/tsconfig.json --force
+          git diff --check
+
+      - name: Commit upgrade
+        id: commit
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/video-engine/src/ai/ai.service.ts packages/video-engine/src/ai/providers-video.ts packages/video-engine/src/render/compose.service.ts
+          git commit -m 'feat(video): cinematic identity camera audio and encode quality'
+          git push origin HEAD:main
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger AWS deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for wf in deploy-aws.yml deploy-aws.yaml; do
+            code=$(curl -sS -o /tmp/out -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/$wf/dispatches" \
+              -d '{"ref":"main"}')
+            if [ "$code" = 204 ]; then echo "AWS deploy dispatched via $wf"; exit 0; fi
+          done
+          echo 'AWS deploy workflow was not dispatchable; push-based deploy may still handle the commit.'
