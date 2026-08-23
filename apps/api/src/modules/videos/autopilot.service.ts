@@ -124,7 +124,7 @@ export class AutopilotService implements OnModuleInit, OnModuleDestroy {
               targetPlatforms: ['youtube'],
               tags: [],
               status: 'QUEUED',
-              seo: { keyword, targetSeconds: 45, autopilot: true },
+              seo: { keyword, targetSeconds: 40, autopilot: true },
             },
           });
           await this.generation.enqueue(video.id);

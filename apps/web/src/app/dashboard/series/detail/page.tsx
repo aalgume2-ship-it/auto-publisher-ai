@@ -141,7 +141,7 @@ function SeriesDetailInner() {
     setError(null);
     setNotice(null);
     try {
-      await api.post(`${orgPath}/series/${seriesId}/videos`, { keyword: keyword.trim(), targetSeconds: 45 }, session.accessToken);
+      await api.post(`${orgPath}/series/${seriesId}/videos`, { keyword: keyword.trim(), targetSeconds: 40 }, session.accessToken);
       setKeyword('');
       setNotice('Started full generation: script → voice → scenes → render.');
       void loadAll();

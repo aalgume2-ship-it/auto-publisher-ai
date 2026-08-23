@@ -123,7 +123,14 @@ export class AiService {
       .map((part) => part.trim())
       .filter((part) => part.length >= 4 && !technicalDirection.test(part));
     const beats = rawBeats.length > 0 ? rawBeats : [keyword];
-    const storyAnchor = beats.slice(0, 2).join('، ').slice(0, 180);
+    const storyAnchor = beats.slice(0, 2).join('، ').slice(0, 220);
+    const continuity = [
+      storyAnchor,
+      'same exact main subject in every shot',
+      'identical appearance colors and proportions',
+      'same environment weather and time of day',
+      'each shot continues directly from the previous action',
+    ].join(', ');
 
     // A full story prompt is not a caption. Distribute its clauses into four
     // concise beats so a 20-second request stays near 20 seconds and subtitles
@@ -134,12 +141,17 @@ export class AiService {
       const bucket = Math.min(3, Math.floor((index * 4) / beats.length));
       buckets[bucket]!.push(beat);
     });
-    const desiredWords = Math.max(english ? 8 : 5, Math.floor((req.targetSeconds * (english ? 1.8 : 1.15)) / 4));
-    const compactBucket = (parts: string[], fallback: string): string => {
-      if (parts.length === 0) return fallback;
+    const desiredWords = Math.max(english ? 8 : 6, Math.floor((req.targetSeconds * (english ? 1.8 : 1.35)) / 4));
+    const compactBucket = (parts: string[], fallback: string, keepEnding = false): string => {
+      if (parts.length === 0) return fallback.split(/\s+/).slice(0, desiredWords).join(' ');
       const perPart = Math.max(2, Math.floor(desiredWords / parts.length));
       return parts
-        .map((part) => part.split(/\s+/).slice(0, perPart).join(' '))
+        .map((part) => {
+          const words = part.split(/\s+/);
+          if (!keepEnding || words.length <= perPart || perPart < 4) return words.slice(0, perPart).join(' ');
+          const endingWords = Math.max(2, Math.floor(perPart / 3));
+          return [...words.slice(0, perPart - endingWords), ...words.slice(-endingWords)].join(' ');
+        })
         .join(english ? ', ' : '، ')
         .trim();
     };
@@ -147,8 +159,19 @@ export class AiService {
       compactBucket(
         parts,
         english
-          ? ['the journey begins', 'the challenge grows', 'a decisive moment arrives', 'the world changes at last'][index]!
-          : ['تبدأ الرحلة بهدوء', 'يشتد التحدي فجأة', 'تحين لحظة القرار', 'يتغير العالم أخيراً'][index]!,
+          ? [
+              `the story begins around ${storyAnchor} and an unexpected sign appears`,
+              'the challenge grows while the hero stays focused and searches for a safe solution',
+              'a decisive careful action arrives just before the final opportunity is lost',
+              'the plan succeeds and the place becomes calm as the journey reaches a meaningful ending',
+            ][index]!
+          : [
+              `تبدأ الحكاية مع ${storyAnchor} وتظهر إشارة مفاجئة تغير مجرى اليوم`,
+              'يتصاعد التحدي بينما يحافظ البطل على هدفه ويبحث بهدوء عن حل آمن',
+              'تحين لحظة القرار فيتحرك البطل بدقة قبل أن تضيع الفرصة الأخيرة',
+              'تنجح الخطة ويعود الهدوء إلى المكان وتنتهي الرحلة برسالة واضحة ومؤثرة',
+            ][index]!,
+        index === 3,
       ),
     );
     const title = beats.slice(0, 2).join(' — ').slice(0, 110);
@@ -161,10 +184,10 @@ export class AiService {
         hook: `Watch ${title} come alive in motion.`,
         cta: 'Follow for more cinematic stories.',
         scenes: [
-          { narration: `At first, ${compactBeats[0]}.`, visualPrompt: `${storyAnchor}; ${compactBeats[0]}, establishing shot, cinematic lighting, realistic motion, no text` },
-          { narration: `Then, ${compactBeats[1]}.`, visualPrompt: `${storyAnchor}; ${compactBeats[1]}, immersive tracking shot, natural subject motion, strong depth, no text` },
-          { narration: `At the turning point, ${compactBeats[2]}.`, visualPrompt: `${storyAnchor}; ${compactBeats[2]}, dynamic close shot, coherent character identity, cinematic motion, no text` },
-          { narration: `In the end, ${compactBeats[3]}.`, visualPrompt: `${storyAnchor}; ${compactBeats[3]}, epic closing wide shot, graceful camera pullback, realistic motion, no text` },
+          { narration: `At first, ${compactBeats[0]}.`, visualPrompt: `${continuity}; scene 1, ${compactBeats[0]}, establishing shot, cinematic lighting, realistic continuous motion, no text` },
+          { narration: `Then, ${compactBeats[1]}.`, visualPrompt: `${continuity}; scene 2, ${compactBeats[1]}, immersive tracking shot, natural subject motion, strong depth, no text` },
+          { narration: `At the turning point, ${compactBeats[2]}.`, visualPrompt: `${continuity}; scene 3, ${compactBeats[2]}, dynamic close shot, coherent identity, cinematic motion, no text` },
+          { narration: `In the end, ${compactBeats[3]}.`, visualPrompt: `${continuity}; scene 4, ${compactBeats[3]}, closing wide shot, graceful camera pullback, realistic motion, no text` },
         ],
       };
     }
@@ -176,10 +199,10 @@ export class AiService {
       hook: `شاهد كيف تتحول حكاية ${title} إلى مشهد حي.`,
       cta: 'تابعنا للمزيد من القصص السينمائية.',
       scenes: [
-        { narration: `في البداية، ${compactBeats[0]}.`, visualPrompt: `${storyAnchor}; ${compactBeats[0]}, establishing shot, cinematic lighting, realistic motion, no text` },
-        { narration: `ثم، ${compactBeats[1]}.`, visualPrompt: `${storyAnchor}; ${compactBeats[1]}, immersive tracking shot, natural subject motion, strong depth, no text` },
-        { narration: `وعند التحول، ${compactBeats[2]}.`, visualPrompt: `${storyAnchor}; ${compactBeats[2]}, dynamic close shot, coherent character identity, cinematic motion, no text` },
-        { narration: `وفي النهاية، ${compactBeats[3]}.`, visualPrompt: `${storyAnchor}; ${compactBeats[3]}, epic closing wide shot, graceful camera pullback, realistic motion, no text` },
+        { narration: `في البداية، ${compactBeats[0]}.`, visualPrompt: `${continuity}; scene 1, ${compactBeats[0]}, establishing shot, cinematic lighting, realistic continuous motion, no text` },
+        { narration: `ثم، ${compactBeats[1]}.`, visualPrompt: `${continuity}; scene 2, ${compactBeats[1]}, immersive tracking shot, natural subject motion, strong depth, no text` },
+        { narration: `وعند لحظة التحول، ${compactBeats[2]}.`, visualPrompt: `${continuity}; scene 3, ${compactBeats[2]}, dynamic close shot, coherent identity, cinematic motion, no text` },
+        { narration: `وفي النهاية، ${compactBeats[3]}.`, visualPrompt: `${continuity}; scene 4, ${compactBeats[3]}, closing wide shot, graceful camera pullback, realistic motion, no text` },
       ],
     };
   }
@@ -213,7 +236,39 @@ export class AiService {
     const cred = await this.creds.resolveLlm(orgId);
     if (!cred) {
       this.logger.info({ module: 'ai', orgId }, 'script.keyless_fallback');
-      return { script: this.keylessScript(req), provider: 'keyless-template' };
+      const wantsArabic = req.language.toLowerCase().startsWith('ar');
+      const hasArabic = /[\u0600-\u06ff]/u.test(req.keyword);
+      let keyword = req.keyword;
+      if (wantsArabic && !hasArabic) {
+        try {
+          const url = new URL('https://translate.googleapis.com/translate_a/single');
+          url.searchParams.set('client', 'gtx');
+          url.searchParams.set('sl', 'auto');
+          url.searchParams.set('tl', 'ar');
+          url.searchParams.set('dt', 't');
+          url.searchParams.set('q', req.keyword.slice(0, 1_800));
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 8_000);
+          try {
+            const res = await fetch(url, { signal: ctrl.signal });
+            if (res.ok) {
+              const payload = (await res.json()) as unknown;
+              if (Array.isArray(payload) && Array.isArray(payload[0])) {
+                const translated = payload[0]
+                  .flatMap((part) => (Array.isArray(part) && typeof part[0] === 'string' ? [part[0]] : []))
+                  .join(' ')
+                  .trim();
+                if (translated.length >= 4) keyword = translated;
+              }
+            }
+          } finally {
+            clearTimeout(timer);
+          }
+        } catch {
+          // The deterministic template remains available when translation is offline.
+        }
+      }
+      return { script: this.keylessScript({ ...req, keyword }), provider: 'keyless-template' };
     }
     const prompt = getPrompt('script', req.promptVersion, req.language);
     const user = renderUserPrompt(prompt.userTemplate, {
@@ -347,6 +402,11 @@ export class AiService {
   }
 
   async generateSceneClip(cred: VideoCredential, visualPrompt: string, firstFrameUrl: string | null, windowSec: number): Promise<Buffer> {
+    if (cred.def.id === 'hf-ltx') {
+      // One keyless attempt already tries two independent free Spaces. Avoid
+      // repeating overloaded shared queues three times and tripling latency.
+      return generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec });
+    }
     return withRetry(`clip-${cred.def.id}`, () => generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec }), this.logger);
   }
 

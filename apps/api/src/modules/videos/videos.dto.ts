@@ -31,7 +31,7 @@ export const GenerateVideoBody = z
     // public API contract aligned so a prompt accepted by the composer cannot
     // be rejected only after the user starts generation.
     keyword: z.string().min(3).max(2_000),
-    targetSeconds: z.number().int().min(20).max(60).default(45),
+    targetSeconds: z.number().int().min(20).max(60).default(40),
     publishNow: z.boolean().default(false),
     channelId: z.string().uuid().optional(),
   })

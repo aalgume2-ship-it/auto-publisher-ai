@@ -70,7 +70,7 @@ export class GenerationService {
       const targetSeconds =
         (video.seo as { targetSeconds?: number } | null)?.targetSeconds ??
         (video.seo as { durationSec?: number } | null)?.durationSec ??
-        45;
+        40;
       const wd = workDirFor('gen', videoId);
 
       // live step surface: the UI polls `videos` and renders `seo.step`
@@ -104,9 +104,8 @@ export class GenerationService {
         },
         video.orgId,
       );
-      // Keep the complete four-beat story. The public LTX queue is called
-      // sequentially below, so each beat receives a real moving clip without
-      // creating a burst that overwhelms shared ZeroGPU capacity.
+      // Keep the complete four-beat story. The free moving-video providers are
+      // requested with bounded concurrency below for a fast but gentle load.
       seoState['sceneStrategy'] = 'multi-shot-ai-story';
       seoState['provider'] = provider;
       await markStep('voice', 22);
@@ -161,10 +160,13 @@ export class GenerationService {
       const engine = `${provider}-${tts.provider}-${videoCred.def.id}-clips`;
       const sceneWords = script.scenes.map((s) => s.narration.split(/\s+/).filter(Boolean).length);
       const totalWords = sceneWords.reduce((a, b) => a + b, 0) || 1;
-      const timelineMs = Math.max(voiceMs, targetSeconds * 1_000);
+      // The requested story duration is the source of truth. The moving
+      // composer tempo-fits narration and clips to these exact scene windows.
+      const timelineMs = targetSeconds * 1_000;
       let cursor = 0;
       const windows: { startMs: number; durationMs: number }[] = [];
       const movingScenes: { clipPath: string; caption: string; durationMs: number }[] = [];
+      const firstFrameUrls: (string | null)[] = [];
       for (let i = 0; i < script.scenes.length; i += 1) {
         const scene = script.scenes[i]!;
         const isLast = i === script.scenes.length - 1;
@@ -172,27 +174,34 @@ export class GenerationService {
           ? Math.max(3_000, timelineMs - cursor)
           : Math.max(3_000, Math.round((sceneWords[i]! / totalWords) * timelineMs));
         windows.push({ startMs: cursor, durationMs });
-        if (i > 0) await new Promise((r) => setTimeout(r, 6_000)); // pollinations anon tier: 1 image at a time (429 otherwise)
         await markStep(`scenes ${i + 1}/${script.scenes.length}`, 30 + Math.round(((i + 1) / script.scenes.length) * 20));
-        const img = await this.ai.generateSceneImage(scene.visualPrompt, 1000 + i * 77);
-        const imgStored = await this.store.put(video.orgId, `scene-${i}.jpg`, img.data);
-        const imgAsset = await this.prisma.asset.create({
-          data: {
-            id: generateId(),
-            orgId: video.orgId,
-            type: 'IMAGE',
-            source: 'GENERATED',
-            storageKey: imgStored.storageKey,
-            cdnPath: 'pending',
-            mimeType: 'image/jpeg',
-            bytes: BigInt(imgStored.bytes),
-            width: 720,
-            height: 1280,
-            metadata: { prompt: scene.visualPrompt, provider: img.provider },
-          },
-        });
-        await this.prisma.asset.update({ where: { id: imgAsset.id }, data: { cdnPath: `/v1/organizations/${video.orgId}/assets/${imgAsset.id}/content` } });
-        this.assertDimensionsCoherent(imgAsset.id);
+        let imageAssetId: string | null = null;
+        if (videoCred.def.supportsFirstFrame) {
+          if (i > 0) await new Promise((r) => setTimeout(r, 3_000));
+          const img = await this.ai.generateSceneImage(scene.visualPrompt, 1000 + i * 77);
+          const imgStored = await this.store.put(video.orgId, `scene-${i}.jpg`, img.data);
+          const imgAsset = await this.prisma.asset.create({
+            data: {
+              id: generateId(),
+              orgId: video.orgId,
+              type: 'IMAGE',
+              source: 'GENERATED',
+              storageKey: imgStored.storageKey,
+              cdnPath: 'pending',
+              mimeType: 'image/jpeg',
+              bytes: BigInt(imgStored.bytes),
+              width: 720,
+              height: 1280,
+              metadata: { prompt: scene.visualPrompt, provider: img.provider },
+            },
+          });
+          await this.prisma.asset.update({ where: { id: imgAsset.id }, data: { cdnPath: `/v1/organizations/${video.orgId}/assets/${imgAsset.id}/content` } });
+          this.assertDimensionsCoherent(imgAsset.id);
+          imageAssetId = imgAsset.id;
+          firstFrameUrls[i] = this.ai.sceneImageUrl(scene.visualPrompt, 1000 + i * 77);
+        } else {
+          firstFrameUrls[i] = null;
+        }
         await this.prisma.scene.create({
           data: {
             id: generateId(),
@@ -200,7 +209,7 @@ export class GenerationService {
             index: i,
             narrationText: scene.narration,
             visualPrompt: scene.visualPrompt,
-            assetId: imgAsset.id,
+            assetId: imageAssetId,
             startMs: windows[i]!.startMs,
             endMs: windows[i]!.startMs + windows[i]!.durationMs,
           },
@@ -211,17 +220,12 @@ export class GenerationService {
       /* 3.5 ── moving clips (only when a video provider key is configured) */
       {
         await markStep(`clips 0/${script.scenes.length}`, 52);
-        let clipsDone = 0;
-        try {
-          await mapPool(script.scenes, videoCred.def.id === 'hf-ltx' ? 1 : 2, async (scene, i) => {
+        let clipAttemptsDone = 0;
+        const clipErrors: string[] = [];
+        await mapPool(script.scenes, 2, async (scene, i) => {
+          try {
             const w = windows[i]!;
-            // The public ZeroGPU queue accepts one generation at a time. A
-            // short cooldown prevents a successful first clip from causing
-            // the next scene to be throttled and falsely downgraded to stills.
-            if (videoCred.def.id === 'hf-ltx' && i > 0) {
-              await new Promise((resolve) => setTimeout(resolve, 8_000));
-            }
-            const buf = await this.ai.generateSceneClip(videoCred, scene.visualPrompt, this.ai.sceneImageUrl(scene.visualPrompt, 1000 + i * 77), w.durationMs / 1000);
+            const buf = await this.ai.generateSceneClip(videoCred, scene.visualPrompt, firstFrameUrls[i] ?? null, w.durationMs / 1000);
             const clipStored = await this.store.put(video.orgId, `clip-${i}.mp4`, buf);
             const clipAsset = await this.prisma.asset.create({
               data: {
@@ -236,64 +240,65 @@ export class GenerationService {
                 durationMs: w.durationMs,
                 width: 720,
                 height: 1280,
-                metadata: { prompt: scene.visualPrompt, provider: videoCred.def.id, firstFrameStill: `scene-${i}.jpg` },
+                metadata: { prompt: scene.visualPrompt, provider: videoCred.def.id, firstFrameStill: firstFrameUrls[i] ? `scene-${i}.jpg` : null },
               },
             });
             await this.prisma.asset.update({ where: { id: clipAsset.id }, data: { cdnPath: `/v1/organizations/${video.orgId}/assets/${clipAsset.id}/content` } });
             movingScenes[i] = { clipPath: this.store.fullPath(clipStored.storageKey), caption: scene.narration, durationMs: w.durationMs };
-            clipsDone += 1;
-            await markStep(`clips ${clipsDone}/${script.scenes.length}`, 52 + Math.round((clipsDone / script.scenes.length) * 18));
-          });
-        } catch (err) {
-          const detail = err instanceof Error ? err.message : String(err);
-          const successful = movingScenes.flatMap((scene) => (scene ? [scene] : []));
+          } catch (err) {
+            clipErrors[i] = err instanceof Error ? err.message : String(err);
+          } finally {
+            clipAttemptsDone += 1;
+            await markStep(`clips ${clipAttemptsDone}/${script.scenes.length}`, 52 + Math.round((clipAttemptsDone / script.scenes.length) * 18));
+          }
+        });
 
-          // Shared ZeroGPU capacity can disappear between two scenes. Preserve
-          // the hard product rule (moving AI video only, never still-image
-          // slides) by reusing an already generated AI clip for the remaining
-          // story beats. A previous provider clip is also eligible after a job
-          // retry; AssetStore.read restores it from durable storage when the
-          // worker's local cache has been replaced during deployment.
-          if (successful.length === 0) {
-            try {
-              const recent = await this.prisma.asset.findMany({
-                where: { orgId: video.orgId, type: 'VIDEO_CLIP', source: 'GENERATED' },
-                orderBy: { createdAt: 'desc' },
-                take: 30,
-              });
-              const storyTokens = new Set(
-                script.scenes
-                  .flatMap((scene) => scene.narration.toLowerCase().match(/\p{L}{4,}/gu) ?? [])
-                  .filter((token) => token.length >= 4),
-              );
-              const previous = recent.find((asset) => {
-                const metadata = asset.metadata as Record<string, unknown> | null;
-                if (metadata?.['provider'] !== videoCred.def.id || typeof metadata['prompt'] !== 'string') return false;
-                const candidateTokens = metadata['prompt'].toLowerCase().match(/\p{L}{4,}/gu) ?? [];
-                return candidateTokens.filter((token) => storyTokens.has(token)).length >= 2;
-              });
-              if (previous) {
-                const bytes = await this.store.read(previous.storageKey);
-                if (bytes.byteLength >= 30_000) {
-                  const restoredPath = `${wd}/restored-ai-clip.mp4`;
-                  await writeFile(restoredPath, bytes);
-                  successful.push({
-                    clipPath: restoredPath,
-                    caption: script.scenes[0]!.narration,
-                    durationMs: windows[0]!.durationMs,
-                  });
-                }
+        const successful = movingScenes.flatMap((scene) => (scene ? [scene] : []));
+
+        // Shared ZeroGPU capacity can disappear between two scenes. Preserve
+        // real motion by reusing a successful story clip, or a closely related
+        // durable clip from an earlier attempt, for only the missing windows.
+        if (successful.length === 0) {
+          try {
+            const recent = await this.prisma.asset.findMany({
+              where: { orgId: video.orgId, type: 'VIDEO_CLIP', source: 'GENERATED' },
+              orderBy: { createdAt: 'desc' },
+              take: 30,
+            });
+            const storyTokens = new Set(
+              script.scenes
+                .flatMap((scene) => scene.narration.toLowerCase().match(/\p{L}{4,}/gu) ?? [])
+                .filter((token) => token.length >= 4),
+            );
+            const previous = recent.find((asset) => {
+              const metadata = asset.metadata as Record<string, unknown> | null;
+              if (metadata?.['provider'] !== videoCred.def.id || typeof metadata['prompt'] !== 'string') return false;
+              const candidateTokens = metadata['prompt'].toLowerCase().match(/\p{L}{4,}/gu) ?? [];
+              return candidateTokens.filter((token) => storyTokens.has(token)).length >= 2;
+            });
+            if (previous) {
+              const bytes = await this.store.read(previous.storageKey);
+              if (bytes.byteLength >= 30_000) {
+                const restoredPath = `${wd}/restored-ai-clip.mp4`;
+                await writeFile(restoredPath, bytes);
+                successful.push({
+                  clipPath: restoredPath,
+                  caption: script.scenes[0]!.narration,
+                  durationMs: windows[0]!.durationMs,
+                });
               }
-            } catch {
-              // The original provider failure below remains the actionable
-              // error when durable recovery is unavailable.
             }
+          } catch {
+            // The provider failure below remains actionable when recovery fails.
           }
+        }
 
-          if (successful.length === 0) {
-            throw new Error(`real AI video generation failed (${videoCred.def.id}): ${detail}`, { cause: err });
-          }
+        const detail = clipErrors.filter(Boolean).join(' | ');
+        if (successful.length === 0) {
+          throw new Error(`real AI video generation failed (${videoCred.def.id}): ${detail || 'no moving clips returned'}`);
+        }
 
+        if (successful.length < script.scenes.length) {
           const sourceClips = [...successful];
           for (let i = 0; i < script.scenes.length; i += 1) {
             if (movingScenes[i]) continue;
