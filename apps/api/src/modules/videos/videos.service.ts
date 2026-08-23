@@ -33,6 +33,11 @@ export class VideosService {
     return storageKey ? rawMediaUrl(this.mediaSecret, storageKey) : null;
   }
 
+  private bunnyCdnUrl(seo: Prisma.JsonValue | null | undefined): string | null {
+    const value = asAssetMeta(seo)['bunnyCdnUrl'];
+    return typeof value === 'string' && /^https:\/\//i.test(value) ? value : null;
+  }
+
   private publicAsset(_orgId: string, a: {
     id: string;
     type: string;
@@ -168,7 +173,7 @@ export class VideosService {
         publishedAt: v.publishedAt,
         seo: v.seo,
         thumbnail: this.media(v.thumbnails[0]?.storageKey),
-        videoUrl: this.media(v.renditions[0]?.storageKey),
+        videoUrl: this.bunnyCdnUrl(v.seo) ?? this.media(v.renditions[0]?.storageKey),
       })),
     };
   }
@@ -206,7 +211,8 @@ export class VideosService {
       failureReason: v.failureReason,
       createdAt: v.createdAt,
       publishedAt: v.publishedAt,
-      streamUrl: directStreamUrl ?? this.media(renditionKey),
+      streamUrl: this.bunnyCdnUrl(v.seo) ?? directStreamUrl ?? this.media(renditionKey),
+      seo: v.seo,
       script: v.scripts[0] ? { content: v.scripts[0].content, wordCount: v.scripts[0].wordCount, beats: v.scripts[0].beats } : null,
       scenes: v.scenes.map((s: any) => ({
         index: s.index,
