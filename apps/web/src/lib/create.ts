@@ -19,7 +19,7 @@ export const ASPECTS: Aspect[] = [
 
 // API GenerateVideoBody accepts 20–60 seconds. Keep the Studio catalog aligned
 // so a valid UI selection can never be rejected by backend validation.
-export const DURATIONS = [20, 30, 45, 60];
+export const DURATIONS = [20, 30, 40, 60];
 
 export const STYLES: StyleDef[] = [
   { id: 'cinematic', name: 'Cinematic', from: '#8b7bff', to: '#ff5d9e' },
@@ -46,7 +46,7 @@ export const DEFAULT_DRAFT: CreateDraft = {
   model: 'lumen-pro',
   style: 'cinematic',
   aspect: '9:16',
-  duration: 20,
+  duration: 40,
   seed: Math.floor(Math.random() * 1e6),
   updatedAt: 0,
 };
