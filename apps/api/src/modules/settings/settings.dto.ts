@@ -14,6 +14,17 @@ export const VideoProviderParamsSchema = z.object({
 export const SaveAiKeyBodySchema = z.object({
   apiKey: z.string().min(8).max(512),
 });
+export const SaveBunnyStorageBodySchema = z.object({
+  storageZone: z.string().min(2).max(128).regex(/^[a-zA-Z0-9-]+$/, 'invalid storage zone name'),
+  accessKey: z.string().min(8).max(512),
+  cdnHostname: z.string().min(4).max(255).regex(/^[a-zA-Z0-9.-]+$/, 'invalid CDN hostname'),
+  storageEndpoint: z
+    .string()
+    .min(4)
+    .max(255)
+    .regex(/^(?:[a-zA-Z0-9-]+\.)?storage\.bunnycdn\.com$/, 'invalid Bunny storage endpoint')
+    .optional(),
+});
 export const SaveGoogleOAuthBodySchema = z.object({
   // real Google OAuth web client IDs end with .apps.googleusercontent.com
   clientId: z.string().min(10).max(512).regex(/\.apps\.googleusercontent\.com$/, 'clientId must end with .apps.googleusercontent.com'),
