@@ -22,7 +22,17 @@ import {
 } from './organizations.dto.js';
 
 const MODULE = 'organizations';
-const SLUG_ATTEMPTS = 4;
+const SLUG_ATTEMPTS = 8;
+
+function collisionSafeSlug(base: string, attempt: number): string {
+  if (attempt === 0) return base;
+  // Numeric retries create a permanent hot spot for high-volume guest
+  // workspaces (base-2 ... base-4 eventually all exist). A short UUID-derived
+  // suffix keeps the slug readable while making concurrent collisions
+  // vanishingly unlikely. Reserve room so the validated 80-char limit holds.
+  const suffix = generateId().replace(/-/g, '').slice(-10);
+  return `${base.slice(0, 69).replace(/-+$/g, '')}-${suffix}`;
+}
 
 export interface OrganizationRow {
   id: string;
@@ -137,7 +147,7 @@ export class OrganizationsService {
       }
       const base = body.slug ?? slugify(body.name);
       for (let attempt = 0; attempt < SLUG_ATTEMPTS; attempt += 1) {
-        const slug = attempt === 0 ? base : `${base}-${attempt + 1}`;
+        const slug = collisionSafeSlug(base, attempt);
         try {
           return await this.db.$transaction(async (tx: Prisma.TransactionClient) => {
             const org = await tx.organization.create({
