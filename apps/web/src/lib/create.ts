@@ -28,6 +28,7 @@ export const STYLES: StyleDef[] = [
   { id: 'arabic-drama', name: 'دراما عربية', from: '#b66a37', to: '#26344f' },
   { id: 'studio', name: 'استوديو', from: '#d6e7ff', to: '#5274a8' },
   { id: 'soft-daylight', name: 'ضوء نهاري', from: '#fff0b5', to: '#84b9e8' },
+  { id: 'social-3d', name: 'قصة 3D عربية', from: '#ff9f7a', to: '#6f7cff' },
 ];
 
 export interface CreateDraft {
