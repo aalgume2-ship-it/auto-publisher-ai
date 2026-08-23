@@ -16,10 +16,10 @@ export interface VideoProviderDef {
 export const VIDEO_PROVIDERS: readonly VideoProviderDef[] = [
   {
     id: 'hf-ltx',
-    label: 'LTX-2.3 ZeroGPU',
-    model: 'ltx-2.3',
-    consoleUrl: 'https://huggingface.co/spaces/Lightricks/LTX-2.3',
-    priceHint: 'free shared ZeroGPU; no API key required',
+    label: 'LTX ZeroGPU multi-route',
+    model: 'ltx-2.x',
+    consoleUrl: 'https://huggingface.co/spaces/Lightricks/LTX-2-3',
+    priceHint: 'free shared ZeroGPU; no API key required; multi-space failover',
     envKey: '',
     supportsFirstFrame: false,
     supportedDurations: [1, 2, 3, 4, 5],
@@ -100,113 +100,43 @@ async function http(url: string, init: RequestInit, timeoutMs = 30_000): Promise
 const bearer = (k: string) => ({ authorization: `Bearer ${k}`, 'content-type': 'application/json' });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/* ------------------------------------------------------ HUGGING FACE FREE */
 
-/* ------------------------------------------------------ HUGGING FACE LTX */
+type GradioFile = { url?: string | null; path?: string | null; video?: unknown };
 
-async function hfLtxPrimaryGenerate(req: ClipRequest): Promise<Buffer> {
-  const base = 'https://lightricks-ltx-2-3.hf.space';
-  // ZeroGPU is shared public compute, so keep each scene compact and vertical.
-  const duration = Math.min(5, Math.max(1, Math.round(req.windowSec)));
-  // LTX's public Space can return an opaque SSE error when a long prompt
-  // overflows its tokenizer. Keep the full request model-friendly and use the
-  // deterministic seed that is exercised by the real-motion probe.
-  const corePrompt = req.prompt.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240);
-  const motionPrompt = `${corePrompt}, continuous natural motion, cinematic tracking camera, coherent subject identity, realistic temporal consistency, no text, no still frame`;
-  const body = {
-    data: [
-      null,
-      motionPrompt,
-      duration,
-      false,
-      42,
-      true,
-      768,
-      512,
-    ],
-  };
-  const submit = await fetch(`${base}/gradio_api/call/generate_video`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!submit.ok) throw new Error(`hf-ltx submit ${submit.status}: ${(await submit.text()).slice(0, 180)}`);
-  const submitted = (await submit.json()) as { event_id?: string };
-  if (!submitted.event_id) throw new Error('hf-ltx submit returned no event id');
-
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), CLIP_TIMEOUT_MS);
-  try {
-    const result = await fetch(`${base}/gradio_api/call/generate_video/${submitted.event_id}`, {
-      headers: { accept: 'text/event-stream' },
-      signal: ctrl.signal,
-    });
-    if (!result.ok) throw new Error(`hf-ltx result ${result.status}: ${(await result.text()).slice(0, 180)}`);
-    const sse = await result.text();
-    if (/event:\s*error/i.test(sse)) throw new Error(`hf-ltx generation failed: ${sse.slice(-500)}`);
-    const dataLines = sse.split(/\r?\n/).filter((line) => line.startsWith('data:'));
-    let file: { url?: string | null; path?: string } | null = null;
-    for (let i = dataLines.length - 1; i >= 0; i -= 1) {
-      try {
-        const parsed = JSON.parse(dataLines[i]!.slice(5).trim()) as unknown;
-        if (Array.isArray(parsed) && parsed[0] && typeof parsed[0] === 'object') {
-          file = parsed[0] as { url?: string | null; path?: string };
-          break;
-        }
-      } catch { /* progress line */ }
+function findGradioFile(value: unknown): GradioFile | null {
+  if (!value) return null;
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj['url'] === 'string' || typeof obj['path'] === 'string') return obj as GradioFile;
+    if (obj['video']) {
+      const nested = findGradioFile(obj['video']);
+      if (nested) return nested;
     }
-    if (!file) throw new Error('hf-ltx completed without a video file');
-    const videoUrl = file.url || (file.path ? `${base}/gradio_api/file=${encodeURIComponent(file.path)}` : '');
-    if (!videoUrl) throw new Error('hf-ltx output had no downloadable URL');
-    const dl = await fetch(videoUrl);
-    if (!dl.ok) throw new Error(`hf-ltx download ${dl.status}`);
-    const buf = Buffer.from(await dl.arrayBuffer());
-    if (buf.length < 30_000) throw new Error('hf-ltx returned a suspiciously small clip');
-    return buf;
-  } finally {
-    clearTimeout(timer);
+    for (const child of Object.values(obj)) {
+      const nested = findGradioFile(child);
+      if (nested) return nested;
+    }
+    return null;
   }
+  if (Array.isArray(value)) {
+    for (const child of value) {
+      const nested = findGradioFile(child);
+      if (nested) return nested;
+    }
+  }
+  return null;
 }
 
-/**
- * Public zero-cost fallback used when the official LTX Space has no shared GPU
- * capacity. Omni's lite endpoint returns a short real H.264 clip; the moving
- * composer stretches/cuts it to the requested scene window and adds narration.
- */
-async function hfOmniGenerate(req: ClipRequest): Promise<Buffer> {
-  const base = 'https://saravutw-omni-videos-custom.hf.space';
-  const corePrompt = req.prompt.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 420);
-  const motionPrompt = [
-    corePrompt,
-    'live-action continuous natural motion',
-    'realistic people wearing complete modest clothing',
-    'cinematic handheld camera',
-    'no nudity',
-    'no subtitles',
-    'no text',
-    'no logos',
-  ].join(', ');
-  const body = {
-    data: [
-      1, // scene count
-      3, // seconds per scene; lowest shared-GPU cost
-      384,
-      '9:16',
-      motionPrompt,
-      motionPrompt,
-      null,
-      null,
-      null,
-    ],
-  };
-  const apiName = '_submit_t2v_manual';
+async function gradioGenerate(base: string, apiName: string, data: unknown[], tag: string): Promise<Buffer> {
   const submit = await fetch(`${base}/gradio_api/call/${apiName}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ data }),
   });
-  if (!submit.ok) throw new Error(`hf-omni submit ${submit.status}: ${(await submit.text()).slice(0, 180)}`);
+  if (!submit.ok) throw new Error(`${tag} submit ${submit.status}: ${(await submit.text()).slice(0, 220)}`);
   const submitted = (await submit.json()) as { event_id?: string };
-  if (!submitted.event_id) throw new Error('hf-omni submit returned no event id');
+  if (!submitted.event_id) throw new Error(`${tag} submit returned no event id`);
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), CLIP_TIMEOUT_MS);
@@ -215,47 +145,85 @@ async function hfOmniGenerate(req: ClipRequest): Promise<Buffer> {
       headers: { accept: 'text/event-stream' },
       signal: ctrl.signal,
     });
-    if (!result.ok) throw new Error(`hf-omni result ${result.status}: ${(await result.text()).slice(0, 180)}`);
+    if (!result.ok) throw new Error(`${tag} result ${result.status}: ${(await result.text()).slice(0, 220)}`);
     const sse = await result.text();
-    if (/event:\s*error/i.test(sse)) throw new Error(`hf-omni generation failed: ${sse.slice(-500)}`);
+    if (/event:\s*error/i.test(sse)) throw new Error(`${tag} generation failed: ${sse.slice(-700)}`);
+
     const dataLines = sse.split(/\r?\n/).filter((line) => line.startsWith('data:'));
-    let file: { url?: string | null; path?: string } | null = null;
+    let file: GradioFile | null = null;
     for (let i = dataLines.length - 1; i >= 0; i -= 1) {
       try {
         const parsed = JSON.parse(dataLines[i]!.slice(5).trim()) as unknown;
-        if (!Array.isArray(parsed) || !parsed[1] || typeof parsed[1] !== 'object') continue;
-        const video = (parsed[1] as { video?: unknown }).video;
-        if (video && typeof video === 'object') {
-          file = video as { url?: string | null; path?: string };
-          break;
-        }
+        file = findGradioFile(parsed);
+        if (file) break;
       } catch { /* heartbeat/progress line */ }
     }
-    if (!file) throw new Error('hf-omni completed without a video file');
+    if (!file) throw new Error(`${tag} completed without a video file`);
     const videoUrl = file.url || (file.path ? `${base}/gradio_api/file=${encodeURIComponent(file.path)}` : '');
-    if (!videoUrl) throw new Error('hf-omni output had no downloadable URL');
-    const dl = await fetch(videoUrl);
-    if (!dl.ok) throw new Error(`hf-omni download ${dl.status}`);
+    if (!videoUrl) throw new Error(`${tag} output had no downloadable URL`);
+    const dl = await fetch(videoUrl, { headers: { 'user-agent': 'autocreator-pipeline/1.0' } });
+    if (!dl.ok) throw new Error(`${tag} download ${dl.status}`);
     const buf = Buffer.from(await dl.arrayBuffer());
-    if (buf.length < 30_000) throw new Error('hf-omni returned a suspiciously small clip');
+    if (buf.length < 30_000) throw new Error(`${tag} returned a suspiciously small clip`);
     return buf;
   } finally {
     clearTimeout(timer);
   }
 }
 
+function compactMotionPrompt(req: ClipRequest, max = 300): string {
+  const core = req.prompt.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  return `${core}, photorealistic live-action, continuous natural subject motion, cinematic tracking camera, coherent identity, realistic temporal consistency, physically plausible movement, no text, no subtitles, no logo, no still frame`;
+}
+
+async function hfLtx23Generate(req: ClipRequest): Promise<Buffer> {
+  const duration = Math.min(5, Math.max(1, Math.round(req.windowSec)));
+  return gradioGenerate(
+    'https://lightricks-ltx-2-3.hf.space',
+    'generate_video',
+    [null, compactMotionPrompt(req, 240), duration, false, 42, true, 768, 512],
+    'hf-ltx23',
+  );
+}
+
+async function hfLtxDistilledGenerate(req: ClipRequest): Promise<Buffer> {
+  const duration = Math.min(5, Math.max(1, Math.round(req.windowSec)));
+  // The official distilled Space exposes the same generate_video Gradio shape
+  // used by LTX-2.x: image, prompt, duration, enhance, seed, randomize, h, w.
+  return gradioGenerate(
+    'https://lightricks-ltx-2-distilled.hf.space',
+    'generate_video',
+    [null, compactMotionPrompt(req, 260), duration, false, 42, true, 768, 512],
+    'hf-ltx-distilled',
+  );
+}
+
+async function hfOmniGenerate(req: ClipRequest): Promise<Buffer> {
+  const motionPrompt = compactMotionPrompt(req, 360);
+  return gradioGenerate(
+    'https://saravutw-omni-videos-custom.hf.space',
+    '_submit_t2v_manual',
+    [1, 3, 384, '9:16', motionPrompt, motionPrompt, null, null, null],
+    'hf-omni',
+  );
+}
+
 async function hfLtxGenerate(req: ClipRequest): Promise<Buffer> {
-  try {
-    return await hfOmniGenerate(req);
-  } catch (omniError) {
+  const routes: Array<[string, () => Promise<Buffer>]> = [
+    ['omni', () => hfOmniGenerate(req)],
+    ['ltx23', () => hfLtx23Generate(req)],
+    ['ltx-distilled', () => hfLtxDistilledGenerate(req)],
+  ];
+  const failures: string[] = [];
+  for (const [name, run] of routes) {
     try {
-      return await hfLtxPrimaryGenerate(req);
-    } catch (ltxError) {
-      const omni = omniError instanceof Error ? omniError.message : String(omniError);
-      const ltx = ltxError instanceof Error ? ltxError.message : String(ltxError);
-      throw new Error(`free video providers failed; omni: ${omni}; ltx: ${ltx}`);
+      return await run();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      failures.push(`${name}: ${detail.slice(0, 420)}`);
     }
   }
+  throw new Error(`free video providers failed; ${failures.join(' | ')}`);
 }
 
 /* ----------------------------------------------------------- POLLINATIONS */
@@ -280,9 +248,7 @@ async function pollinationsGenerate(apiKey: string, req: ClipRequest): Promise<B
     }
     const type = res.headers.get('content-type') ?? '';
     const buf = Buffer.from(await res.arrayBuffer());
-    if (!type.includes('video') && buf.length < 100_000) {
-      throw new Error(`pollinations returned non-video response (${type || 'unknown'})`);
-    }
+    if (!type.includes('video') && buf.length < 100_000) throw new Error(`pollinations returned non-video response (${type || 'unknown'})`);
     if (buf.length < 30_000) throw new Error('pollinations returned a suspiciously small clip');
     return buf;
   } finally {
@@ -395,11 +361,6 @@ export async function generateClip(cred: VideoCredential, req: ClipRequest): Pro
   return buf;
 }
 
-/**
- * Natural Arabic narration through Runway's hosted Eleven v3 endpoint. Using
- * the same Runway credential as video generation avoids requiring a second
- * vendor key just to replace the robotic keyless voice.
- */
 export async function generateRunwaySpeech(apiKey: string, text: string, languageCode = 'ar'): Promise<Buffer> {
   const { status, data } = await http('https://api.dev.runwayml.com/v1/text_to_speech', {
     method: 'POST',
@@ -418,9 +379,7 @@ export async function generateRunwaySpeech(apiKey: string, text: string, languag
     }),
   });
   const d = (data ?? {}) as { id?: string; error?: string; message?: string };
-  if ((status !== 200 && status !== 201) || !d.id) {
-    throw new Error(`runway speech submit ${status}: ${(d.error ?? d.message ?? 'no task id').slice(0, 200)}`);
-  }
+  if ((status !== 200 && status !== 201) || !d.id) throw new Error(`runway speech submit ${status}: ${(d.error ?? d.message ?? 'no task id').slice(0, 200)}`);
   const audioUrl = await runwayPoll(apiKey, d.id);
   const res = await fetch(audioUrl, { headers: { 'user-agent': 'autocreator-pipeline/1.0' } });
   if (!res.ok) throw new Error(`runway speech cdn ${res.status}: audio download failed`);
