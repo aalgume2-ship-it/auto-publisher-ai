@@ -17,15 +17,27 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Generate MiniMax H3 portrait clip with soundtrack
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HUGGINGFACE_TOKEN: ${{ secrets.HUGGINGFACE_TOKEN }}
+          HUGGING_FACE_HUB_TOKEN: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
         run: |
           set -euo pipefail
           BASE='https://multimodalart-minimax-h3.hf.space'
           PROMPT='A young Saudi man in his late twenties walks through a rainy neon night market and discovers an old film camera on a wooden stall. Premium photorealistic live action, realistic skin and hands, subtle nervous expression, slow cinematic dolly-in, shallow depth of field, wet reflections, physically realistic motion. Soundtrack: rain, distant market chatter, footsteps, cloth movement and a quiet camera shutter. No subtitles, no text, no watermark.'
           BODY=$(jq -nc --arg p "$PROMPT" '{data:[$p,null,null,"768x1344 · 9:16 full",2,18,42,false]}')
-          SUBMIT=$(curl -fLsS --retry 8 --retry-all-errors --retry-delay 5 -H 'content-type: application/json' -H 'accept: application/json' -d "$BODY" "$BASE/gradio_api/call/generate")
+          TOKEN="${HF_TOKEN:-${HUGGINGFACE_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}}"
+          AUTH=()
+          if [ -n "$TOKEN" ]; then
+            AUTH=(-H "Authorization: Bearer $TOKEN")
+            echo 'HF authentication: available'
+          else
+            echo 'HF authentication: unavailable'
+          fi
+          SUBMIT=$(curl -fLsS --retry 8 --retry-all-errors --retry-delay 5 "${AUTH[@]}" -H 'content-type: application/json' -H 'accept: application/json' -d "$BODY" "$BASE/gradio_api/call/generate")
           EVENT=$(jq -r '.event_id // empty' <<<"$SUBMIT")
           test -n "$EVENT"
-          curl -fLsS --retry 3 --retry-all-errors -H 'accept: text/event-stream' "$BASE/gradio_api/call/generate/$EVENT" -o result.sse
+          curl -fLsS --retry 3 --retry-all-errors "${AUTH[@]}" -H 'accept: text/event-stream' "$BASE/gradio_api/call/generate/$EVENT" -o result.sse
           cat result.sse
           ! grep -qi '^event: error' result.sse
           DATA=$(grep '^data:' result.sse | tail -1 | sed 's/^data:[[:space:]]*//')
@@ -33,7 +45,7 @@ jobs:
           PATHV=$(jq -r '.. | objects | .path? // empty' <<<"$DATA" | head -1)
           if [ -z "$URL" ] && [ -n "$PATHV" ]; then URL="$BASE/gradio_api/file=$PATHV"; fi
           test -n "$URL"
-          curl -fLsS --retry 4 --retry-all-errors "$URL" -o minimax-h3-probe.mp4
+          curl -fLsS --retry 4 --retry-all-errors "${AUTH[@]}" "$URL" -o minimax-h3-probe.mp4
           test "$(stat -c%s minimax-h3-probe.mp4)" -gt 50000
           ffprobe -v error -show_entries stream=codec_type,codec_name,width,height,sample_rate -show_entries format=duration,size -of json minimax-h3-probe.mp4 | tee probe.json
           ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 minimax-h3-probe.mp4 | grep -q '768,1344'
