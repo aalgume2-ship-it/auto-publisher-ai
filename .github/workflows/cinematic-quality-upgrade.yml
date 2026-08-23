@@ -109,3 +109,5 @@ jobs:
             if [ "$code" = 204 ]; then echo "AWS deploy dispatched via $wf"; exit 0; fi
           done
           echo 'AWS deploy workflow was not dispatchable; push-based deploy may still handle the commit.'
+
+# manual rerun marker: 2026-08-23 cinematic target
