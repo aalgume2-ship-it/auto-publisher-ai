@@ -1,6 +1,7 @@
 name: apply-story3d-fallback
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -8,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  statuses: write
 
 jobs:
   patch:
@@ -22,34 +24,28 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          # 1) Add a vertical social 3D style preset.
           p = Path('apps/web/src/lib/create.ts')
           s = p.read_text()
           needle = "  { id: 'soft-daylight', name: 'ضوء نهاري', from: '#fff0b5', to: '#84b9e8' },\n"
-          add = needle + "  { id: 'social-3d', name: 'قصة 3D عربية', from: '#ff9f7a', to: '#6f7cff' },\n"
           if "id: 'social-3d'" not in s:
-              s = s.replace(needle, add)
+              s = s.replace(needle, needle + "  { id: 'social-3d', name: 'قصة 3D عربية', from: '#ff9f7a', to: '#6f7cff' },\n")
           p.write_text(s)
 
-          # 2) Teach the generation prompt what this format means.
           p = Path('apps/web/src/app/generate/page.tsx')
           s = p.read_text()
           needle = "  'soft-daylight': 'soft natural daylight, realistic exposure, gentle contrast and lifelike colors',\n"
-          add = needle + "  'social-3d': 'premium family-friendly 3D animated social short, stylized semi-realistic characters, expressive eyes and faces, clean detailed environments, warm soft cinematic light, polished materials, strong readable posing, vertical short-form storytelling',\n"
           if "'social-3d':" not in s:
-              s = s.replace(needle, add)
+              s = s.replace(needle, needle + "  'social-3d': 'premium family-friendly 3D animated social short, stylized semi-realistic characters, expressive eyes and faces, clean detailed environments, warm soft cinematic light, polished materials, strong readable posing, vertical short-form storytelling',\n")
           p.write_text(s)
 
-          # 3) Add one-click preset to the Create page.
           p = Path('apps/web/src/components/studio/CreatePanel.tsx')
           s = p.read_text()
           needle = "            <button type=\"button\" className=\"hf-tool\" onClick={() => setPrompt('قصة قصيرة واقعية عن شاب عربي يعثر على محفظة في شارع مزدحم، يبحث عن صاحبها ثم يعيدها إليه؛ مشاهد مترابطة وشخصية واحدة ثابتة وتصوير سينمائي حي')}><Sparkles size={16} /> قصة احترافية</button>\n"
-          add = needle + "            <button type=\"button\" className=\"hf-tool\" onClick={() => { setModel('story-3d'); setStyle('social-3d'); setAspect('9:16'); setPrompt('قصة عربية قصيرة بأسلوب رسوم ثلاثية الأبعاد شبه واقعية، شخصية رئيسية واحدة ثابتة في كل المشاهد، تعبيرات وجه واضحة، إضاءة ناعمة، حركة كاميرا سينمائية هادئة، تعليق صوتي عربي، ونص عربي كبير وواضح أسفل الفيديو.'); }}><Sparkles size={16} /> قصة 3D عربية</button>\n"
+          button = "            <button type=\"button\" className=\"hf-tool\" onClick={() => { setModel('story-3d'); setStyle('social-3d'); setAspect('9:16'); setPrompt('قصة عربية قصيرة بأسلوب رسوم ثلاثية الأبعاد شبه واقعية، شخصية رئيسية واحدة ثابتة في كل المشاهد، تعبيرات وجه واضحة، إضاءة ناعمة، حركة كاميرا سينمائية هادئة، تعليق صوتي عربي، ونص عربي كبير وواضح أسفل الفيديو.'); }}><Sparkles size={16} /> قصة 3D عربية</button>\n"
           if 'قصة 3D عربية</button>' not in s:
-              s = s.replace(needle, add)
+              s = s.replace(needle, needle + button)
           p.write_text(s)
 
-          # 4) Export a deterministic local motion renderer using the already bundled ffmpeg.
           p = Path('packages/video-engine/src/render/compose.service.ts')
           s = p.read_text()
           marker = "export async function probeDurationMs(file: string): Promise<number> {"
@@ -75,16 +71,11 @@ jobs:
               s = s.replace(marker, helper + marker)
           p.write_text(s)
 
-          # 5) When shared video GPUs are unavailable, 3D Story mode remains usable:
-          # generate a real AI scene image, turn it into a high-quality motion clip,
-          # then the normal composer adds Arabic voiceover + captions across scenes.
           p = Path('packages/video-engine/src/ai/ai.service.ts')
           s = p.read_text()
           import_needle = "import { getPrompt, renderUserPrompt } from './prompts/registry.js';\n"
-          import_add = import_needle + "import { renderAnimatedStillClip, workDirFor } from '../render/compose.service.js';\nimport { readFile, writeFile } from 'node:fs/promises';\nimport { join } from 'node:path';\n"
           if 'renderAnimatedStillClip' not in s:
-              s = s.replace(import_needle, import_add)
-
+              s = s.replace(import_needle, import_needle + "import { renderAnimatedStillClip, workDirFor } from '../render/compose.service.js';\nimport { readFile, writeFile } from 'node:fs/promises';\nimport { join } from 'node:path';\n")
           old = '''  async generateSceneClip(cred: VideoCredential, visualPrompt: string, firstFrameUrl: string | null, windowSec: number): Promise<Buffer> {
     if (cred.def.id === 'hf-ltx') {
       // One keyless attempt already tries two independent free Spaces. Avoid
@@ -101,13 +92,9 @@ jobs:
       } catch (videoError) {
         const isStory3d = /(?:3d animation|3d animated|feature-film 3d|social short|stylized semi-realistic|قصة 3d|ثلاثية الأبعاد)/iu.test(visualPrompt);
         if (!isStory3d) throw videoError;
-
         this.logger.warn({ module: 'ai' }, 'shared video GPU unavailable — using reliable 3D social-story motion fallback');
         const seed = Math.abs([...visualPrompt].reduce((acc, ch) => ((acc * 31) + ch.charCodeAt(0)) | 0, 17)) % 900000;
-        const image = await this.generateSceneImage(
-          `${visualPrompt}, premium polished 3D animated social-story frame, stylized semi-realistic human characters, expressive large eyes, clean anatomy, detailed environment, soft cinematic lighting, vertical 9:16, no text, no watermark`,
-          seed,
-        );
+        const image = await this.generateSceneImage(`${visualPrompt}, premium polished 3D animated social-story frame, stylized semi-realistic human characters, expressive large eyes, clean anatomy, detailed environment, soft cinematic lighting, vertical 9:16, no text, no watermark`, seed);
         const wd = workDirFor('story3d-clip', `${Date.now()}-${seed}`);
         const { mkdir } = await import('node:fs/promises');
         await mkdir(wd, { recursive: true });
@@ -123,11 +110,11 @@ jobs:
     return withRetry(`clip-${cred.def.id}`, () => generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec }), this.logger);
   }
 '''
-          if old not in s:
+          if old not in s and 'shared video GPU unavailable — using reliable 3D social-story motion fallback' not in s:
               raise SystemExit('generateSceneClip target block not found')
-          s = s.replace(old, new)
+          if old in s:
+              s = s.replace(old, new)
           p.write_text(s)
-
           Path('STORY3D_FALLBACK_READY.md').write_text('Reliable vertical 3D social-story mode installed.\n')
           PY
 
@@ -140,3 +127,14 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -m 'feat(video): add reliable Arabic 3D social-story mode'
           git push origin HEAD:main
+
+      - name: Publish patch status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          STATE=failure; [ "$JOB_STATUS" = success ] && STATE=success
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          jq -nc --arg state "$STATE" --arg context 'story3d-patcher' --arg desc "3D social-story patch: $JOB_STATUS" --arg target "$RUN_URL" '{state:$state,context:$context,description:$desc,target_url:$target}' >/tmp/status.json
+          curl -fLsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'content-type: application/json' --data @/tmp/status.json "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}"
