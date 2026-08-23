@@ -1,0 +1,48 @@
+name: probe-ltx-official
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/probe-ltx-official.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  statuses: write
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Probe official LTX distilled text_to_video
+        id: probe
+        run: |
+          set -euo pipefail
+          BASE='https://lightricks-ltx-video-distilled.hf.space'
+          PROMPT='A person walking naturally through a cinematic neon street, realistic live action, camera tracking, no text'
+          NEG='worst quality, inconsistent motion, blurry, jittery, distorted, text, subtitles, watermark'
+          BODY=$(jq -nc --arg p "$PROMPT" --arg n "$NEG" '{data:[$p,$n,null,null,704,512,"text-to-video",1.0,9,42,false,3.0,false]}')
+          SUBMIT=$(curl -fLsS -H 'content-type: application/json' -H 'accept: application/json' -d "$BODY" "$BASE/gradio_api/call/text_to_video")
+          EVENT=$(jq -r '.event_id // empty' <<<"$SUBMIT")
+          test -n "$EVENT"
+          echo "event=$EVENT"
+          curl -fLsS -H 'accept: text/event-stream' "$BASE/gradio_api/call/text_to_video/$EVENT" -o result.sse
+          tail -c 2000 result.sse
+          ! grep -qi '^event: error' result.sse
+          DATA=$(grep '^data:' result.sse | tail -1 | sed 's/^data:[[:space:]]*//')
+          URL=$(jq -r '.. | objects | .url? // empty' <<<"$DATA" | head -1)
+          PATHV=$(jq -r '.. | objects | .path? // empty' <<<"$DATA" | head -1)
+          if [ -z "$URL" ] && [ -n "$PATHV" ]; then URL="$BASE/gradio_api/file=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$PATHV")"; fi
+          test -n "$URL"
+          curl -fLsS "$URL" -o probe.mp4
+          test "$(stat -c%s probe.mp4)" -gt 30000
+          ffprobe -v error -show_entries stream=codec_type,width,height -show_entries format=duration,size -of json probe.mp4 | tee probe.json
+          jq -e '.streams | any(.codec_type=="video")' probe.json >/dev/null
+      - name: Publish probe status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          STATE=failure; [ "$JOB_STATUS" = success ] && STATE=success
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          jq -nc --arg state "$STATE" --arg target "$RUN_URL" --arg desc "Official LTX ZeroGPU probe: $JOB_STATUS" --arg context "ltx-official-probe" '{state:$state,target_url:$target,description:$desc,context:$context}' >/tmp/s.json
+          curl -fLsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'content-type: application/json' --data @/tmp/s.json "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}"
