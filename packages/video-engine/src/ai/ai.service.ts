@@ -46,7 +46,7 @@ export type VideoScript = z.infer<typeof VideoScriptSchema>;
 export interface ScriptRequest {
   keyword: string;
   niche: string;
-  language: string; // 'ar' | 'en'…
+  language: string;
   targetSeconds: number;
   promptVersion?: string;
 }
@@ -61,7 +61,6 @@ export function extractJson(raw: string): string {
   return raw.slice(start, end + 1);
 }
 
-/** Exponential backoff retry — terminal errors (AI_CREDENTIALS_MISSING etc.) are never retried. */
 async function withRetry<T>(label: string, fn: () => Promise<T>, logger?: Logger): Promise<T> {
   const delays = [0, 900, 2200];
   let last: unknown;
@@ -83,21 +82,21 @@ async function withRetry<T>(label: string, fn: () => Promise<T>, logger?: Logger
   throw last instanceof Error ? last : new Error(String(last));
 }
 
-
 export interface ImageGenRequest {
-    prompt: string;
-    negativePrompt?: string | undefined;
-    style?: string | undefined;
-    aspectRatio?: '9:16' | '16:9' | '1:1' | '4:5' | undefined;
-    resolution?: '512x512' | '720x1280' | '1024x1024' | '1280x720' | '1536x1024' | undefined;
+  prompt: string;
+  negativePrompt?: string | undefined;
+  style?: string | undefined;
+  aspectRatio?: '9:16' | '16:9' | '1:1' | '4:5' | undefined;
+  resolution?: '512x512' | '720x1280' | '1024x1024' | '1280x720' | '1536x1024' | undefined;
 }
 export interface ImageGenResult {
-    data: Buffer;
-    provider: string;
-    mime: string;
-    width: number;
-    height: number;
+  data: Buffer;
+  provider: string;
+  mime: string;
+  width: number;
+  height: number;
 }
+
 export class AiService {
   private readonly logger: Logger;
 
@@ -108,15 +107,10 @@ export class AiService {
     this.logger = createLogger({ service: 'video-engine', level: 'info' }).child({ module: 'ai' });
   }
 
-  /* ---------------------------------------------------------------- SCRIPT */
-
   private keylessScript(req: ScriptRequest): VideoScript {
     const keyword = req.keyword.trim().replace(/\s+/g, ' ') || 'موضوع ملهم';
     const niche = req.niche.trim().replace(/\s+/g, ' ') || 'محتوى عام';
     const english = req.language.toLowerCase().startsWith('en');
-    // JavaScript's `\b` is ASCII-oriented and does not create a reliable word
-    // boundary after Arabic letters. Match an explicit separator instead so
-    // direction-only clauses never leak into narration or subtitles.
     const technicalDirection = /^(?:حركة|تصوير|لقطة|الكاميرا|بدون نصوص|نسبة الأبعاد|motion|camera|cinematic|tracking shot|no text|aspect ratio)(?:\s|:|-|$)/iu;
     const rawBeats = keyword
       .split(/[.!?؟،؛]+/u)
@@ -126,16 +120,15 @@ export class AiService {
     const storyAnchor = beats.slice(0, 2).join('، ').slice(0, 220);
     const continuity = [
       storyAnchor,
-      'same exact main subject in every shot',
-      'identical appearance colors and proportions',
-      'same environment weather and time of day',
-      'each shot continues directly from the previous action',
+      'IDENTITY LOCK: same exact main subject in every shot',
+      'identical face geometry, age, hair, skin tone, wardrobe, accessories, body proportions and colors',
+      'no identity drift, no duplicate subject, no wardrobe changes, no face morphing',
+      'same environment geography, architecture, weather, lighting direction and time of day',
+      'physical continuity: each shot begins from the exact action and screen direction where the previous shot ended',
+      'photorealistic live-action cinematography, natural anatomy, realistic skin texture, physically plausible motion',
+      'premium commercial color science, controlled highlights, realistic shadows, rich dynamic range',
     ].join(', ');
 
-    // A full story prompt is not a caption. Distribute its clauses into four
-    // concise beats so a 20-second request stays near 20 seconds and subtitles
-    // remain readable. Each bucket takes a few words from every source clause,
-    // preserving both setting and subject instead of truncating the first line.
     const buckets: string[][] = Array.from({ length: 4 }, () => []);
     beats.forEach((beat, index) => {
       const bucket = Math.min(3, Math.floor((index * 4) / beats.length));
@@ -176,6 +169,20 @@ export class AiService {
     );
     const title = beats.slice(0, 2).join(' — ').slice(0, 110);
 
+    const scenes = english
+      ? [
+          { narration: `At first, ${compactBeats[0]}.`, visualPrompt: `${continuity}; scene 1, ${compactBeats[0]}, 24mm establishing shot, slow controlled dolly-in, motivated cinematic lighting, layered foreground parallax, realistic continuous motion, natural motion blur, no text` },
+          { narration: `Then, ${compactBeats[1]}.`, visualPrompt: `${continuity}; scene 2, ${compactBeats[1]}, 35mm medium tracking shot, stabilized lateral follow, natural subject motion, foreground occlusion, strong depth separation, realistic motion blur, no text` },
+          { narration: `At the turning point, ${compactBeats[2]}.`, visualPrompt: `${continuity}; scene 3, ${compactBeats[2]}, 50mm intimate action close-up, subtle handheld micro-motion, coherent locked identity, expressive natural movement, shallow depth of field, cinematic motion, no text` },
+          { narration: `In the end, ${compactBeats[3]}.`, visualPrompt: `${continuity}; scene 4, ${compactBeats[3]}, 28mm cinematic closing wide shot, graceful crane-and-pullback reveal, locked identity and environment continuity, realistic motion, natural atmospheric depth, no text` },
+        ]
+      : [
+          { narration: `في البداية، ${compactBeats[0]}.`, visualPrompt: `${continuity}; scene 1, ${compactBeats[0]}, 24mm establishing shot, slow controlled dolly-in, motivated cinematic lighting, layered foreground parallax, realistic continuous motion, natural motion blur, no text` },
+          { narration: `ثم، ${compactBeats[1]}.`, visualPrompt: `${continuity}; scene 2, ${compactBeats[1]}, 35mm medium tracking shot, stabilized lateral follow, natural subject motion, foreground occlusion, strong depth separation, realistic motion blur, no text` },
+          { narration: `وعند لحظة التحول، ${compactBeats[2]}.`, visualPrompt: `${continuity}; scene 3, ${compactBeats[2]}, 50mm intimate action close-up, subtle handheld micro-motion, coherent locked identity, expressive natural movement, shallow depth of field, cinematic motion, no text` },
+          { narration: `وفي النهاية، ${compactBeats[3]}.`, visualPrompt: `${continuity}; scene 4, ${compactBeats[3]}, 28mm cinematic closing wide shot, graceful crane-and-pullback reveal, locked identity and environment continuity, realistic motion, natural atmospheric depth, no text` },
+        ];
+
     if (english) {
       return {
         title,
@@ -183,12 +190,7 @@ export class AiService {
         tags: ['cinematic', 'video', 'story', 'creative', 'motion', 'shortfilm'],
         hook: `Watch ${title} come alive in motion.`,
         cta: 'Follow for more cinematic stories.',
-        scenes: [
-          { narration: `At first, ${compactBeats[0]}.`, visualPrompt: `${continuity}; scene 1, ${compactBeats[0]}, establishing shot, cinematic lighting, realistic continuous motion, no text` },
-          { narration: `Then, ${compactBeats[1]}.`, visualPrompt: `${continuity}; scene 2, ${compactBeats[1]}, immersive tracking shot, natural subject motion, strong depth, no text` },
-          { narration: `At the turning point, ${compactBeats[2]}.`, visualPrompt: `${continuity}; scene 3, ${compactBeats[2]}, dynamic close shot, coherent identity, cinematic motion, no text` },
-          { narration: `In the end, ${compactBeats[3]}.`, visualPrompt: `${continuity}; scene 4, ${compactBeats[3]}, closing wide shot, graceful camera pullback, realistic motion, no text` },
-        ],
+        scenes,
       };
     }
 
@@ -198,22 +200,10 @@ export class AiService {
       tags: ['سينما', 'فيديو', 'إبداع', 'قصة', 'مشاهد', 'cinematic'],
       hook: `شاهد كيف تتحول حكاية ${title} إلى مشهد حي.`,
       cta: 'تابعنا للمزيد من القصص السينمائية.',
-      scenes: [
-        { narration: `في البداية، ${compactBeats[0]}.`, visualPrompt: `${continuity}; scene 1, ${compactBeats[0]}, establishing shot, cinematic lighting, realistic continuous motion, no text` },
-        { narration: `ثم، ${compactBeats[1]}.`, visualPrompt: `${continuity}; scene 2, ${compactBeats[1]}, immersive tracking shot, natural subject motion, strong depth, no text` },
-        { narration: `وعند لحظة التحول، ${compactBeats[2]}.`, visualPrompt: `${continuity}; scene 3, ${compactBeats[2]}, dynamic close shot, coherent identity, cinematic motion, no text` },
-        { narration: `وفي النهاية، ${compactBeats[3]}.`, visualPrompt: `${continuity}; scene 4, ${compactBeats[3]}, closing wide shot, graceful camera pullback, realistic motion, no text` },
-      ],
+      scenes,
     };
   }
 
-  /**
-   * Resolves the best available LLM credential for this org and calls it.
-   * Fails CLOSED with AI_CREDENTIALS_MISSING (terminal — retrying cannot help)
-   * when no provider is configured anywhere; the detail tells the user exactly
-   * how to activate: paste one free key in /dashboard/settings, or set any of
-   * the named env vars on the API service.
-   */
   private async requireLlm(orgId: string): Promise<LlmCredential> {
     const cred = await this.creds.resolveLlm(orgId);
     if (!cred) {
@@ -264,9 +254,7 @@ export class AiService {
           } finally {
             clearTimeout(timer);
           }
-        } catch {
-          // The deterministic template remains available when translation is offline.
-        }
+        } catch {}
       }
       return { script: this.keylessScript({ ...req, keyword }), provider: 'keyless-template' };
     }
@@ -284,13 +272,9 @@ export class AiService {
       throw new Error(`${cred.def.id} returned non-JSON completion: ${raw.slice(0, 140)}`);
     }
     const parsed = VideoScriptSchema.safeParse(json);
-    if (!parsed.success) {
-      throw new Error(`script failed schema validation: ${parsed.error.issues.slice(0, 3).map((i) => i.message).join('; ')}`);
-    }
+    if (!parsed.success) throw new Error(`script failed schema validation: ${parsed.error.issues.slice(0, 3).map((i) => i.message).join('; ')}`);
     return { script: parsed.data, provider: cred.def.id };
   }
-
-  // ── Additional prompt families (versioned, retry-wrapped) ─────────────────
 
   async generateIdeas(req: IdeaRequest, orgId: string): Promise<{ ideas: Array<{ title: string; angle: string; why: string; hook: string }>; provider: string }> {
     const cred = await this.requireLlm(orgId);
@@ -328,17 +312,10 @@ export class AiService {
     return { description: json.description ?? '', tags: json.tags ?? [], hashtags: json.hashtags ?? [], provider: cred.def.id };
   }
 
-  /* ----------------------------------------------------------------- VOICE */
-
-  /** Real voiceover: OpenAI tts when that credential resolved, else gTTS chunked MP3(s). No silent mock. */
   async synthesizeVoice(text: string, language: string, orgId: string): Promise<{ chunks: Buffer[]; provider: string; mime: string }> {
     const videoCred = await this.creds.resolveVideo(orgId);
     if (videoCred?.def.id === 'runway') {
-      const chunks = await withRetry(
-        'tts-runway-eleven-v3',
-        async () => [await generateRunwaySpeech(videoCred.apiKey, text, language.startsWith('ar') ? 'ar' : 'en')],
-        this.logger,
-      );
+      const chunks = await withRetry('tts-runway-eleven-v3', async () => [await generateRunwaySpeech(videoCred.apiKey, text, language.startsWith('ar') ? 'ar' : 'en')], this.logger);
       return { chunks, provider: 'runway-eleven-v3', mime: 'audio/mpeg' };
     }
     const cred = await this.creds.resolveLlm(orgId);
@@ -358,7 +335,6 @@ export class AiService {
     return { chunks, provider: 'gtts', mime: 'audio/mpeg' };
   }
 
-  /** gTTS (translate_tts, client=tw-ob) — chunked at sentence boundaries ≤180 chars. */
   private async gtts(text: string, tl: string): Promise<Buffer[]> {
     const sentences = text.split(/(?<=[.!؟?،؛])\s+/u);
     const pieces: string[] = [];
@@ -371,18 +347,14 @@ export class AiService {
           pieces.push(cur.slice(0, 180));
           cur = cur.slice(180);
         }
-      } else {
-        cur = (cur + ' ' + s).trim();
-      }
+      } else cur = (cur + ' ' + s).trim();
     }
     if (cur) pieces.push(cur);
     if (pieces.length === 0) throw new Error('tts: empty narration');
     const out: Buffer[] = [];
     for (const p of pieces) {
       const url = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${encodeURIComponent(tl)}&q=${encodeURIComponent(p)}`;
-      const res = await fetch(url, {
-        headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36', referer: 'https://translate.google.com/' },
-      });
+      const res = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36', referer: 'https://translate.google.com/' } });
       if (!res.ok) throw new Error(`gtts ${res.status} on chunk "${p.slice(0, 40)}…"`);
       const buf = Buffer.from(await res.arrayBuffer());
       if (buf.length < 200) throw new Error('gtts returned empty audio');
@@ -391,55 +363,27 @@ export class AiService {
     return out;
   }
 
-  /* ----------------------------------------------------------------- CLIPS */
-
-  async resolveBunnyStorage(orgId: string) {
-    return this.creds.resolveBunnyStorage(orgId);
-  }
-
-  async resolveVideoCred(orgId: string): Promise<VideoCredential | null> {
-    return this.creds.resolveVideo(orgId);
-  }
+  async resolveBunnyStorage(orgId: string) { return this.creds.resolveBunnyStorage(orgId); }
+  async resolveVideoCred(orgId: string): Promise<VideoCredential | null> { return this.creds.resolveVideo(orgId); }
 
   async generateSceneClip(cred: VideoCredential, visualPrompt: string, firstFrameUrl: string | null, windowSec: number): Promise<Buffer> {
-    if (cred.def.id === 'hf-ltx') {
-      // One keyless attempt already tries two independent free Spaces. Avoid
-      // repeating overloaded shared queues three times and tripling latency.
-      return generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec });
-    }
+    if (cred.def.id === 'hf-ltx') return generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec });
     return withRetry(`clip-${cred.def.id}`, () => generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec }), this.logger);
   }
 
-  /** Public URL of a scene still (passed as FIRST FRAME to clip providers). */
   sceneImageUrl(visualPrompt: string, seed: number): string {
     const prompt = encodeURIComponent(`${visualPrompt}, vertical 9:16 cinematic, high detail, no text, no watermark`);
     return `https://image.pollinations.ai/prompt/${prompt}?width=720&height=1280&seed=${seed}&nologo=true&model=flux`;
   }
 
-  /**
-   * Real scene artwork via a 3-provider REAL chain, recorded in metadata:
-   *   1. Pollinations flux (AI-generated).
-   *   2. LoremFlickr (real Flickr photo).
-   *   3. Openverse (CC image search).
-   * Every path yields REAL artwork — no placeholder.
-   */
   async generateSceneImage(visualPrompt: string, seed: number): Promise<{ data: Buffer; provider: string }> {
     const errors: string[] = [];
-    try {
-      return await withRetry('image-pollinations', () => this.imageViaPollinations(visualPrompt, seed), this.logger);
-    } catch (err) {
-      errors.push(`pollinations: ${err instanceof Error ? err.message : err}`);
-    }
-    try {
-      return await this.imageViaLoremFlickr(visualPrompt, seed);
-    } catch (err) {
-      errors.push(`loremflickr: ${err instanceof Error ? err.message : err}`);
-    }
-    try {
-      return await this.imageViaOpenverse(visualPrompt);
-    } catch (err) {
-      errors.push(`openverse: ${err instanceof Error ? err.message : err}`);
-    }
+    try { return await withRetry('image-pollinations', () => this.imageViaPollinations(visualPrompt, seed), this.logger); }
+    catch (err) { errors.push(`pollinations: ${err instanceof Error ? err.message : err}`); }
+    try { return await this.imageViaLoremFlickr(visualPrompt, seed); }
+    catch (err) { errors.push(`loremflickr: ${err instanceof Error ? err.message : err}`); }
+    try { return await this.imageViaOpenverse(visualPrompt); }
+    catch (err) { errors.push(`openverse: ${err instanceof Error ? err.message : err}`); }
     throw new Error(`all image providers failed → ${errors.join(' | ')}`);
   }
 
@@ -452,41 +396,23 @@ export class AiService {
       const timer = setTimeout(() => ctrl.abort(), 120_000);
       try {
         const res = await fetch(url, { signal: ctrl.signal, headers: { 'user-agent': 'autocreator-pipeline/1.0' } });
-        if (res.status === 429 || res.status >= 500) {
-          lastErr = `http ${res.status}`;
-        } else if (!res.ok) {
-          throw new Error(`http ${res.status}`);
-        } else {
+        if (res.status === 429 || res.status >= 500) lastErr = `http ${res.status}`;
+        else if (!res.ok) throw new Error(`http ${res.status}`);
+        else {
           const buf = Buffer.from(await res.arrayBuffer());
           if (buf.length < 10_000) throw new Error('empty image');
           return { data: buf, provider: 'pollinations' };
         }
-      } catch (err) {
-        lastErr = err instanceof Error ? err.message : String(err);
-      } finally {
-        clearTimeout(timer);
-      }
+      } catch (err) { lastErr = err instanceof Error ? err.message : String(err); }
+      finally { clearTimeout(timer); }
       if (attempt < 3) await new Promise((r) => setTimeout(r, 6_000 * attempt));
     }
     throw new Error(lastErr);
   }
 
   private static promptKeywords(prompt: string, max = 2): string {
-    const stop = new Set([
-      'the', 'a', 'an', 'of', 'in', 'on', 'with', 'and', 'at', 'to', 'for', 'over', 'into', 'from', 'under', 'through',
-      'style', 'shot', 'vertical', 'cinematic', 'animated', 'detail', 'high', 'deep', 'dark', 'soft', 'glow', 'glowing',
-      'dramatic', 'futuristic', 'mysterious', 'ancient', 'modern', 'massive', 'tiny', 'huge', 'beautiful', 'stunning',
-      'background', 'foreground', 'closeup', 'macro', 'wide', 'aerial', 'view', 'scene', 'showing', 'illustration',
-      'diagram', 'concept', 'realistic', 'abstract', 'digital', 'artwork', 'moody', 'tones', 'lighting', 'shadows',
-      'misty', 'eerie', 'vibrant', 'depth', 'light', 'lights', 'blue', 'teal', 'orange', 'photo', 'image', 'real',
-      'true', 'spiraling', 'infinite', 'geometric', 'fractal', 'botanical', 'petals', 'patterns', 'microscopic',
-      'text', 'words', 'watermark', 'logo', 'faces', 'people', 'person', 'human',
-    ]);
-    const words = prompt
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .split(/\s+/)
-      .filter((w) => w.length > 3 && !stop.has(w) && !w.endsWith('ing'));
+    const stop = new Set(['the','a','an','of','in','on','with','and','at','to','for','over','into','from','under','through','style','shot','vertical','cinematic','animated','detail','high','deep','dark','soft','glow','glowing','dramatic','futuristic','mysterious','ancient','modern','massive','tiny','huge','beautiful','stunning','background','foreground','closeup','macro','wide','aerial','view','scene','showing','illustration','diagram','concept','realistic','abstract','digital','artwork','moody','tones','lighting','shadows','misty','eerie','vibrant','depth','light','lights','blue','teal','orange','photo','image','real','true','spiraling','infinite','geometric','fractal','botanical','petals','patterns','microscopic','text','words','watermark','logo','faces','people','person','human']);
+    const words = prompt.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !stop.has(w) && !w.endsWith('ing'));
     const picked = words.slice(-max);
     return (picked.length > 0 ? picked : ['nature']).join(',');
   }
@@ -502,9 +428,7 @@ export class AiService {
       const buf = Buffer.from(await res.arrayBuffer());
       if (buf.length < 10_000 || buf[0] !== 0xff || buf[1] !== 0xd8) throw new Error('not a real jpeg');
       return { data: buf, provider: 'loremflickr' };
-    } finally {
-      clearTimeout(timer);
-    }
+    } finally { clearTimeout(timer); }
   }
 
   private async imageViaOpenverse(visualPrompt: string): Promise<{ data: Buffer; provider: 'openverse' }> {
@@ -513,10 +437,7 @@ export class AiService {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 60_000);
     try {
-      const res = await fetch(searchUrl, {
-        signal: ctrl.signal,
-        headers: { 'user-agent': 'autocreator-pipeline/1.0 (contact: preview@autocreator.ai)' },
-      });
+      const res = await fetch(searchUrl, { signal: ctrl.signal, headers: { 'user-agent': 'autocreator-pipeline/1.0 (contact: preview@autocreator.ai)' } });
       if (!res.ok) throw new Error(`search http ${res.status}`);
       const json = (await res.json()) as { results?: Array<{ url?: string }> };
       const imageUrl = json.results?.[0]?.url;
@@ -528,93 +449,47 @@ export class AiService {
       const isPng = buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50;
       if (buf.length < 10_000 || !(isJpeg || isPng)) throw new Error('not a real image');
       return { data: buf, provider: 'openverse' };
-    } finally {
-      clearTimeout(timer);
-    }
+    } finally { clearTimeout(timer); }
   }
 
-  /* ----------------------------------------------------------- TRANSLATE */
-
-  /**
-   * Real translation for dubbing — same LLM credential chain as the script
-   * stage. Fails CLOSED with AI_CREDENTIALS_MISSING when no key exists.
-   */
   async translateText(text: string, targetLanguage: string, orgId: string): Promise<{ text: string; provider: string }> {
     const cred = await this.requireLlm(orgId);
-    const system =
-      'You are a professional media translator. Translate the provided transcript into ' +
-      `${targetLanguage}. Keep timing-friendly sentence lengths, preserve numbers/names, ` +
-      'return ONLY the translated text, no commentary.';
+    const system = 'You are a professional media translator. Translate the provided transcript into ' + `${targetLanguage}. Keep timing-friendly sentence lengths, preserve numbers/names, ` + 'return ONLY the translated text, no commentary.';
     const raw = await withRetry('translate', () => chatCompletion(cred, { system, user: text }), this.logger);
     const out = raw.trim().replace(/^["']|["']$/g, '');
     if (out.length < 10) throw new Error('translation returned empty text');
     return { text: out, provider: cred.def.id };
   }
 
-  /* ------------------------------------------------------------ IMAGES */
-
-  /** Raw OpenAI key (org vault → env) for Whisper STT etc. Never logged. */
   async rawOpenAiKey(orgId: string): Promise<string | null> {
     const stored = await this.creds.readSecret(orgId, 'LLM', 'openai');
     if (stored?.secret) return stored.secret;
     return this.config.ai.openaiApiKey ?? null;
   }
 
-
-
-
-
-  /**
-   * Real image generation — provider chain, org vault → env:
-   *   stability (SDXL) → openai (gpt-image-1) → replicate → pollinations (keyless)
-   * Pollinations is the keyless default so the product ALWAYS has a real path.
-   */
   async generateImage(req: ImageGenRequest, orgId: string): Promise<ImageGenResult> {
     const { prompt, negativePrompt, style } = req;
     const ratio = req.aspectRatio ?? '9:16';
     const res = req.resolution ?? '720x1280';
     const [w, h] = res.split('x').map(Number) as [number, number];
 
-    // 1) stability (org vault → env STABILITY_API_KEY)
-    const stabilityKey =
-      (await this.creds.readSecret(orgId, 'IMAGE', 'stability'))?.secret ?? this.config.ai.stabilityApiKey;
+    const stabilityKey = (await this.creds.readSecret(orgId, 'IMAGE', 'stability'))?.secret ?? this.config.ai.stabilityApiKey;
     if (stabilityKey) {
       try {
-        const body: Record<string, unknown> = {
-          prompt: style ? `${prompt}, ${style}` : prompt,
-          negative_prompt: negativePrompt ?? '',
-          output_format: 'png',
-          aspect_ratio: ratio,
-        };
-        const res_ = await fetch('https://api.stability.ai/v2beta/stable-image/generate/core', {
-          method: 'POST',
-          headers: { authorization: `Bearer ${stabilityKey}`, accept: 'image/*', 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        });
+        const body: Record<string, unknown> = { prompt: style ? `${prompt}, ${style}` : prompt, negative_prompt: negativePrompt ?? '', output_format: 'png', aspect_ratio: ratio };
+        const res_ = await fetch('https://api.stability.ai/v2beta/stable-image/generate/core', { method: 'POST', headers: { authorization: `Bearer ${stabilityKey}`, accept: 'image/*', 'content-type': 'application/json' }, body: JSON.stringify(body) });
         if (res_.ok) {
           const buf = Buffer.from(await res_.arrayBuffer());
           if (buf.length > 10_000) return { data: buf, provider: 'stability', mime: 'image/png', width: w, height: h };
         }
-      } catch {
-        /* fall through to next provider */
-      }
+      } catch {}
     }
-    // 2) openai gpt-image-1 (org vault → env OPENAI_API_KEY)
+
     const openaiKey = (await this.creds.readSecret(orgId, 'IMAGE', 'openai'))?.secret ?? this.config.ai.openaiApiKey;
     if (openaiKey) {
       try {
-        const body: Record<string, unknown> = {
-          model: 'gpt-image-1',
-          prompt: style ? `${prompt}, ${style}` : prompt,
-          size: res,
-          n: 1,
-          response_format: 'b64_json',
-        };
-        const r = await fetch('https://api.openai.com/v1/images/generations', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', authorization: `Bearer ${openaiKey}` },
-          body: JSON.stringify(body),
-        });
+        const body: Record<string, unknown> = { model: 'gpt-image-1', prompt: style ? `${prompt}, ${style}` : prompt, size: res, n: 1, response_format: 'b64_json' };
+        const r = await fetch('https://api.openai.com/v1/images/generations', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${openaiKey}` }, body: JSON.stringify(body) });
         if (r.ok) {
           const json = (await r.json()) as { data?: Array<{ b64_json?: string }> };
           const b64 = json.data?.[0]?.b64_json;
@@ -623,30 +498,15 @@ export class AiService {
             if (buf.length > 10_000) return { data: buf, provider: 'openai', mime: 'image/png', width: w, height: h };
           }
         }
-      } catch {
-        /* fall through */
-      }
+      } catch {}
     }
-    // 3) replicate (org vault → env REPLICATE_API_TOKEN)
-    const replicateToken =
-      (await this.creds.readSecret(orgId, 'IMAGE', 'replicate'))?.secret ?? this.config.ai.replicateApiToken;
+
+    const replicateToken = (await this.creds.readSecret(orgId, 'IMAGE', 'replicate'))?.secret ?? this.config.ai.replicateApiToken;
     if (replicateToken) {
       try {
-        const body: Record<string, unknown> = {
-          version: 'ac732df83cea7fff18b8472768c88ad441fa890f4e5a8e3a5b2a0a2d5e7d6f3a',
-          input: {
-            prompt: style ? `${prompt}, ${style}` : prompt,
-            negative_prompt: negativePrompt ?? '',
-            width: w,
-            height: h,
-          },
-        };
-        const r = await fetch('https://api.replicate.com/v1/predictions', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', authorization: `Bearer ${replicateToken}` },
-          body: JSON.stringify(body),
-        });
-        const json = (await r.json()) as { urls?: { get?: string }; output?: unknown };
+        const body: Record<string, unknown> = { version: 'ac732df83cea7fff18b8472768c88ad441fa890f4e5a8e3a5b2a0a2d5e7d6f3a', input: { prompt: style ? `${prompt}, ${style}` : prompt, negative_prompt: negativePrompt ?? '', width: w, height: h } };
+        const r = await fetch('https://api.replicate.com/v1/predictions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${replicateToken}` }, body: JSON.stringify(body) });
+        const json = (await r.json()) as { urls?: { get?: string } };
         if (r.ok && json.urls?.get) {
           for (let i = 0; i < 30; i += 1) {
             await new Promise((r2) => setTimeout(r2, 4_000));
@@ -662,11 +522,9 @@ export class AiService {
             if (pj.status === 'failed') break;
           }
         }
-      } catch {
-        /* fall through */
-      }
+      } catch {}
     }
-    // 4) pollinations — keyless default (always available)
+
     const enriched = style ? `${prompt}, ${style}` : prompt;
     const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(enriched)}?width=${w}&height=${h}&nologo=true&model=flux&seed=${Math.floor(Math.random() * 99999)}`;
     const ctrl = new AbortController();
@@ -678,8 +536,6 @@ export class AiService {
       if (buf.length < 10_000) throw new Error('pollinations returned empty image');
       const mime = buf[0] === 0xff && buf[1] === 0xd8 ? 'image/jpeg' : 'image/png';
       return { data: buf, provider: 'pollinations', mime, width: w, height: h };
-    } finally {
-      clearTimeout(timer);
-    }
+    } finally { clearTimeout(timer); }
   }
 }
