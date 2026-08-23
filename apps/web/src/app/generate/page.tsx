@@ -11,6 +11,35 @@ import { submitGeneration, pollVideo, requeueVideo, friendlyStatus } from '../..
 
 type Phase = 'booting' | 'processing' | 'completed' | 'failed';
 
+const MODEL_DIRECTION: Record<string, string> = {
+  'lumen-pro': 'photorealistic live-action cinema, real locations, physically plausible human motion',
+  'human-presenter': 'photorealistic Arabic human presenter, same exact adult identity in every shot, natural speech gestures and facial micro-expressions, direct-to-camera framing',
+  'story-3d': 'premium feature-film 3D animation, consistent character design and proportions, expressive but believable motion',
+};
+
+const STYLE_DIRECTION: Record<string, string> = {
+  documentary: 'natural documentary photography, available daylight, authentic skin texture and pores, restrained color grade',
+  commercial: 'luxury commercial cinematography, controlled highlights, polished production design, premium color grade',
+  cinematic: 'ARRI Alexa 35 look, 35mm and 50mm lenses, cinematic depth of field, motivated camera movement',
+  'arabic-drama': 'high-end contemporary Arabic television drama, authentic wardrobe and locations, warm cinematic grade',
+  studio: 'professional broadcast studio lighting, clean key and soft fill, realistic lens rendering',
+  'soft-daylight': 'soft natural daylight, realistic exposure, gentle contrast and lifelike colors',
+};
+
+function professionalPrompt(draft: ReturnType<typeof loadDraft>): string {
+  return [
+    draft.prompt,
+    MODEL_DIRECTION[draft.model] ?? MODEL_DIRECTION['lumen-pro'],
+    STYLE_DIRECTION[draft.style] ?? STYLE_DIRECTION.documentary,
+    `${draft.aspect} vertical-first composition`,
+    'one coherent story with direct continuity between shots',
+    'stable face, stable body proportions, stable wardrobe and location',
+    'physically correct hands and fingers, natural blinking, breathing and weight shifts',
+    'realistic motion blur, camera parallax, shadows, reflections and environmental interaction',
+    'no waxy skin, no beauty-filter face, no warped anatomy, no extra fingers, no morphing, no duplicate people, no flicker, no subtitles, no written text, no logo, no watermark',
+  ].filter(Boolean).join('. ');
+}
+
 function GenerateInner() {
   const router = useRouter();
   const [draft] = useState(() => loadDraft());
@@ -35,7 +64,7 @@ function GenerateInner() {
       const cur = loadStudioSession() ?? session;
       setPhase('processing');
 
-      const res = await submitGeneration(cur, draft.prompt, Math.min(60, Math.max(20, draft.duration)));
+      const res = await submitGeneration(cur, professionalPrompt(draft), Math.min(60, Math.max(20, draft.duration)));
       if (cancelledRef.current) return;
       if (res.kind === 'error') { setError(res.message); setPhase('failed'); return; }
       if (res.kind === 'retry') { setError('خدمة التوليد غير متاحة حاليًا. الـ API أو الـ Worker يحتاج إلى التشغيل.'); setPhase('failed'); return; }
