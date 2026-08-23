@@ -204,12 +204,31 @@ async function hfLtx23Generate(req: ClipRequest): Promise<Buffer> {
 }
 
 async function hfLtxDistilledGenerate(req: ClipRequest): Promise<Buffer> {
-  const duration = Math.min(5, Math.max(1, Math.round(req.windowSec)));
+  // Official Lightricks ZeroGPU Space: LTX Video 0.9.8 13B Distilled.
+  // Its public Gradio API is `text_to_video` and accepts the complete
+  // UI input tuple documented by the Space, not the LTX-2.3 tuple.
+  // Keep the request short and single-pass to minimize shared GPU use.
+  const duration = Math.min(3, Math.max(1, Math.round(req.windowSec)));
+  const negative = 'worst quality, inconsistent motion, blurry, jittery, distorted, subtitles, text, logo, watermark';
   return gradioGenerate(
-    'https://lightricks-ltx-2-distilled.hf.space',
-    'generate_video',
-    [null, compactMotionPrompt(req, 260), duration, false, 42, true, 768, 512],
-    'hf-ltx-distilled',
+    'https://lightricks-ltx-video-distilled.hf.space',
+    'text_to_video',
+    [
+      compactMotionPrompt(req, 260),
+      negative,
+      null,
+      null,
+      704,
+      512,
+      'text-to-video',
+      duration,
+      9,
+      42,
+      false,
+      3.0,
+      false,
+    ],
+    'hf-ltx-distilled-official',
   );
 }
 
