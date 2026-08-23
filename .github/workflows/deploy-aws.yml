@@ -1,5 +1,5 @@
 name: deploy-aws
-# Operations restart: 2026-08-23T23:35:00+03:00 — force latest cinematic worker rollout
+# Operations restart: 2026-08-24 — deploy reliable Arabic 3D social-story worker
 
 on:
   workflow_dispatch:
@@ -20,6 +20,7 @@ concurrency:
 
 permissions:
   contents: read
+  statuses: write
 
 env:
   CLUSTER: autocreator-prod-recovery
@@ -170,3 +171,14 @@ jobs:
           echo
           curl -fLsS --retry 12 --retry-all-errors --retry-delay 5 "$SITE/api/v1/health/ready"
           echo
+
+      - name: Publish deployment status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          STATE=failure; [ "$JOB_STATUS" = success ] && STATE=success
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          jq -nc --arg state "$STATE" --arg context 'aws-production-deploy' --arg desc "AWS API+Worker deployment: $JOB_STATUS" --arg target "$RUN_URL" '{state:$state,context:$context,description:$desc,target_url:$target}' >/tmp/status.json
+          curl -fLsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'content-type: application/json' --data @/tmp/status.json "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}"
