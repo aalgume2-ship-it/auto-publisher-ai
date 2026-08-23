@@ -5,9 +5,9 @@ export type Model = { id: string; name: string; tag: string; cost: number; desc:
 export type StyleDef = { id: string; name: string; from: string; to: string };
 
 export const MODELS: Model[] = [
-  { id: 'lumen-pro', name: 'Lumen Pro', tag: 'Cinematic', cost: 3, desc: 'Film-grade motion, depth and light.' },
-  { id: 'lumen-fast', name: 'Lumen Fast', tag: 'Quick', cost: 1, desc: 'Near-instant drafts for rapid iteration.' },
-  { id: 'aether-4k', name: 'Aether 4K', tag: 'Ultra HD', cost: 6, desc: 'Maximum resolution, finest detail.' },
+  { id: 'lumen-pro', name: 'واقعي سينمائي', tag: 'Live action', cost: 3, desc: 'مشاهد واقعية بعدسات وحركة سينمائية.' },
+  { id: 'human-presenter', name: 'مقدّم بشري', tag: 'Presenter', cost: 3, desc: 'شخصية بشرية ثابتة وتعبيرات طبيعية.' },
+  { id: 'story-3d', name: 'قصة 3D', tag: 'Animation', cost: 2, desc: 'قصص وشخصيات ثلاثية الأبعاد متناسقة.' },
 ];
 
 export const ASPECTS: Aspect[] = [
@@ -22,12 +22,12 @@ export const ASPECTS: Aspect[] = [
 export const DURATIONS = [20, 30, 40, 60];
 
 export const STYLES: StyleDef[] = [
-  { id: 'cinematic', name: 'Cinematic', from: '#8b7bff', to: '#ff5d9e' },
-  { id: 'neon', name: 'Neon Noir', from: '#00e5ff', to: '#e25cff' },
-  { id: 'aurora', name: 'Aurora', from: '#3dffc0', to: '#4cc9ff' },
-  { id: 'ember', name: 'Ember', from: '#ffc978', to: '#ff5d9e' },
-  { id: 'ice', name: 'Ice', from: '#bfe6ff', to: '#8b7bff' },
-  { id: 'bloom', name: 'Bloom', from: '#ff8fd0', to: '#e25cff' },
+  { id: 'documentary', name: 'واقعي طبيعي', from: '#7b8b86', to: '#d7c5a7' },
+  { id: 'commercial', name: 'إعلان فاخر', from: '#d4af37', to: '#6d4cff' },
+  { id: 'cinematic', name: 'سينمائي', from: '#8b7bff', to: '#ff5d9e' },
+  { id: 'arabic-drama', name: 'دراما عربية', from: '#b66a37', to: '#26344f' },
+  { id: 'studio', name: 'استوديو', from: '#d6e7ff', to: '#5274a8' },
+  { id: 'soft-daylight', name: 'ضوء نهاري', from: '#fff0b5', to: '#84b9e8' },
 ];
 
 export interface CreateDraft {
@@ -44,7 +44,7 @@ export interface CreateDraft {
 export const DEFAULT_DRAFT: CreateDraft = {
   prompt: '',
   model: 'lumen-pro',
-  style: 'cinematic',
+  style: 'documentary',
   aspect: '9:16',
   duration: 40,
   seed: Math.floor(Math.random() * 1e6),

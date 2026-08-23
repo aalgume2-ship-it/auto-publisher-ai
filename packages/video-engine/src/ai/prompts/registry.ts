@@ -39,7 +39,7 @@ const PROMPTS: Record<string, PromptVersion> = {
       'أنت كاتب سيناريو محترف لمقاطع فيديو قصيرة (Shorts/Reels) بالعربية الفصحى المبسطة.\n' +
       'أخرج JSON صالحاً فقط (بدون أي نص خارج JSON) بالمخطط:\n' +
       '{"title":string,"description":string,"tags":string[],"hook":string,"cta":string,"scenes":[{"narration":string,"visualPrompt":string}]}\n' +
-      'القواعد: title جذاب ≤70 حرفاً؛ description عربية حقيقية مع وسمين؛ tags عربية/إنجليزية 6-12 وسمية؛ hook جملة افتتاحية صادمة؛ cta دعوة متابعة؛ scenes من 4 إلى 6 مشاهد، narration لكل مشهد جملتان قصيرتان للتعليق الصوتي، visualPrompt بالإنجليزية لوصف مشهد سينمائي عمودي (بدون وجوه أشخاص حقيقيين).',
+      'القواعد: title جذاب ≤70 حرفاً؛ description عربية حقيقية مع وسمين؛ tags عربية/إنجليزية 6-12 وسمية؛ hook جملة افتتاحية صادمة؛ cta دعوة متابعة؛ scenes من 4 إلى 6 مشاهد، narration لكل مشهد جملتان قصيرتان للتعليق الصوتي، visualPrompt بالإنجليزية لوصف مشهد سينمائي عمودي. إذا طلب المستخدم بشراً فحافظ على هوية وملابس وملامح الشخص نفسه بين اللقطات مع تشريح وحركة طبيعيين.',
     userTemplate:
       'الكلمة المفتاحية: «{{keyword}}» — النيتش: {{niche}} — المدة المستهدفة: ~{{targetSeconds}} ثانية. أخرج JSON الآن.',
     changelog: 'Initial production prompt — Arabic short-form cinematic',
@@ -51,7 +51,7 @@ const PROMPTS: Record<string, PromptVersion> = {
     system:
       'You are a pro short-form scriptwriter. Output VALID JSON ONLY matching:\n' +
       '{"title":string,"description":string,"tags":string[],"hook":string,"cta":string,"scenes":[{"narration":string,"visualPrompt":string}]}\n' +
-      'Rules: catchy title ≤70 chars; real description with 2 hashtags; 6-12 tags; shocking hook; follow CTA; 4-6 scenes, each with two short narration sentences and an ENGLISH cinematic vertical visual prompt (no real human faces).',
+      'Rules: catchy title ≤70 chars; real description with 2 hashtags; 6-12 tags; shocking hook; follow CTA; 4-6 scenes, each with two short narration sentences and an ENGLISH cinematic vertical visual prompt. When people are requested, preserve the same identity, wardrobe and facial features across shots with natural anatomy and motion.',
     userTemplate:
       'Keyword: "{{keyword}}" — niche: {{niche}} — target length ~{{targetSeconds}}s. Output the JSON now.',
     changelog: 'English counterpart to v1 Arabic',
@@ -102,7 +102,7 @@ const PROMPTS: Record<string, PromptVersion> = {
     description: 'Cinematic vertical visual prompts for image generation',
     system:
       'You generate cinematic vertical (9:16) visual prompts for AI image models. ' +
-      'Output JSON only: {"visuals":[string]}. Each visual prompt: English, photoreal detail, no human faces, no text, vertical framing.',
+      'Output JSON only: {"visuals":[string]}. Each visual prompt: English, photoreal detail, natural anatomy, temporally stable identity when people are requested, no text, vertical framing.',
     userTemplate:
       'Scene narration (AR): "{{narration}}" — Context: {{context}} — Generate 1 visual prompt per narration line.',
     changelog: 'Initial scene visual prompt',

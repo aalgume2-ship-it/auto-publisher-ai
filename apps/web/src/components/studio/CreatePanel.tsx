@@ -58,8 +58,8 @@ export default function CreatePanel({ initial, onGenerate, busy = false }: { ini
         <div className="hf-prompt-bottom">
           <div className="hf-actions">
             <button type="button" className="hf-tool" onClick={() => inputRef.current?.click()}><Upload size={16} /> Add media</button>
-            <button type="button" className="hf-tool" onClick={() => setPrompt((p) => p ? `${p}, cinematic camera movement, realistic lighting, premium commercial look` : 'A premium cinematic commercial, elegant product reveal, realistic lighting')}><Wand2 size={16} /> Enhance</button>
-            <button type="button" className="hf-tool" onClick={() => setPrompt('A cinematic product commercial with dramatic camera movement, beautiful lighting, premium detail')}><Sparkles size={16} /> Inspire</button>
+            <button type="button" className="hf-tool" onClick={() => setPrompt((p) => p ? `${p}. تصوير حي واقعي، شخصية ثابتة، حركة بشرية طبيعية، إضاءة وعدسات سينمائية احترافية` : 'مقدّم عربي واقعي يتحدث أمام الكاميرا في موقع حقيقي، بحركة وتعبيرات طبيعية وتصوير سينمائي احترافي')}><Wand2 size={16} /> حسّن الواقعية</button>
+            <button type="button" className="hf-tool" onClick={() => setPrompt('قصة قصيرة واقعية عن شاب عربي يعثر على محفظة في شارع مزدحم، يبحث عن صاحبها ثم يعيدها إليه؛ مشاهد مترابطة وشخصية واحدة ثابتة وتصوير سينمائي حي')}><Sparkles size={16} /> قصة احترافية</button>
           </div>
           <button type="button" className="hf-generate" disabled={!canGo || busy} onClick={go}>{busy ? 'Generating…' : 'Generate'} <Zap size={17} /></button>
         </div>
