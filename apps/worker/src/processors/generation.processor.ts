@@ -66,7 +66,7 @@ export function createGenerationProcessor(
             title: keyword.slice(0, 120),
             language: 'ar',
             targetPlatforms: [post.platform],
-            seo: { keyword, targetSeconds: 45, campaignPostId },
+            seo: { keyword, targetSeconds: 40, campaignPostId },
           },
         });
         videoId = video.id;
