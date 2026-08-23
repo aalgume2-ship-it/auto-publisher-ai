@@ -1,0 +1,97 @@
+name: site-generation-smoke-v4
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/site-generation-smoke-v4.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  statuses: write
+jobs:
+  production-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SITE_ORIGIN: https://auto-publisher-ai-web.vercel.app
+    steps:
+      - name: Install verifier
+        run: |
+          set -euo pipefail
+          npm init -y >/dev/null
+          npm install --silent ffprobe-static@3.1.0 ffmpeg-static@5.3.0
+          echo "$(dirname "$(node -p "require('ffprobe-static').path")")" >> "$GITHUB_PATH"
+          echo "$(dirname "$(node -p "require('ffmpeg-static')")")" >> "$GITHUB_PATH"
+      - name: Health and create video
+        id: create
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 5 --retry-delay 3 "$SITE_ORIGIN/api/v1/health/live"
+          curl -fLsS --retry 5 --retry-delay 3 "$SITE_ORIGIN/api/v1/health/ready"
+          ID="$(date +%s)-$RANDOM"
+          EMAIL="v4-$ID@trial.lumen.app"
+          PASSWORD="Smoke${ID//-/}Aa9!xZ7#"
+          AUTH=$(jq -nc --arg e "$EMAIL" --arg p "$PASSWORD" --arg n "V4 $ID" '{email:$e,password:$p,displayName:$n,locale:"ar",timezone:"Asia/Riyadh"}' | curl -fLsS -H 'content-type: application/json' -H "Idempotency-Key: auth-$ID" --data-binary @- "$SITE_ORIGIN/api/v1/auth/register")
+          TOKEN=$(jq -r '.tokens.accessToken // empty' <<<"$AUTH"); ORG=$(jq -r '.workspace.id // empty' <<<"$AUTH")
+          test -n "$TOKEN"; test -n "$ORG"
+          SERIES=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: series-${GITHUB_RUN_ID}" -d '{"name":"اختبار فيلم واقعي","niche":"cinematic realistic story","language":"ar"}' "$SITE_ORIGIN/api/v1/organizations/$ORG/series")
+          SID=$(jq -r '.id // empty' <<<"$SERIES"); test -n "$SID"
+          PROMPT='مدينة ليلية مضاءة بالنيون، شخص يمشي بشكل طبيعي، انعكاسات المطر على الشارع، تصوير سينمائي واقعي بحركة كاميرا تتبعه، بدون نصوص'
+          BODY=$(jq -nc --arg k "$PROMPT" '{keyword:$k,targetSeconds:20}')
+          VIDEO=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: video-${GITHUB_RUN_ID}" -d "$BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series/$SID/videos")
+          VID=$(jq -r '.video.id // .id // empty' <<<"$VIDEO"); test -n "$VID"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"; echo "org=$ORG" >> "$GITHUB_OUTPUT"; echo "video=$VID" >> "$GITHUB_OUTPUT"
+      - name: Wait and verify exact MP4
+        env:
+          TOKEN: ${{ steps.create.outputs.token }}
+          ORG: ${{ steps.create.outputs.org }}
+          VIDEO_ID: ${{ steps.create.outputs.video }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS+1200))
+          while [ $SECONDS -lt $deadline ]; do
+            R=$(curl -fLsS -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VIDEO_ID")
+            STATUS=$(jq -r '.status // empty' <<<"$R"); echo "status=$STATUS"
+            if [ "$STATUS" = READY ]; then
+              : > realistic-neon.mp4; START=0; TOTAL=-1; EXPECTED=''
+              while [ "$TOTAL" -lt 0 ] || [ "$START" -lt "$TOTAL" ]; do
+                C=$(curl -fLsS --retry 4 -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VIDEO_ID/stream-chunk?start=$START&size=524286")
+                S=$(jq -r .start <<<"$C"); E=$(jq -r .end <<<"$C"); TOTAL=$(jq -r .total <<<"$C"); test "$S" -eq "$START"
+                [ "$START" -ne 0 ] || EXPECTED=$(jq -r '.sha256 // empty' <<<"$C")
+                jq -r .base64 <<<"$C" | base64 --decode >> realistic-neon.mp4; START=$E
+              done
+              SIZE=$(stat -c%s realistic-neon.mp4); test "$SIZE" -eq "$TOTAL"; test "$SIZE" -gt 30000
+              SHA=$(sha256sum realistic-neon.mp4 | awk '{print $1}'); [ -z "$EXPECTED" ] || test "$SHA" = "$EXPECTED"
+              ffprobe -v error -show_entries stream=index,codec_name,codec_type,width,height,duration -show_entries format=format_name,duration,size -of json realistic-neon.mp4 | tee ffprobe.json
+              jq -e '.streams|any(.codec_type=="video")' ffprobe.json >/dev/null; jq -e '(.format.duration|tonumber)>0' ffprobe.json >/dev/null
+              ffmpeg -v error -i realistic-neon.mp4 -vf "select='eq(n,0)+eq(n,5)+eq(n,10)'" -vsync 0 frame-%02d.png
+              sha256sum frame-*.png | tee motion-proof.txt
+              test "$(awk '{print $1}' motion-proof.txt|sort -u|wc -l)" -ge 2
+              echo "$SHA" > video-sha256.txt
+              exit 0
+            fi
+            if [ "$STATUS" = FAILED ] || [ "$STATUS" = ERROR ] || [ "$STATUS" = CANCELLED ]; then echo "$R" | jq '{status,failureReason,seo}'; exit 1; fi
+            sleep 5
+          done
+          exit 1
+      - name: Upload verified production video
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: realistic-neon-video-v4
+          path: |
+            realistic-neon.mp4
+            ffprobe.json
+            motion-proof.txt
+            frame-*.png
+            video-sha256.txt
+          retention-days: 7
+      - name: Publish proof status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          STATE=failure; [ "$JOB_STATUS" = success ] && STATE=success
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          jq -nc --arg state "$STATE" --arg target "$RUN_URL" --arg desc "Verified production moving MP4: $JOB_STATUS" --arg context "video-production-proof-v4" '{state:$state,target_url:$target,description:$desc,context:$context}' >/tmp/status.json
+          curl -fLsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'content-type: application/json' --data @/tmp/status.json "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}"
