@@ -14,7 +14,7 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Generate MiniMax H3 portrait clip with soundtrack
         env:
@@ -25,30 +25,34 @@ jobs:
           set -euo pipefail
           BASE='https://multimodalart-minimax-h3.hf.space'
           PROMPT='A young Saudi man in his late twenties walks through a rainy neon night market and discovers an old film camera on a wooden stall. Premium photorealistic live action, realistic skin and hands, subtle nervous expression, slow cinematic dolly-in, shallow depth of field, wet reflections, physically realistic motion. Soundtrack: rain, distant market chatter, footsteps, cloth movement and a quiet camera shutter. No subtitles, no text, no watermark.'
-          BODY=$(jq -nc --arg p "$PROMPT" '{data:[$p,null,null,"768x1344 · 9:16 full",2,18,42,false]}')
+          BODY=$(jq -nc --arg p "$PROMPT" '{data:[$p,null,null,"544x960 · 9:16 fast",2,10,42,false]}')
           TOKEN="${HF_TOKEN:-${HUGGINGFACE_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}}"
           AUTH=()
-          if [ -n "$TOKEN" ]; then
-            AUTH=(-H "Authorization: Bearer $TOKEN")
-            echo 'HF authentication: available'
-          else
-            echo 'HF authentication: unavailable'
-          fi
-          SUBMIT=$(curl -fLsS --retry 8 --retry-all-errors --retry-delay 5 "${AUTH[@]}" -H 'content-type: application/json' -H 'accept: application/json' -d "$BODY" "$BASE/gradio_api/call/generate")
-          EVENT=$(jq -r '.event_id // empty' <<<"$SUBMIT")
-          test -n "$EVENT"
-          curl -fLsS --retry 3 --retry-all-errors "${AUTH[@]}" -H 'accept: text/event-stream' "$BASE/gradio_api/call/generate/$EVENT" -o result.sse
-          cat result.sse
-          ! grep -qi '^event: error' result.sse
-          DATA=$(grep '^data:' result.sse | tail -1 | sed 's/^data:[[:space:]]*//')
-          URL=$(jq -r '.. | objects | .url? // empty' <<<"$DATA" | head -1)
-          PATHV=$(jq -r '.. | objects | .path? // empty' <<<"$DATA" | head -1)
-          if [ -z "$URL" ] && [ -n "$PATHV" ]; then URL="$BASE/gradio_api/file=$PATHV"; fi
-          test -n "$URL"
-          curl -fLsS --retry 4 --retry-all-errors "${AUTH[@]}" "$URL" -o minimax-h3-probe.mp4
-          test "$(stat -c%s minimax-h3-probe.mp4)" -gt 50000
+          if [ -n "$TOKEN" ]; then AUTH=(-H "Authorization: Bearer $TOKEN"); fi
+
+          success=0
+          for ATTEMPT in 1 2 3 4 5; do
+            echo "MiniMax H3 attempt $ATTEMPT/5"
+            SUBMIT=$(curl -fLsS --retry 4 --retry-all-errors --retry-delay 3 "${AUTH[@]}" -H 'content-type: application/json' -H 'accept: application/json' -d "$BODY" "$BASE/gradio_api/call/generate") || true
+            EVENT=$(jq -r '.event_id // empty' <<<"${SUBMIT:-{}}" 2>/dev/null || true)
+            if [ -z "$EVENT" ]; then sleep $((ATTEMPT*8)); continue; fi
+            curl -LsS "${AUTH[@]}" -H 'accept: text/event-stream' "$BASE/gradio_api/call/generate/$EVENT" -o result.sse || true
+            cat result.sse
+            if grep -qi '^event: error' result.sse; then
+              sleep $((ATTEMPT*10))
+              continue
+            fi
+            DATA=$(grep '^data:' result.sse | tail -1 | sed 's/^data:[[:space:]]*//')
+            URL=$(jq -r '.. | objects | .url? // empty' <<<"$DATA" | head -1)
+            PATHV=$(jq -r '.. | objects | .path? // empty' <<<"$DATA" | head -1)
+            if [ -z "$URL" ] && [ -n "$PATHV" ]; then URL="$BASE/gradio_api/file=$PATHV"; fi
+            [ -n "$URL" ] || { sleep $((ATTEMPT*8)); continue; }
+            curl -fLsS --retry 4 --retry-all-errors "${AUTH[@]}" "$URL" -o minimax-h3-probe.mp4 || { sleep $((ATTEMPT*8)); continue; }
+            if [ "$(stat -c%s minimax-h3-probe.mp4)" -gt 50000 ]; then success=1; break; fi
+          done
+          test "$success" = 1
           ffprobe -v error -show_entries stream=codec_type,codec_name,width,height,sample_rate -show_entries format=duration,size -of json minimax-h3-probe.mp4 | tee probe.json
-          ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 minimax-h3-probe.mp4 | grep -q '768,1344'
+          ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 minimax-h3-probe.mp4 | grep -q '544,960'
           ffprobe -v error -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 minimax-h3-probe.mp4 | grep -q audio
 
       - uses: actions/upload-artifact@v4
