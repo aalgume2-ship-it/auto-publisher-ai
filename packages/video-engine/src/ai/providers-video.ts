@@ -100,6 +100,23 @@ async function http(url: string, init: RequestInit, timeoutMs = 30_000): Promise
 const bearer = (k: string) => ({ authorization: `Bearer ${k}`, 'content-type': 'application/json' });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// Public ZeroGPU is shared capacity. The generation pipeline may request more
+// than one story scene concurrently; serialize only the keyless path so those
+// requests never compete with each other for the same free GPU quota.
+let keylessVideoTail: Promise<void> = Promise.resolve();
+async function serializeKeylessVideo<T>(fn: () => Promise<T>): Promise<T> {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const previous = keylessVideoTail;
+  keylessVideoTail = previous.catch(() => undefined).then(() => gate);
+  await previous.catch(() => undefined);
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
 /* ------------------------------------------------------ HUGGING FACE FREE */
 
 type GradioFile = { url?: string | null; path?: string | null; video?: unknown };
@@ -188,8 +205,6 @@ async function hfLtx23Generate(req: ClipRequest): Promise<Buffer> {
 
 async function hfLtxDistilledGenerate(req: ClipRequest): Promise<Buffer> {
   const duration = Math.min(5, Math.max(1, Math.round(req.windowSec)));
-  // The official distilled Space exposes the same generate_video Gradio shape
-  // used by LTX-2.x: image, prompt, duration, enhance, seed, randomize, h, w.
   return gradioGenerate(
     'https://lightricks-ltx-2-distilled.hf.space',
     'generate_video',
@@ -348,7 +363,7 @@ async function falPoll(apiKey: string, urls: { statusUrl: string; responseUrl: s
 
 /** Submit + poll + download a moving clip. Returns raw MP4 bytes. */
 export async function generateClip(cred: VideoCredential, req: ClipRequest): Promise<Buffer> {
-  if (cred.def.id === 'hf-ltx') return hfLtxGenerate(req);
+  if (cred.def.id === 'hf-ltx') return serializeKeylessVideo(() => hfLtxGenerate(req));
   if (cred.def.id === 'pollinations') return pollinationsGenerate(cred.apiKey, req);
   let videoUrl: string;
   if (cred.def.id === 'runway') videoUrl = await runwayPoll(cred.apiKey, await runwaySubmit(cred.apiKey, req));
