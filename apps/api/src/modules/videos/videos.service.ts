@@ -34,6 +34,7 @@ export class VideosService {
   }
 
   private bunnyCdnUrl(seo: Prisma.JsonValue | null | undefined): string | null {
+    if (seo == null) return null;
     const value = asAssetMeta(seo)['bunnyCdnUrl'];
     return typeof value === 'string' && /^https:\/\//i.test(value) ? value : null;
   }
