@@ -122,6 +122,15 @@ export async function probeDurationMs(file: string): Promise<number> {
   return Math.round(seconds * 1000);
 }
 
+async function probeHasAudio(file: string): Promise<boolean> {
+  const { stdout } = await run(
+    ffprobePath,
+    ['-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=index', '-of', 'csv=p=0', file],
+    30_000,
+  );
+  return stdout.trim().length > 0;
+}
+
 /**
  * Renders a silent WAV track of the requested length (codec built into every
  * ffmpeg — pcm_s16le). Utility only — the production pipeline uses real
@@ -170,6 +179,13 @@ export interface MovingComposeScene {
   clipPath: string;
   caption: string;
   durationMs: number;
+}
+
+export interface MovingComposeOptions {
+  /** Burn large on-screen subtitles. Defaults to true for backward compatibility. */
+  burnCaptions?: boolean;
+  /** Mix synchronized sound generated inside AI clips beneath the narration. */
+  mixClipAudio?: boolean;
 }
 
 /** ASS caption escaping (commas break Dialogue fields — escape stays literal-safe for libass). */
@@ -264,7 +280,12 @@ export class VideoComposer {
    * uniformly, concatenated, captions burned, voiceover muxed. Same OOM-safe
    * encoder contract as the stills path (512Mi containers).
    */
-  async composeMoving(scenes: MovingComposeScene[], audioPath: string, workDir: string): Promise<{ videoPath: string; durationMs: number }> {
+  async composeMoving(
+    scenes: MovingComposeScene[],
+    audioPath: string,
+    workDir: string,
+    options: MovingComposeOptions = {},
+  ): Promise<{ videoPath: string; durationMs: number }> {
     if (scenes.length === 0) throw new Error('composeMoving: no scenes');
     await mkdir(workDir, { recursive: true });
     const assPath = join(workDir, 'captions.ass');
@@ -273,6 +294,10 @@ export class VideoComposer {
 
     const fps = 24;
     const clipDurations = await Promise.all(scenes.map((s) => probeDurationMs(s.clipPath)));
+    const clipHasAudio = options.mixClipAudio
+      ? await Promise.all(scenes.map((s) => probeHasAudio(s.clipPath)))
+      : scenes.map(() => false);
+    const mixNativeAudio = clipHasAudio.some(Boolean);
     const inputs: string[] = [];
     const filters: string[] = [];
     scenes.forEach((s, i) => {
@@ -286,10 +311,34 @@ export class VideoComposer {
       filters.push(
         `[${i}:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=${fps},${speed}setsar=1,format=yuv420p${trim}[v${i}]`,
       );
+      if (mixNativeAudio) {
+        const audioSpeed = stretch > 1 ? `atempo=${(1 / stretch).toFixed(3)},` : '';
+        const sec = windowS.toFixed(3);
+        if (clipHasAudio[i]) {
+          filters.push(
+            `[${i}:a]aresample=48000,${audioSpeed}atrim=duration=${sec},asetpts=PTS-STARTPTS,apad,atrim=duration=${sec}[a${i}]`,
+          );
+        } else {
+          filters.push(`anullsrc=r=48000:cl=stereo,atrim=duration=${sec},asetpts=PTS-STARTPTS[a${i}]`);
+        }
+      }
     });
     const audioIndex = scenes.length;
     filters.push(`${scenes.map((_, i) => `[v${i}]`).join('')}concat=n=${scenes.length}:v=1:a=0[vcat]`);
-    filters.push(`[vcat]subtitles='${assPath.replace(/'/g, "'\\''")}':fontsdir='${FONTS_DIR.replace(/'/g, "'\\''")}'[vout]`);
+    if (options.burnCaptions === false) {
+      filters.push('[vcat]null[vout]');
+    } else {
+      filters.push(`[vcat]subtitles='${assPath.replace(/'/g, "'\\''")}':fontsdir='${FONTS_DIR.replace(/'/g, "'\\''")}'[vout]`);
+    }
+    if (mixNativeAudio) {
+      const totalS = (scenes.reduce((sum, s) => sum + s.durationMs, 0) / 1000).toFixed(3);
+      filters.push(`${scenes.map((_, i) => `[a${i}]`).join('')}concat=n=${scenes.length}:v=0:a=1[ambient]`);
+      filters.push(`[ambient]volume=0.22[ambientlow]`);
+      filters.push(`[${audioIndex}:a]aresample=48000,apad,atrim=duration=${totalS},volume=1[voice]`);
+      // FFmpeg 4.1 (bundled for production) predates amix normalize=. Its
+      // default 1/inputs scaling is compensated after the mix.
+      filters.push('[ambientlow][voice]amix=inputs=2:duration=first,volume=1.6[aout]');
+    }
 
     const videoPath = join(workDir, 'final.mp4');
     await run(ffmpegPath, [
@@ -298,8 +347,8 @@ export class VideoComposer {
       '-i', audioPath,
       '-filter_complex', filters.join(';'),
       '-map', '[vout]',
-      '-map', `${audioIndex}:a`,
-      '-af', 'apad',
+      '-map', mixNativeAudio ? '[aout]' : `${audioIndex}:a`,
+      ...(mixNativeAudio ? [] : ['-af', 'apad']),
       '-shortest',
       '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '29', '-r', String(fps),
       '-threads', '1',

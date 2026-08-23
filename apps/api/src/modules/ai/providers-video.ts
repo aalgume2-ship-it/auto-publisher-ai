@@ -2,7 +2,7 @@
  * AI moving-picture providers — REAL text/image→video backends (Roadmap:
  * "real cinematic motion, not Ken Burns stills"). All three speak async-task
  * protocol: submit → poll → download the resulting MP4.
- *   - Runway  Gen-3 Alpha Turbo  (dev.runwayml.com, X-Runway-Version pinned)
+ *   - Runway  Veo 3.1 Fast + native audio (dev.runwayml.com)
  *   - Luma    Dream Machine Ray  (lumalabs.ai dream-machine/v1)
  *   - Kling   v2.1 Master        (hosted via fal.ai queue)
  * A scene still (Pollinations URL) is passed as the FIRST FRAME so every clip
@@ -24,13 +24,13 @@ export interface VideoProviderDef {
 export const VIDEO_PROVIDERS: readonly VideoProviderDef[] = [
   {
     id: 'runway',
-    label: 'Runway Gen-3 Alpha Turbo',
-    model: 'gen3a_turbo',
+    label: 'Runway Veo 3.1 Fast + native audio',
+    model: 'veo3.1_fast',
     consoleUrl: 'https://dev.runwayml.com',
-    priceHint: 'pay-as-you-go (~$0.25 / 5s clip)',
+    priceHint: 'pay-as-you-go; realistic 720p motion with synchronized native audio',
     envKey: 'RUNWAY_API_KEY',
     supportsFirstFrame: true,
-    supportedDurations: [5, 10],
+    supportedDurations: [4, 6, 8],
   },
   {
     id: 'luma',
@@ -96,17 +96,20 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /* ----------------------------------------------------------------- RUNWAY */
 
 async function runwaySubmit(apiKey: string, req: ClipRequest): Promise<string> {
-  const duration = req.windowSec > 7 ? 10 : 5;
+  const duration = req.windowSec >= 7 ? 8 : req.windowSec >= 5 ? 6 : 4;
   const body: Record<string, unknown> = {
-    model: 'gen3a_turbo',
-    promptText: `${req.prompt}, cinematic camera motion, vertical`,
+    model: 'veo3.1_fast',
+    promptText: `${req.prompt}, photorealistic live-action cinematography, continuous natural human motion, physically accurate lighting, synchronized realistic environmental sound and Foley, no subtitles, no written text, no watermark`,
     duration,
-    ratio: '768:1280',
+    ratio: '720:1280',
+    audio: true,
+    negativePrompt: 'animation, illustration, still image, slideshow, frozen frame, subtitles, captions, text, logo, watermark, distorted hands, duplicate people',
   };
   if (req.firstFrameUrl) {
     body['promptImage'] = [{ uri: req.firstFrameUrl, position: 'first' }];
   }
-  const { status, data } = await http('https://api.dev.runwayml.com/v1/image_to_video', {
+  const endpoint = req.firstFrameUrl ? 'image_to_video' : 'text_to_video';
+  const { status, data } = await http(`https://api.dev.runwayml.com/v1/${endpoint}`, {
     method: 'POST',
     headers: { ...bearer(apiKey), 'x-runway-version': '2024-11-06' },
     body: JSON.stringify(body),
