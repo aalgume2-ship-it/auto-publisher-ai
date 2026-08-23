@@ -18,6 +18,7 @@ import {
   IntegrationsDoc,
   OrgParamsSchema,
   SaveAiKeyBodySchema,
+  SaveBunnyStorageBodySchema,
   SaveGoogleOAuthBodySchema,
   SaveTikTokOAuthBodySchema,
   SavedIntegrationDoc,
@@ -98,6 +99,34 @@ export class SettingsController {
   @ApiParam({ name: 'orgId', format: 'uuid' })
   deleteVideoKey(@Param() params: { orgId: string; provider: string }) {
     return this.settings.deleteVideoKey(params.orgId, params.provider);
+  }
+
+  @Put('integrations/delivery/bunny')
+  @TenantRequired()
+  @RequiresCapabilities('project.edit')
+  @UseZod({ params: OrgParamsSchema, body: SaveBunnyStorageBodySchema })
+  @ApiOperation({
+    operationId: 'saveBunnyStorage',
+    summary: 'Validate Bunny Storage live and store the access key encrypted for MP4 CDN delivery',
+  })
+  @ApiParam({ name: 'orgId', format: 'uuid' })
+  @ApiOkResponse({ description: 'Bunny Storage validated and saved', schema: SavedIntegrationDoc })
+  @ApiBadRequestResponse({ description: 'Bunny rejected the storage credentials', content: { 'application/problem+json': { schema: PROBLEM } } })
+  saveBunnyStorage(
+    @Param() params: { orgId: string },
+    @Body() body: { storageZone: string; accessKey: string; cdnHostname: string; storageEndpoint?: string },
+  ) {
+    return this.settings.saveBunnyStorage(params.orgId, body);
+  }
+
+  @Delete('integrations/delivery/bunny')
+  @TenantRequired()
+  @RequiresCapabilities('project.edit')
+  @UseZod({ params: OrgParamsSchema })
+  @ApiOperation({ operationId: 'deleteBunnyStorage', summary: 'Remove the stored Bunny delivery connection' })
+  @ApiParam({ name: 'orgId', format: 'uuid' })
+  deleteBunnyStorage(@Param() params: { orgId: string }) {
+    return this.settings.deleteBunnyStorage(params.orgId);
   }
 
   @Put('integrations/oauth/google')
