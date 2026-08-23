@@ -1,4 +1,4 @@
-name: probe-zerocollabs-ltx23
+name: inspect-ltx25-api
 
 on:
   push:
@@ -14,29 +14,15 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
-      - name: Generate 2s portrait clip with audio
-        id: gen
+      - name: Inspect official LTX 2.5 API
         run: |
           set -euo pipefail
-          BASE='https://zerocollabs-ltx-2-3-turbo.hf.space'
-          PROMPT='A young man in a rainy night market discovers an old camera, photorealistic live action, realistic face and hands, slow cinematic dolly in, wet neon reflections, natural body movement, synchronized market ambience, no text'
-          BODY=$(jq -nc --arg p "$PROMPT" '{data:[null,null,$p,2,"Image-to-Video",false,42,false,768,512,null]}')
-          SUBMIT=$(curl -fLsS --retry 3 -H 'content-type: application/json' -H 'accept: application/json' -d "$BODY" "$BASE/gradio_api/call/generate_video")
-          EVENT=$(jq -r '.event_id // empty' <<<"$SUBMIT")
-          test -n "$EVENT"
-          curl -fLsS --retry 2 -H 'accept: text/event-stream' "$BASE/gradio_api/call/generate_video/$EVENT" -o result.sse
-          cat result.sse
-          ! grep -qi '^event: error' result.sse
-          DATA=$(grep '^data:' result.sse | tail -1 | sed 's/^data:[[:space:]]*//')
-          URL=$(jq -r '.. | objects | .url? // empty' <<<"$DATA" | head -1)
-          PATHV=$(jq -r '.. | objects | .path? // empty' <<<"$DATA" | head -1)
-          if [ -z "$URL" ] && [ -n "$PATHV" ]; then URL="$BASE/gradio_api/file=$PATHV"; fi
-          test -n "$URL"
-          curl -fLsS --retry 3 "$URL" -o probe.mp4
-          test "$(stat -c%s probe.mp4)" -gt 30000
-          file probe.mp4 | grep -Ei 'MP4|ISO Media'
+          BASE='https://lightricks-ltx-2-5.hf.space'
+          curl -LsS --retry 5 --retry-delay 3 "$BASE/gradio_api/info" -o info.json
+          jq '.' info.json
+          jq -e '.named_endpoints | length > 0' info.json >/dev/null
       - name: Publish status
         if: always()
         env:
@@ -45,5 +31,5 @@ jobs:
         run: |
           STATE=failure; [ "$JOB_STATUS" = success ] && STATE=success
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          jq -nc --arg state "$STATE" --arg context 'zerocollabs-ltx23-probe' --arg desc "ZeroCollabs LTX 2.3 Turbo probe: $JOB_STATUS" --arg target "$RUN_URL" '{state:$state,context:$context,description:$desc,target_url:$target}' >/tmp/status.json
+          jq -nc --arg state "$STATE" --arg context 'ltx25-api-inspect' --arg desc "Official LTX 2.5 API inspect: $JOB_STATUS" --arg target "$RUN_URL" '{state:$state,context:$context,description:$desc,target_url:$target}' >/tmp/status.json
           curl -fLsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'content-type: application/json' --data @/tmp/status.json "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}"
