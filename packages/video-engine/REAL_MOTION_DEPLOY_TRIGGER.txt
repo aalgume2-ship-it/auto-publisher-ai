@@ -1,0 +1,1 @@
+Trigger AWS deployment for the genuine AI motion provider stack (Wan + LTX + Omni). No still-image zoom/pan fallback is accepted as success.
