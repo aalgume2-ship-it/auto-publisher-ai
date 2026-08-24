@@ -1,0 +1,63 @@
+name: apply-real-motion-pr
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/apply-real-motion-pr.yml']
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply genuine real-video provider patch
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p=Path('packages/video-engine/src/ai/providers-video.ts')
+          s=p.read_text()
+          s=s.replace("label: 'LTX ZeroGPU multi-route',\n    model: 'ltx-2.x',", "label: 'Free real-video multi-route',\n    model: 'wan2.1+ltx-2.x',")
+          s=s.replace("priceHint: 'free shared ZeroGPU; no API key required; multi-space failover',\n    envKey: '',\n    supportsFirstFrame: false,", "priceHint: 'free shared ZeroGPU; no API key required; Wan + LTX failover',\n    envKey: '',\n    supportsFirstFrame: true,")
+          marker="async function hfLtxGenerate(req: ClipRequest): Promise<Buffer> {"
+          if 'async function hfWan21I2VGenerate' not in s:
+              wan="""async function hfWan21I2VGenerate(req: ClipRequest): Promise<Buffer> {\n  if (!req.firstFrameUrl) throw new Error('hf-wan21 requires a first-frame image');\n  const duration = Math.min(3.3, Math.max(1, req.windowSec));\n  const negative = 'static, frozen frame, slideshow, blurry, low quality, subtitles, text, logo, watermark, extra fingers, deformed hands, face morphing, duplicate subject, identity drift';\n  return gradioGenerate(\n    'https://multimodalart-wan2-1-fast.hf.space',\n    'generate_video',\n    [\n      { path: req.firstFrameUrl, url: req.firstFrameUrl, orig_name: 'scene.jpg', mime_type: 'image/jpeg', meta: { _type: 'gradio.FileData' } },\n      compactMotionPrompt(req, 320),\n      768,\n      432,\n      negative,\n      duration,\n      1,\n      4,\n      42,\n      true,\n    ],\n    'hf-wan21-fast',\n  );\n}\n\n"""
+              s=s.replace(marker,wan+marker)
+          old="""  const routes: Array<[string, () => Promise<Buffer>]> = [\n    ['ltx-distilled', () => hfLtxDistilledGenerate(req)],\n    ['ltx23', () => hfLtx23Generate(req)],\n    ['omni', () => hfOmniGenerate(req)],\n  ];"""
+          new="""  const routes: Array<[string, () => Promise<Buffer>]> = [\n    ...(req.firstFrameUrl ? [['wan21-fast', () => hfWan21I2VGenerate(req)] as [string, () => Promise<Buffer>]] : []),\n    ['ltx-distilled', () => hfLtxDistilledGenerate(req)],\n    ['ltx23', () => hfLtx23Generate(req)],\n    ['omni', () => hfOmniGenerate(req)],\n  ];"""
+          if old in s: s=s.replace(old,new)
+          p.write_text(s)
+
+          p=Path('packages/video-engine/src/ai/ai.service.ts')
+          s=p.read_text()
+          start="""  async generateSceneClip(cred: VideoCredential, visualPrompt: string, firstFrameUrl: string | null, windowSec: number): Promise<Buffer> {\n    if (cred.def.id === 'hf-ltx') {\n      try {\n        return await generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec });\n      } catch (videoError) {"""
+          end="""    return withRetry(`clip-${cred.def.id}`, () => generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec }), this.logger);\n  }"""
+          i=s.find(start)
+          if i>=0:
+              j=s.find(end,i)
+              if j<0: raise SystemExit('generateSceneClip end not found')
+              j+=len(end)
+              repl="""  async generateSceneClip(cred: VideoCredential, visualPrompt: string, firstFrameUrl: string | null, windowSec: number): Promise<Buffer> {\n    if (cred.def.id === 'hf-ltx') {\n      // Genuine model-generated motion only. Never convert a still image into\n      // a fake success using zoom/pan. Wan + LTX + Omni handle failover.\n      return generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec });\n    }\n    return withRetry(`clip-${cred.def.id}`, () => generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec }), this.logger);\n  }"""
+              s=s[:i]+repl+s[j:]
+          p.write_text(s)
+          PY
+
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+          pnpm install --frozen-lockfile
+          pnpm typecheck
+          pnpm lint
+          pnpm test
+          pnpm build
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/video-engine/src/ai/providers-video.ts packages/video-engine/src/ai/ai.service.ts
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix(video): require genuine AI motion and Wan failover'
+            git push origin HEAD:main
+          fi
