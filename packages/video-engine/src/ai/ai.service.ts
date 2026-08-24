@@ -33,9 +33,7 @@ import { getPrompt, renderUserPrompt } from './prompts/registry.js';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 const localRequire = createRequire(import.meta.url);
 
@@ -61,7 +59,7 @@ function resolveStoryFfmpeg(): string {
 
 const storyFfmpeg = resolveStoryFfmpeg();
 
-async function renderStoryMotionClip(imagePath: string, outputPath: string, durationSec: number, direction: number): Promise<void> {
+async function _renderStoryMotionClip(imagePath: string, outputPath: string, durationSec: number, direction: number): Promise<void> {
   const fps = 24;
   const duration = Math.max(3, Math.min(8, durationSec));
   const zoom = direction % 2 === 0
@@ -429,31 +427,9 @@ export class AiService {
 
   async generateSceneClip(cred: VideoCredential, visualPrompt: string, firstFrameUrl: string | null, windowSec: number): Promise<Buffer> {
     if (cred.def.id === 'hf-ltx') {
-      try {
-        return await generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec });
-      } catch (videoError) {
-        const story3d = /(?:3d animation|3d animated|feature-film 3d|social short|stylized semi-realistic|قصة 3d|ثلاثية الأبعاد)/iu.test(visualPrompt);
-        if (!story3d) throw videoError;
-
-        this.logger.warn({ module: 'ai' }, 'shared video GPU unavailable; rendering reliable 3D social-story motion clip');
-        const seed = Math.abs([...visualPrompt].reduce((acc, ch) => ((acc * 31) + ch.charCodeAt(0)) | 0, 17)) % 900000;
-        const enriched = `${visualPrompt}, premium polished 3D animated social-story frame, stylized semi-realistic human characters, expressive large eyes, clean anatomy, detailed environment, soft cinematic lighting, smooth materials, family-friendly short-form aesthetic, vertical 9:16, no text, no watermark`;
-        let image: { data: Buffer; provider: string };
-        try {
-          image = await withRetry('story3d-image', () => this.imageViaPollinations(enriched, seed), this.logger);
-        } catch {
-          image = await this.generateSceneImage(enriched, seed);
-        }
-        const wd = join(tmpdir(), 'aca-render', 'story3d-clip', `${Date.now()}-${seed}-${Math.random().toString(36).slice(2, 8)}`);
-        await mkdir(wd, { recursive: true });
-        const framePath = join(wd, 'frame.jpg');
-        const clipPath = join(wd, 'clip.mp4');
-        await writeFile(framePath, image.data);
-        await renderStoryMotionClip(framePath, clipPath, windowSec, seed % 2);
-        const clip = await readFile(clipPath);
-        if (clip.byteLength < 30_000) throw new Error('3D social-story fallback produced a suspiciously small clip');
-        return clip;
-      }
+      // Only genuine model-generated motion is accepted. Never convert a still
+      // image into a fake success using zoom/pan. Wan + LTX + Omni handle failover.
+      return generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec });
     }
     return withRetry(`clip-${cred.def.id}`, () => generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec }), this.logger);
   }

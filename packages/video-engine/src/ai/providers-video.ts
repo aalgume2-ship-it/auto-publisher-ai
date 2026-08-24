@@ -16,12 +16,12 @@ export interface VideoProviderDef {
 export const VIDEO_PROVIDERS: readonly VideoProviderDef[] = [
   {
     id: 'hf-ltx',
-    label: 'LTX ZeroGPU multi-route',
-    model: 'ltx-2.x',
+    label: 'Free real-video multi-route',
+    model: 'wan2.1+ltx-2.x',
     consoleUrl: 'https://huggingface.co/spaces/Lightricks/LTX-2-3',
-    priceHint: 'free shared ZeroGPU; no API key required; multi-space failover',
+    priceHint: 'free shared ZeroGPU; no API key required; Wan + LTX failover',
     envKey: '',
-    supportsFirstFrame: false,
+    supportsFirstFrame: true,
     supportedDurations: [1, 2, 3, 4, 5],
   },
   {
@@ -204,8 +204,32 @@ async function hfOmniGenerate(req: ClipRequest): Promise<Buffer> {
   return gradioGenerate('https://saravutw-omni-videos-custom.hf.space','_submit_t2v_manual',[1,3,384,'9:16',motionPrompt,motionPrompt,null,null,null],'hf-omni');
 }
 
+async function hfWan21I2VGenerate(req: ClipRequest): Promise<Buffer> {
+  if (!req.firstFrameUrl) throw new Error('hf-wan21 requires a first-frame image');
+  const duration = Math.min(3.3, Math.max(1, req.windowSec));
+  const negative = 'static, frozen frame, slideshow, blurry, low quality, subtitles, text, logo, watermark, extra fingers, deformed hands, face morphing, duplicate subject, identity drift';
+  return gradioGenerate(
+    'https://multimodalart-wan2-1-fast.hf.space',
+    'generate_video',
+    [
+      { path: req.firstFrameUrl, url: req.firstFrameUrl, orig_name: 'scene.jpg', mime_type: 'image/jpeg', meta: { _type: 'gradio.FileData' } },
+      compactMotionPrompt(req, 320),
+      768,
+      432,
+      negative,
+      duration,
+      1,
+      4,
+      42,
+      true,
+    ],
+    'hf-wan21-fast',
+  );
+}
+
 async function hfLtxGenerate(req: ClipRequest): Promise<Buffer> {
   const routes: Array<[string, () => Promise<Buffer>]> = [
+    ...(req.firstFrameUrl ? [['wan21-fast', () => hfWan21I2VGenerate(req)] as [string, () => Promise<Buffer>]] : []),
     ['ltx-distilled', () => hfLtxDistilledGenerate(req)],
     ['ltx23', () => hfLtx23Generate(req)],
     ['omni', () => hfOmniGenerate(req)],
