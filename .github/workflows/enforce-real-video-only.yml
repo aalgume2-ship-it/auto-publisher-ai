@@ -40,8 +40,12 @@ jobs:
               j=s.find(end,i)
               if j<0: raise SystemExit('generateSceneClip end not found')
               j+=len(end)
-              repl="""  async generateSceneClip(cred: VideoCredential, visualPrompt: string, firstFrameUrl: string | null, windowSec: number): Promise<Buffer> {\n    if (cred.def.id === 'hf-ltx') {\n      // Only genuine model-generated motion is accepted. Never convert a still\n      // image into a fake success using zoom/pan. The provider itself already\n      // fails over across Wan + LTX + Omni.\n      return generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec });\n    }\n    return withRetry(`clip-${cred.def.id}`, () => generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec }), this.logger);\n  }"""
+              repl="""  async generateSceneClip(cred: VideoCredential, visualPrompt: string, firstFrameUrl: string | null, windowSec: number): Promise<Buffer> {\n    if (cred.def.id === 'hf-ltx') {\n      // Only genuine model-generated motion is accepted. Never convert a still\n      // image into a fake success using zoom/pan. Wan + LTX + Omni handle failover.\n      return generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec });\n    }\n    return withRetry(`clip-${cred.def.id}`, () => generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec }), this.logger);\n  }"""
               s=s[:i]+repl+s[j:]
+
+          s=s.replace("import { mkdir, readFile, writeFile } from 'node:fs/promises';\n", "")
+          s=s.replace("import { tmpdir } from 'node:os';\n", "")
+          s=s.replace("async function renderStoryMotionClip(", "async function _renderStoryMotionClip(")
           p.write_text(s)
           PY
       - name: Validate
@@ -61,4 +65,4 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -m 'fix(video): require genuine AI motion and Wan failover'
           git push origin HEAD:main
-# trigger 2026-08-24 real-motion deployment
+# trigger 2026-08-24 real-motion deployment retry
