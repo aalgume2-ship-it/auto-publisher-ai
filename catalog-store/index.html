@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>متجر نواة | منتجات مختارة بعناية</title>
+  <meta name="description" content="واجهة متجر عربية احترافية لعرض المنتجات مع تجربة سريعة ومتجاوبة." />
+  <link rel="preconnect" href="https://images.unsplash.com" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="announcement">شحن موثوق • منتجات مختارة • تجربة شراء سهلة</div>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="الرئيسية">
+      <span class="brand-mark">ن</span>
+      <span>نواة</span>
+    </a>
+    <nav class="nav" aria-label="التنقل الرئيسي">
+      <a href="#products">المنتجات</a>
+      <a href="#categories">التصنيفات</a>
+      <a href="#about">عن المتجر</a>
+    </nav>
+    <a class="header-cta" href="#products">تصفح الآن</a>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="hero-copy">
+        <span class="eyebrow">اختيارات يومية بجودة أعلى</span>
+        <h1>منتجات تلفت النظر.<br><span>وعرض يليق بعلامتك.</span></h1>
+        <p>واجهة عربية عصرية لعرض منتجاتك باحتراف، مع صفحات واضحة وتجربة ممتازة على الجوال.</p>
+        <div class="hero-actions">
+          <a class="primary-btn" href="#products">شاهد المنتجات</a>
+          <a class="secondary-btn" href="#about">اعرف أكثر</a>
+        </div>
+        <div class="trust-row">
+          <div><strong>+50</strong><span>منتج قابل للإضافة</span></div>
+          <div><strong>100%</strong><span>متجاوب مع الجوال</span></div>
+          <div><strong>24/7</strong><span>متاح للعملاء</span></div>
+        </div>
+      </div>
+      <div class="hero-visual" aria-label="منتج مميز">
+        <div class="hero-card">
+          <img src="https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=1200&q=85" alt="ساعة ذكية" />
+          <div class="floating-card">
+            <span>الأكثر طلبًا</span>
+            <strong>ساعة ذكية Pro</strong>
+            <small>من 299 ر.س</small>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="categories">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">استكشف بسهولة</span>
+          <h2>التصنيفات</h2>
+        </div>
+      </div>
+      <div class="category-grid">
+        <button class="category active" data-filter="all">الكل</button>
+        <button class="category" data-filter="electronics">إلكترونيات</button>
+        <button class="category" data-filter="lifestyle">لايف ستايل</button>
+        <button class="category" data-filter="home">المنزل</button>
+        <button class="category" data-filter="accessories">إكسسوارات</button>
+      </div>
+    </section>
+
+    <section class="section" id="products">
+      <div class="section-head products-head">
+        <div>
+          <span class="eyebrow">مختارة بعناية</span>
+          <h2>منتجات مميزة</h2>
+        </div>
+        <label class="search-wrap">
+          <span class="sr-only">بحث في المنتجات</span>
+          <input id="search" type="search" placeholder="ابحث عن منتج..." />
+        </label>
+      </div>
+      <div class="product-grid" id="productGrid"></div>
+      <div class="empty-state" id="emptyState" hidden>لا توجد منتجات مطابقة لبحثك.</div>
+    </section>
+
+    <section class="feature-strip">
+      <div><span class="feature-icon">✓</span><div><strong>عرض احترافي</strong><small>صور ومواصفات واضحة</small></div></div>
+      <div><span class="feature-icon">↗</span><div><strong>طلب مباشر</strong><small>زر مخصص لكل منتج</small></div></div>
+      <div><span class="feature-icon">⚡</span><div><strong>أداء سريع</strong><small>واجهة خفيفة وسلسة</small></div></div>
+    </section>
+
+    <section class="about section" id="about">
+      <div>
+        <span class="eyebrow">واجهة جاهزة للتوسع</span>
+        <h2>ابدأ بالعرض، وأضف الدفع لاحقًا.</h2>
+      </div>
+      <p>تم تصميم هذه النسخة لتكون كتالوج منتجات احترافي أولًا. ويمكن تطويرها لاحقًا لإضافة السلة، بوابة الدفع، الطلبات، وربط المورد والشحن دون إعادة بناء الواجهة من الصفر.</p>
+    </section>
+  </main>
+
+  <footer>
+    <div class="brand"><span class="brand-mark">ن</span><span>نواة</span></div>
+    <p>© 2026 جميع الحقوق محفوظة.</p>
+  </footer>
+  <script src="./app.js"></script>
+</body>
+</html>
