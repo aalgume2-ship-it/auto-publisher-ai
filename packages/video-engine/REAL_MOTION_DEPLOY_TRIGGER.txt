@@ -1,1 +1,1 @@
-Trigger AWS deployment for the genuine AI motion provider stack (Wan + LTX + Omni). No still-image zoom/pan fallback is accepted as success.
+Trigger AWS deployment for professional multi-shot animated story production with neural Arabic voice. Every narration beat must use a unique generated moving clip; no still-image animation and no repeated video clip are accepted as success.
