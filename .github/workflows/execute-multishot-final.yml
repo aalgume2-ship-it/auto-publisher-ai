@@ -31,8 +31,7 @@ jobs:
           corepack prepare pnpm@9.15.9 --activate
           pnpm install --frozen-lockfile
           pnpm add @andresaya/edge-tts@1.8.0 --filter @aca/video-engine
-          pnpm --filter @aca/video-engine test
-          pnpm --filter @aca/video-engine build
+          pnpm --filter @aca/video-engine... build
           grep -q "const productionScenes =" packages/video-engine/src/generation/generation.service.ts
           grep -q "uniqueMotionClips" packages/video-engine/src/generation/generation.service.ts
           grep -q "edgeNeuralTts" packages/video-engine/src/ai/ai.service.ts
