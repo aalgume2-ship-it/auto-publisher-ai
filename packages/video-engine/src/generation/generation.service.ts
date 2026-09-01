@@ -14,11 +14,12 @@ import { type AiService } from '../ai/ai.service.js';
 import { type AssetStore } from '../media/asset-store.js';
 import { uploadMp4ToBunnyStorage } from '../media/bunny-storage.js';
 import { type VideoComposer, workDirFor } from '../render/compose.service.js';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { providerNotConfigured } from '../errors.js';
 
 const VOICE_PROVIDER_TTS: Record<string, { provider: string; providerVoiceId: string; name: string }> = {
+  'edge-neural': { provider: 'edge-neural', providerVoiceId: 'ar-SA-HamedNeural', name: 'Microsoft Neural Arabic — Hamed' },
   gtts: { provider: 'gtts', providerVoiceId: 'ar-male-1', name: 'صوت عربي فصيح (gTTS)' },
   openai: { provider: 'openai', providerVoiceId: 'alloy', name: 'OpenAI Alloy (HD)' },
   'runway-eleven-v3': { provider: 'runway', providerVoiceId: 'Elias-ar-eleven-v3', name: 'Runway Eleven v3 — Elias Arabic' },
@@ -104,12 +105,40 @@ export class GenerationService {
         },
         video.orgId,
       );
+      // Expand the narrative into short, sequential production shots. Long scenes
+      // force a 3-5 second generated clip to repeat; short shots keep the edit
+      // fast, smooth and synchronized with the exact words being spoken.
+      const desiredShotCount = targetSeconds <= 30 ? 8 : targetSeconds <= 45 ? 10 : targetSeconds <= 60 ? 12 : 16;
+      const shotsPerScene = Math.max(1, Math.ceil(desiredShotCount / script.scenes.length));
+      const cameraGrammar = [
+        '24mm establishing dolly-in with foreground parallax',
+        '35mm lateral tracking medium shot with a clearly different composition',
+        '50mm expressive action close-up with subtle handheld micro-motion',
+        '28mm over-shoulder or reverse-angle continuation with controlled crane movement',
+      ];
+      const productionScenes = script.scenes
+        .flatMap((scene, sceneIndex) => {
+          const words = scene.narration.split(/\s+/u).filter(Boolean);
+          const count = Math.min(shotsPerScene, Math.max(1, Math.ceil(words.length / 4)));
+          const size = Math.max(1, Math.ceil(words.length / count));
+          return Array.from({ length: count }, (_, partIndex) => {
+            const narration = words.slice(partIndex * size, Math.min(words.length, (partIndex + 1) * size)).join(' ').trim();
+            const camera = cameraGrammar[(sceneIndex + partIndex) % cameraGrammar.length]!;
+            return {
+              narration: narration || scene.narration,
+              visualPrompt: `${scene.visualPrompt}; NEW SEQUENTIAL SHOT ${sceneIndex + 1}.${partIndex + 1}; action synchronized to narration: ${narration || scene.narration}; ${camera}; continue the exact same character, wardrobe, environment and action from the previous shot; visibly new camera position and framing; do not repeat any previous shot; natural facial expression, hand and body movement; smooth cinematic motion; no text`,
+            };
+          });
+        })
+        .slice(0, desiredShotCount);
+      if (productionScenes.length < 6) throw new Error(`story produced too few unique shots: ${productionScenes.length}`);
+
       // Keep the complete four-beat story. The free moving-video providers are
       // requested with bounded concurrency below for a fast but gentle load.
       seoState['sceneStrategy'] = 'multi-shot-ai-story';
       seoState['provider'] = provider;
       await markStep('voice', 22);
-      const narration = script.scenes.map((s) => s.narration).join(' ');
+      const narration = productionScenes.map((s) => s.narration).join(' ');
       const wordCount = narration.split(/\s+/).filter(Boolean).length;
       const readingSeconds = Math.max(15, Math.round(wordCount / 2.2));
 
@@ -129,7 +158,7 @@ export class GenerationService {
           videoId,
           version: 1,
           content: narration,
-          beats: { provider, hook: script.hook, cta: script.cta, scenes: script.scenes },
+          beats: { provider, hook: script.hook, cta: script.cta, scenes: productionScenes },
           wordCount,
           readingSeconds,
           isActive: true,
@@ -158,7 +187,7 @@ export class GenerationService {
 
       /* 3 ── per-scene visuals (moving AI clips when a video key exists) */
       const engine = `${provider}-${tts.provider}-${videoCred.def.id}-clips`;
-      const sceneWords = script.scenes.map((s) => s.narration.split(/\s+/).filter(Boolean).length);
+      const sceneWords = productionScenes.map((s) => s.narration.split(/\s+/).filter(Boolean).length);
       const totalWords = sceneWords.reduce((a, b) => a + b, 0) || 1;
       // The requested story duration is the source of truth. The moving
       // composer tempo-fits narration and clips to these exact scene windows.
@@ -167,14 +196,14 @@ export class GenerationService {
       const windows: { startMs: number; durationMs: number }[] = [];
       const movingScenes: { clipPath: string; caption: string; durationMs: number }[] = [];
       const firstFrameUrls: (string | null)[] = [];
-      for (let i = 0; i < script.scenes.length; i += 1) {
-        const scene = script.scenes[i]!;
-        const isLast = i === script.scenes.length - 1;
+      for (let i = 0; i < productionScenes.length; i += 1) {
+        const scene = productionScenes[i]!;
+        const isLast = i === productionScenes.length - 1;
         const durationMs = isLast
           ? Math.max(3_000, timelineMs - cursor)
           : Math.max(3_000, Math.round((sceneWords[i]! / totalWords) * timelineMs));
         windows.push({ startMs: cursor, durationMs });
-        await markStep(`scenes ${i + 1}/${script.scenes.length}`, 30 + Math.round(((i + 1) / script.scenes.length) * 20));
+        await markStep(`scenes ${i + 1}/${productionScenes.length}`, 30 + Math.round(((i + 1) / productionScenes.length) * 20));
         let imageAssetId: string | null = null;
         if (videoCred.def.supportsFirstFrame) {
           if (i > 0) await new Promise((r) => setTimeout(r, 3_000));
@@ -219,13 +248,24 @@ export class GenerationService {
 
       /* 3.5 ── moving clips (only when a video provider key is configured) */
       {
-        await markStep(`clips 0/${script.scenes.length}`, 52);
+        await markStep(`clips 0/${productionScenes.length}`, 52);
         let clipAttemptsDone = 0;
         const clipErrors: string[] = [];
-        await mapPool(script.scenes, 2, async (scene, i) => {
+        await mapPool(productionScenes, 2, async (scene, i) => {
           try {
             const w = windows[i]!;
-            const buf = await this.ai.generateSceneClip(videoCred, scene.visualPrompt, firstFrameUrls[i] ?? null, w.durationMs / 1000);
+            let buf: Buffer | null = null;
+            let lastClipError: unknown = null;
+            for (let clipTry = 1; clipTry <= 2; clipTry += 1) {
+              try {
+                buf = await this.ai.generateSceneClip(videoCred, scene.visualPrompt, firstFrameUrls[i] ?? null, w.durationMs / 1000);
+                break;
+              } catch (error) {
+                lastClipError = error;
+                if (clipTry < 2) await new Promise((resolve) => setTimeout(resolve, 1_800));
+              }
+            }
+            if (!buf) throw (lastClipError instanceof Error ? lastClipError : new Error(String(lastClipError)));
             const clipStored = await this.store.put(video.orgId, `clip-${i}.mp4`, buf);
             const clipAsset = await this.prisma.asset.create({
               data: {
@@ -249,71 +289,23 @@ export class GenerationService {
             clipErrors[i] = err instanceof Error ? err.message : String(err);
           } finally {
             clipAttemptsDone += 1;
-            await markStep(`clips ${clipAttemptsDone}/${script.scenes.length}`, 52 + Math.round((clipAttemptsDone / script.scenes.length) * 18));
+            await markStep(`clips ${clipAttemptsDone}/${productionScenes.length}`, 52 + Math.round((clipAttemptsDone / productionScenes.length) * 18));
           }
         });
 
-        const successful = movingScenes.flatMap((scene) => (scene ? [scene] : []));
-
-        // Shared ZeroGPU capacity can disappear between two scenes. Preserve
-        // real motion by reusing a successful story clip, or a closely related
-        // durable clip from an earlier attempt, for only the missing windows.
-        if (successful.length === 0) {
-          try {
-            const recent = await this.prisma.asset.findMany({
-              where: { orgId: video.orgId, type: 'VIDEO_CLIP', source: 'GENERATED' },
-              orderBy: { createdAt: 'desc' },
-              take: 30,
-            });
-            const storyTokens = new Set(
-              script.scenes
-                .flatMap((scene) => scene.narration.toLowerCase().match(/\p{L}{4,}/gu) ?? [])
-                .filter((token) => token.length >= 4),
-            );
-            const previous = recent.find((asset) => {
-              const metadata = asset.metadata as Record<string, unknown> | null;
-              if (metadata?.['provider'] !== videoCred.def.id || typeof metadata['prompt'] !== 'string') return false;
-              const candidateTokens = metadata['prompt'].toLowerCase().match(/\p{L}{4,}/gu) ?? [];
-              return candidateTokens.filter((token) => storyTokens.has(token)).length >= 2;
-            });
-            if (previous) {
-              const bytes = await this.store.read(previous.storageKey);
-              if (bytes.byteLength >= 30_000) {
-                const restoredPath = `${wd}/restored-ai-clip.mp4`;
-                await writeFile(restoredPath, bytes);
-                successful.push({
-                  clipPath: restoredPath,
-                  caption: script.scenes[0]!.narration,
-                  durationMs: windows[0]!.durationMs,
-                });
-              }
-            }
-          } catch {
-            // The provider failure below remains actionable when recovery fails.
-          }
+        // Quality rule: every narration shot must have its own generated moving clip.
+        // Never recycle clip 1 under later narration; that creates the repeated-shot
+        // failure the product must reject. A missing shot fails the job so it can retry.
+        const missingShots = productionScenes
+          .map((_, index) => index)
+          .filter((index) => !movingScenes[index]);
+        if (missingShots.length > 0) {
+          const detail = clipErrors.filter(Boolean).join(' | ');
+          throw new Error(`unique AI shots incomplete (${productionScenes.length - missingShots.length}/${productionScenes.length}); missing ${missingShots.map((n) => n + 1).join(',')}: ${detail || 'provider returned no clip'}`);
         }
-
-        const detail = clipErrors.filter(Boolean).join(' | ');
-        if (successful.length === 0) {
-          throw new Error(`real AI video generation failed (${videoCred.def.id}): ${detail || 'no moving clips returned'}`);
-        }
-
-        if (successful.length < script.scenes.length) {
-          const sourceClips = [...successful];
-          for (let i = 0; i < script.scenes.length; i += 1) {
-            if (movingScenes[i]) continue;
-            const source = sourceClips[i % sourceClips.length]!;
-            movingScenes[i] = {
-              clipPath: source.clipPath,
-              caption: script.scenes[i]!.narration,
-              durationMs: windows[i]!.durationMs,
-            };
-          }
-          seoState['motionFallback'] = 'reused-ai-video-clip';
-          seoState['motionSourceClips'] = sourceClips.length;
-          seoState['motionFallbackReason'] = detail.slice(0, 180);
-          await markStep(`clips ${sourceClips.length}/${script.scenes.length} + AI reuse`, 70);
-        }
+        seoState['motionFallback'] = 'none';
+        seoState['uniqueMotionClips'] = productionScenes.length;
+        seoState['shotCadence'] = 'short-sequential-no-repeat';
       }
 
       // Production installations created before the expanded VideoStatus enum
@@ -322,8 +314,8 @@ export class GenerationService {
       await markStep('render', 72);
 
       /* 4 ── compose (real ffmpeg render; moving path when clips exist) */
-      if (movingScenes.length !== script.scenes.length) {
-        throw new Error(`real AI video generation incomplete: ${movingScenes.length}/${script.scenes.length} moving scenes`);
+      if (movingScenes.length !== productionScenes.length) {
+        throw new Error(`real AI video generation incomplete: ${movingScenes.length}/${productionScenes.length} moving scenes`);
       }
       const requestsNoText = /بدون\s+(?:نص|نصوص|كتابة)|no\s+(?:text|captions|subtitles)/iu.test(keyword);
       const professionalRunway = videoCred.def.id === 'runway';
@@ -433,7 +425,7 @@ export class GenerationService {
           hook: script.hook,
           cta: script.cta,
           durationMs,
-          qualityScore: Math.min(95, 60 + script.scenes.length * 6),
+          qualityScore: Math.min(95, 60 + productionScenes.length * 6),
           seo: { ...seoState, keyword, provider, engine, motionMode: 'ai-video', wallMs: Date.now() - t0, step: 'ready', progress: 100 },
         },
       });

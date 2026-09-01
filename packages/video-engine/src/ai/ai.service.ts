@@ -390,8 +390,29 @@ export class AiService {
       }, this.logger);
       return { chunks, provider: 'openai', mime: 'audio/mpeg' };
     }
+    try {
+      const chunks = await withRetry('tts-edge-neural', () => this.edgeNeuralTts(text, language), this.logger);
+      return { chunks, provider: 'edge-neural', mime: 'audio/mpeg' };
+    } catch (error) {
+      this.logger.warn({ module: 'ai', error: error instanceof Error ? error.message : String(error) }, 'Edge neural TTS unavailable; using gTTS fallback');
+    }
     const chunks = await withRetry('tts-gtts', () => this.gtts(text, language.startsWith('ar') ? 'ar' : 'en'), this.logger);
     return { chunks, provider: 'gtts', mime: 'audio/mpeg' };
+  }
+
+  private async edgeNeuralTts(text: string, language: string): Promise<Buffer[]> {
+    const { EdgeTTS, Constants } = await import('@andresaya/edge-tts');
+    const voice = language.toLowerCase().startsWith('ar') ? 'ar-SA-HamedNeural' : 'en-US-GuyNeural';
+    const engine = new EdgeTTS();
+    await engine.synthesize(text, voice, {
+      rate: 12,
+      pitch: '-2Hz',
+      volume: 0,
+      outputFormat: Constants.OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3,
+    });
+    const audio = engine.toBuffer();
+    if (!audio || audio.length < 500) throw new Error('edge neural tts returned empty audio');
+    return [audio];
   }
 
   private async gtts(text: string, tl: string): Promise<Buffer[]> {
