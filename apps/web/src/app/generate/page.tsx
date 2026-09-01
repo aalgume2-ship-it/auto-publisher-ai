@@ -38,13 +38,25 @@ function professionalPrompt(draft: ReturnType<typeof loadDraft>): string {
     'one coherent story with direct continuity between shots',
     'stable face, stable body proportions, stable wardrobe and location',
     story3d
-      ? 'clear readable emotion, consistent stylized anatomy, clean hands, gentle camera push and parallax, polished 3D render, no random identity changes'
+      ? 'clear readable emotion, consistent stylized anatomy, clean hands, genuine character and camera motion, unique sequential shot for each narration beat, polished 3D render, never repeat a previous video clip'
       : 'physically correct hands and fingers, natural blinking, breathing and weight shifts',
     'realistic motion blur, camera parallax, shadows, reflections and environmental interaction',
     story3d
-      ? 'Arabic narration and large clean Arabic subtitle at the lower safe area; no watermark, no random text, no logo'
+      ? 'Arabic narration and large clean Arabic subtitle at the lower safe area; no watermark, no random text, no logo, no still-image animation, no repeated clip'
       : 'no waxy skin, no beauty-filter face, no warped anatomy, no extra fingers, no morphing, no duplicate people, no flicker, no subtitles, no written text, no logo, no watermark',
   ].filter(Boolean).join('. ');
+}
+
+function arabicStatus(status: string): string {
+  const map: Record<string, string> = {
+    QUEUED: 'في قائمة الانتظار',
+    GENERATING: 'جاري توليد اللقطات',
+    RENDERING: 'جاري تركيب الفيديو',
+    UPLOADING: 'جاري رفع الفيديو',
+    READY: 'الفيديو جاهز',
+    FAILED: 'فشل التوليد',
+  };
+  return map[status] ?? friendlyStatus(status);
 }
 
 function GenerateInner() {
@@ -54,7 +66,7 @@ function GenerateInner() {
   const [phase, setPhase] = useState<Phase>('booting');
   const [status, setStatus] = useState('QUEUED');
   const [progress, setProgress] = useState(2);
-  const [step, setStep] = useState('Waiting for the generation worker');
+  const [step, setStep] = useState('في انتظار محرك التوليد');
   const [error, setError] = useState('');
   const startedRef = useRef(false);
   const cancelledRef = useRef(false);
@@ -103,21 +115,21 @@ function GenerateInner() {
     return () => { cancelledRef.current = true; };
   }, [initialSession, draft, router]);
 
-  const label = phase === 'completed' ? 'Completed' : phase === 'failed' ? 'Generation failed' : friendlyStatus(status);
+  const label = phase === 'completed' ? 'اكتمل التوليد' : phase === 'failed' ? 'فشل التوليد' : arabicStatus(status);
 
   return (
-    <div dir="ltr" className="studio-root">
+    <div dir="rtl" className="studio-root">
       <div className="aurora a1" /><div className="aurora a2" /><div className="aurora a3" /><div className="grain" />
       <StudioNav minimal />
       <main className="shell" style={{ maxWidth: 720, paddingTop: 48 }}>
         <motion.div initial={{ opacity: 0, y: 22 }} animate={{ opacity: 1, y: 0 }} className="glass" style={{ padding: 30, textAlign: 'center' }}>
-          {phase === 'completed' ? <motion.div initial={{ scale: .7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="pill-note" style={{ margin: '0 auto', background: 'rgba(61,255,192,.16)', color: '#bfffe9' }}><Check size={18} /> Completed</motion.div> : phase === 'failed' ? <div className="pill-note" style={{ margin: '0 auto', background: 'rgba(255,93,158,.14)', color: '#ffd5e5' }}>Generation failed</div> : <div className="spinner magenta" style={{ margin: '0 auto' }} />}
-          <h1 style={{ fontSize: 26, fontWeight: 800, marginTop: 20 }}>{phase === 'booting' ? 'Preparing Studio' : label}</h1>
-          <p className="muted" style={{ marginTop: 8 }}>{phase === 'completed' ? 'Your video is ready.' : phase === 'failed' ? error : phase === 'booting' ? 'Preparing a temporary testing workspace…' : step}</p>
-          {phase === 'failed' && <button type="button" className="hf-generate" style={{ marginTop: 22 }} onClick={() => router.replace('/create')}><RotateCcw size={16} /> Back to Create</button>}
+          {phase === 'completed' ? <motion.div initial={{ scale: .7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="pill-note" style={{ margin: '0 auto', background: 'rgba(61,255,192,.16)', color: '#bfffe9' }}><Check size={18} /> اكتمل</motion.div> : phase === 'failed' ? <div className="pill-note" style={{ margin: '0 auto', background: 'rgba(255,93,158,.14)', color: '#ffd5e5' }}>فشل التوليد</div> : <div className="spinner magenta" style={{ margin: '0 auto' }} />}
+          <h1 style={{ fontSize: 26, fontWeight: 800, marginTop: 20 }}>{phase === 'booting' ? 'جاري تجهيز الاستوديو' : label}</h1>
+          <p className="muted" style={{ marginTop: 8 }}>{phase === 'completed' ? 'الفيديو جاهز.' : phase === 'failed' ? error : phase === 'booting' ? 'جاري تجهيز مساحة التوليد…' : step}</p>
+          {phase === 'failed' && <button type="button" className="hf-generate" style={{ marginTop: 22 }} onClick={() => router.replace('/create')}><RotateCcw size={16} /> العودة للإنشاء</button>}
           <div className="bar" style={{ marginTop: 24, maxWidth: 420, marginInline: 'auto' }}><div className="fill" style={{ width: `${phase === 'completed' || phase === 'failed' ? 100 : progress}%` }} /></div>
-          {phase === 'processing' && <p className="sm muted" style={{ marginTop: 8 }}>{progress}% · {friendlyStatus(status)}</p>}
-          <p className="sm muted" style={{ marginTop: 18, display: 'inline-flex', alignItems: 'center', gap: 6 }}>{phase !== 'completed' && phase !== 'failed' && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />}{phase === 'completed' ? 'Opening your video…' : phase === 'failed' ? 'No automatic retry loop — the actual failure is shown.' : 'No login or subscription is required in testing mode.'}</p>
+          {phase === 'processing' && <p className="sm muted" style={{ marginTop: 8 }}>{progress}% · {arabicStatus(status)}</p>}
+          <p className="sm muted" style={{ marginTop: 18, display: 'inline-flex', alignItems: 'center', gap: 6 }}>{phase !== 'completed' && phase !== 'failed' && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />}{phase === 'completed' ? 'جاري فتح الفيديو…' : phase === 'failed' ? 'تم عرض سبب الفشل الفعلي بدون تكرار تلقائي غير محدود.' : 'لا يلزم تسجيل دخول أو اشتراك أثناء وضع التجربة.'}</p>
         </motion.div>
       </main>
     </div>
