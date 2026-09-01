@@ -1,0 +1,134 @@
+name: kids-story-production-proof
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/kids-story-production-proof.yml']
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      SITE_ORIGIN: https://auto-publisher-ai-web.vercel.app
+    steps:
+      - name: Install media verifier
+        run: |
+          set -euo pipefail
+          command -v ffmpeg >/dev/null || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+          command -v jq >/dev/null
+      - name: Verify production health
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 10 --retry-all-errors --retry-delay 3 "$SITE_ORIGIN/api/v1/health/live" | tee health-live.json
+          curl -fLsS --retry 10 --retry-all-errors --retry-delay 3 "$SITE_ORIGIN/api/v1/health/ready" | tee health-ready.json
+      - name: Create test session
+        id: auth
+        run: |
+          set -euo pipefail
+          ID="${GITHUB_RUN_ID}-${RANDOM}"
+          EMAIL="kids-proof-${ID}@trial.lumen.app"
+          PASSWORD="Kids${ID}Aa9!xZ7#"
+          BODY=$(jq -nc --arg e "$EMAIL" --arg p "$PASSWORD" --arg n "Kids Story Proof $ID" '{email:$e,password:$p,displayName:$n,locale:"ar",timezone:"Asia/Riyadh"}')
+          RESP=$(curl -fLsS -H 'content-type: application/json' -H "Idempotency-Key: auth-$ID" -d "$BODY" "$SITE_ORIGIN/api/v1/auth/register")
+          TOKEN=$(jq -r '.tokens.accessToken // empty' <<<"$RESP")
+          ORG=$(jq -r '.workspace.id // empty' <<<"$RESP")
+          test -n "$TOKEN" && test -n "$ORG"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+          echo "org=$ORG" >> "$GITHUB_OUTPUT"
+      - name: Request boy and kitten 3D story
+        id: video
+        env:
+          TOKEN: ${{ steps.auth.outputs.token }}
+          ORG: ${{ steps.auth.outputs.org }}
+        run: |
+          set -euo pipefail
+          SERIES_BODY='{"name":"قصة ولد وقطة","niche":"professional family friendly 3D animated kids story","language":"ar"}'
+          SERIES=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: series-${GITHUB_RUN_ID}" -d "$SERIES_BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series")
+          SERIES_ID=$(jq -r '.id // empty' <<<"$SERIES")
+          test -n "$SERIES_ID"
+          PROMPT='قصة أطفال عربية قصيرة بأسلوب 3D احترافي عن ولد عربي عمره عشر سنوات يرتدي قميصاً أزرق وبنطالاً بيج، يجد قطة صغيرة برتقالية ضائعة قرب الحديقة، يحملها بلطف ثم يسأل الجيران ويتبع بطاقة صغيرة على طوقها حتى يصل إلى منزلها ويعيدها لطفلة سعيدة. حافظ على نفس الولد ونفس الوجه والشعر والملابس ونفس القطة في جميع اللقطات. كل جزء من الكلام له لقطة فيديو مختلفة ومتتابعة، حركة جسم ويدين ووجه طبيعية، مشي حقيقي، حركة قطة واضحة، كاميرا dolly وtracking وclose-up متغيرة، polished feature-film 3D animation, warm cinematic lighting, expressive characters, smooth temporal motion, coherent continuity, vertical 9:16 composition, no still frame, no slideshow, no ken burns, no repeated video clip, no watermark, no random text.'
+          BODY=$(jq -nc --arg k "$PROMPT" '{keyword:$k,targetSeconds:20}')
+          RESP=$(curl -fLsS -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: video-${GITHUB_RUN_ID}" -d "$BODY" "$SITE_ORIGIN/api/v1/organizations/$ORG/series/$SERIES_ID/videos")
+          VIDEO_ID=$(jq -r '.video.id // .id // empty' <<<"$RESP")
+          test -n "$VIDEO_ID"
+          echo "id=$VIDEO_ID" >> "$GITHUB_OUTPUT"
+          echo "$VIDEO_ID" > video-id.txt
+      - name: Wait, download, and reject repeated footage
+        env:
+          TOKEN: ${{ steps.auth.outputs.token }}
+          ORG: ${{ steps.auth.outputs.org }}
+          VIDEO_ID: ${{ steps.video.outputs.id }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 1800))
+          while [ $SECONDS -lt $deadline ]; do
+            R=$(curl -fLsS -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VIDEO_ID")
+            STATUS=$(jq -r '.status // empty' <<<"$R")
+            echo "status=$STATUS step=$(jq -r '.seo.step // empty' <<<"$R") progress=$(jq -r '.seo.progress // empty' <<<"$R")"
+            if [ "$STATUS" = "READY" ]; then
+              printf '%s\n' "$R" > final-video.json
+              FALLBACK=$(jq -r '.seo.motionFallback // "none"' final-video.json)
+              test "$FALLBACK" != "reused-ai-video-clip"
+              : > kids-story-final.mp4
+              START=0; TOTAL=-1; EXPECTED_SHA=''
+              while [ "$TOTAL" -lt 0 ] || [ "$START" -lt "$TOTAL" ]; do
+                CHUNK=$(curl -fLsS --retry 5 --retry-all-errors -H "Authorization: Bearer $TOKEN" "$SITE_ORIGIN/api/v1/organizations/$ORG/videos/$VIDEO_ID/stream-chunk?start=$START&size=524286")
+                CS=$(jq -r '.start' <<<"$CHUNK"); CE=$(jq -r '.end' <<<"$CHUNK"); TOTAL=$(jq -r '.total' <<<"$CHUNK")
+                test "$CS" -eq "$START"
+                [ "$START" -ne 0 ] || EXPECTED_SHA=$(jq -r '.sha256 // empty' <<<"$CHUNK")
+                jq -r '.base64' <<<"$CHUNK" | base64 --decode >> kids-story-final.mp4
+                START=$CE
+              done
+              test "$(stat -c%s kids-story-final.mp4)" -eq "$TOTAL"
+              [ -z "$EXPECTED_SHA" ] || test "$(sha256sum kids-story-final.mp4 | awk '{print $1}')" = "$EXPECTED_SHA"
+              ffprobe -v error -show_entries stream=codec_name,codec_type,width,height,avg_frame_rate -show_entries format=duration,size -of json kids-story-final.mp4 | tee ffprobe.json
+              jq -e '.streams | any(.codec_type=="video" and .codec_name=="h264" and .width==720 and .height==1280)' ffprobe.json >/dev/null
+              jq -e '(.format.duration|tonumber) >= 18 and (.format.duration|tonumber) <= 22.5' ffprobe.json >/dev/null
+              mkdir -p boundary-frames
+              for T in 2.5 7.5 12.5 17.5; do ffmpeg -v error -ss "$T" -i kids-story-final.mp4 -frames:v 1 -vf scale=180:320 "boundary-frames/${T}.png"; done
+              sha256sum boundary-frames/*.png | tee boundary-hashes.txt
+              test "$(awk '{print $1}' boundary-hashes.txt | sort -u | wc -l)" -eq 4
+              ffmpeg -v error -i kids-story-final.mp4 -vf "select='gt(scene,0.06)',showinfo" -an -f null - 2> scene-detect.txt || true
+              SCENES=$(grep -c 'showinfo' scene-detect.txt || true)
+              echo "detected_scene_frames=$SCENES" | tee scene-count.txt
+              test "$SCENES" -ge 3
+              exit 0
+            fi
+            if [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "ERROR" ] || [ "$STATUS" = "CANCELLED" ]; then
+              printf '%s\n' "$R" | tee failed-video.json
+              exit 1
+            fi
+            sleep 7
+          done
+          echo 'Timed out waiting for kids story video'
+          exit 1
+      - name: Upload production proof
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kids-story-production-video
+          path: |
+            kids-story-final.mp4
+            final-video.json
+            ffprobe.json
+            boundary-hashes.txt
+            scene-count.txt
+            scene-detect.txt
+            video-id.txt
+            health-live.json
+            health-ready.json
+            boundary-frames/*.png
+          retention-days: 7
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kids-story-production-failure
+          path: |
+            failed-video.json
+            video-id.txt
+            health-live.json
+            health-ready.json
+          if-no-files-found: ignore
+          retention-days: 3
