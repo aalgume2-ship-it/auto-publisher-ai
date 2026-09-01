@@ -1,0 +1,42 @@
+name: execute-multishot-v2
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/execute-multishot-v2.yml']
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.head_ref == 'ops/multishot-v2-exec'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply production patch and validate changed files
+        run: |
+          set -euo pipefail
+          cp .github/workflows/apply-multishot-natural-voice.yml /tmp/source.yml
+          git checkout main
+          python3 - <<'PY'
+          from pathlib import Path
+          text=Path('/tmp/source.yml').read_text()
+          start=text.index("          python3 - <<'PY'\n")+len("          python3 - <<'PY'\n")
+          end=text.index("\n          PY\n", start)
+          code='\n'.join(line[10:] if line.startswith('          ') else line for line in text[start:end].splitlines())
+          exec(compile(code, 'multishot_patch.py', 'exec'))
+          PY
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+          pnpm install --frozen-lockfile
+          pnpm add @andresaya/edge-tts@1.8.0 --filter @aca/video-engine
+          pnpm exec eslint packages/video-engine/src/generation/generation.service.ts packages/video-engine/src/ai/ai.service.ts
+          pnpm --filter @aca/video-engine test
+          pnpm --filter @aca/video-engine build
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/video-engine/src/generation/generation.service.ts packages/video-engine/src/ai/ai.service.ts packages/video-engine/package.json pnpm-lock.yaml
+          git diff --cached --quiet && exit 0
+          git commit -m 'fix(video): unique animated story shots and neural Arabic voice'
+          git push origin HEAD:main

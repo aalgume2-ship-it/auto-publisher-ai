@@ -1,0 +1,85 @@
+name: apply-multishot-natural-voice
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/apply-multishot-natural-voice.yml']
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.head_ref == 'ops/multishot-natural-voice'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Patch multi-shot generation and natural neural voice
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('packages/video-engine/src/generation/generation.service.ts')
+          s = p.read_text()
+          s = s.replace("import { readFile, writeFile } from 'node:fs/promises';", "import { readFile } from 'node:fs/promises';")
+          s = s.replace(
+            "const VOICE_PROVIDER_TTS: Record<string, { provider: string; providerVoiceId: string; name: string }> = {\n  gtts:",
+            "const VOICE_PROVIDER_TTS: Record<string, { provider: string; providerVoiceId: string; name: string }> = {\n  'edge-neural': { provider: 'edge-neural', providerVoiceId: 'ar-SA-HamedNeural', name: 'Microsoft Neural Arabic — Hamed' },\n  gtts:",
+          )
+
+          anchor = "      // Keep the complete four-beat story. The free moving-video providers are\n"
+          if "const productionScenes =" not in s:
+            block = """      // Expand the narrative into short, sequential production shots. Long scenes\n      // force a 3-5 second generated clip to repeat; short shots keep the edit\n      // fast, smooth and synchronized with the exact words being spoken.\n      const desiredShotCount = targetSeconds <= 30 ? 8 : targetSeconds <= 45 ? 10 : targetSeconds <= 60 ? 12 : 16;\n      const shotsPerScene = Math.max(1, Math.ceil(desiredShotCount / script.scenes.length));\n      const cameraGrammar = [\n        '24mm establishing dolly-in with foreground parallax',\n        '35mm lateral tracking medium shot with a clearly different composition',\n        '50mm expressive action close-up with subtle handheld micro-motion',\n        '28mm over-shoulder or reverse-angle continuation with controlled crane movement',\n      ];\n      const productionScenes = script.scenes\n        .flatMap((scene, sceneIndex) => {\n          const words = scene.narration.split(/\\s+/u).filter(Boolean);\n          const count = Math.min(shotsPerScene, Math.max(1, Math.ceil(words.length / 4)));\n          const size = Math.max(1, Math.ceil(words.length / count));\n          return Array.from({ length: count }, (_, partIndex) => {\n            const narration = words.slice(partIndex * size, Math.min(words.length, (partIndex + 1) * size)).join(' ').trim();\n            const camera = cameraGrammar[(sceneIndex + partIndex) % cameraGrammar.length]!;\n            return {\n              narration: narration || scene.narration,\n              visualPrompt: `${scene.visualPrompt}; NEW SEQUENTIAL SHOT ${sceneIndex + 1}.${partIndex + 1}; action synchronized to narration: ${narration || scene.narration}; ${camera}; continue the exact same character, wardrobe, environment and action from the previous shot; visibly new camera position and framing; do not repeat any previous shot; natural facial expression, hand and body movement; smooth cinematic motion; no text`,\n            };\n          });\n        })\n        .slice(0, desiredShotCount);\n      if (productionScenes.length < 6) throw new Error(`story produced too few unique shots: ${productionScenes.length}`);\n\n"""
+            if anchor not in s:
+              raise SystemExit('production-scenes anchor not found')
+            s = s.replace(anchor, block + anchor, 1)
+
+          tail_start = s.find("      const narration = script.scenes.map")
+          if tail_start < 0:
+            tail_start = s.find("      const narration = productionScenes.map")
+          if tail_start < 0:
+            raise SystemExit('narration anchor not found')
+          head, tail = s[:tail_start], s[tail_start:]
+          tail = tail.replace('script.scenes', 'productionScenes')
+          s = head + tail
+
+          old_clip = "            const buf = await this.ai.generateSceneClip(videoCred, scene.visualPrompt, firstFrameUrls[i] ?? null, w.durationMs / 1000);"
+          if old_clip in s:
+            new_clip = """            let buf: Buffer | null = null;\n            let lastClipError: unknown = null;\n            for (let clipTry = 1; clipTry <= 2; clipTry += 1) {\n              try {\n                buf = await this.ai.generateSceneClip(videoCred, scene.visualPrompt, firstFrameUrls[i] ?? null, w.durationMs / 1000);\n                break;\n              } catch (error) {\n                lastClipError = error;\n                if (clipTry < 2) await new Promise((resolve) => setTimeout(resolve, 1_800));\n              }\n            }\n            if (!buf) throw (lastClipError instanceof Error ? lastClipError : new Error(String(lastClipError)));"""
+            s = s.replace(old_clip, new_clip, 1)
+
+          start = s.find("        const successful = movingScenes.flatMap")
+          end_marker = "      // Production installations created before the expanded VideoStatus enum"
+          end = s.find(end_marker, start)
+          if start < 0 or end < 0:
+            raise SystemExit('reuse-fallback block not found')
+          strict = """        // Quality rule: every narration shot must have its own generated moving clip.\n        // Never recycle clip 1 under later narration; that creates the repeated-shot\n        // failure the product must reject. A missing shot fails the job so it can retry.\n        const missingShots = productionScenes\n          .map((_, index) => index)\n          .filter((index) => !movingScenes[index]);\n        if (missingShots.length > 0) {\n          const detail = clipErrors.filter(Boolean).join(' | ');\n          throw new Error(`unique AI shots incomplete (${productionScenes.length - missingShots.length}/${productionScenes.length}); missing ${missingShots.map((n) => n + 1).join(',')}: ${detail || 'provider returned no clip'}`);\n        }\n        seoState['motionFallback'] = 'none';\n        seoState['uniqueMotionClips'] = productionScenes.length;\n        seoState['shotCadence'] = 'short-sequential-no-repeat';\n      }\n\n"""
+          s = s[:start] + strict + s[end:]
+          p.write_text(s)
+
+          p = Path('packages/video-engine/src/ai/ai.service.ts')
+          s = p.read_text()
+          old = """    const chunks = await withRetry('tts-gtts', () => this.gtts(text, language.startsWith('ar') ? 'ar' : 'en'), this.logger);\n    return { chunks, provider: 'gtts', mime: 'audio/mpeg' };\n  }\n\n  private async gtts"""
+          new = """    try {\n      const chunks = await withRetry('tts-edge-neural', () => this.edgeNeuralTts(text, language), this.logger);\n      return { chunks, provider: 'edge-neural', mime: 'audio/mpeg' };\n    } catch (error) {\n      this.logger.warn({ module: 'ai', error: error instanceof Error ? error.message : String(error) }, 'Edge neural TTS unavailable; using gTTS fallback');\n    }\n    const chunks = await withRetry('tts-gtts', () => this.gtts(text, language.startsWith('ar') ? 'ar' : 'en'), this.logger);\n    return { chunks, provider: 'gtts', mime: 'audio/mpeg' };\n  }\n\n  private async edgeNeuralTts(text: string, language: string): Promise<Buffer[]> {\n    const { EdgeTTS, Constants } = await import('@andresaya/edge-tts');\n    const voice = language.toLowerCase().startsWith('ar') ? 'ar-SA-HamedNeural' : 'en-US-GuyNeural';\n    const engine = new EdgeTTS();\n    await engine.synthesize(text, voice, {\n      rate: 12,\n      pitch: '-2Hz',\n      volume: 0,\n      outputFormat: Constants.OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3,\n    });\n    const audio = engine.toBuffer();\n    if (!audio || audio.length < 500) throw new Error('edge neural tts returned empty audio');\n    return [audio];\n  }\n\n  private async gtts"""
+          if old not in s:
+            raise SystemExit('tts fallback anchor not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+
+          corepack enable
+          corepack prepare pnpm@9.15.9 --activate
+          pnpm add @andresaya/edge-tts@1.8.0 --filter @aca/video-engine
+          pnpm typecheck
+          pnpm lint
+          pnpm test
+          pnpm build
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/video-engine/src/generation/generation.service.ts packages/video-engine/src/ai/ai.service.ts packages/video-engine/package.json pnpm-lock.yaml
+          git diff --cached --quiet && exit 0
+          git commit -m 'fix(video): unique sequential shots and natural neural Arabic voice'
+          git push origin HEAD:main
