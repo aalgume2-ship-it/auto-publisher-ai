@@ -5,30 +5,28 @@ export type Model = { id: string; name: string; tag: string; cost: number; desc:
 export type StyleDef = { id: string; name: string; from: string; to: string };
 
 export const MODELS: Model[] = [
-  { id: 'lumen-pro', name: 'واقعي سينمائي', tag: 'Live action', cost: 3, desc: 'مشاهد واقعية بعدسات وحركة سينمائية.' },
-  { id: 'human-presenter', name: 'مقدّم بشري', tag: 'Presenter', cost: 3, desc: 'شخصية بشرية ثابتة وتعبيرات طبيعية.' },
-  { id: 'story-3d', name: 'قصة 3D', tag: 'Animation', cost: 2, desc: 'قصص وشخصيات ثلاثية الأبعاد متناسقة.' },
+  { id: 'story-3d', name: 'قصة 3D احترافية', tag: 'الأفضل والأثبت', cost: 2, desc: 'قصة متحركة متعددة اللقطات بشخصيات متناسقة وصوت عربي.' },
+  { id: 'lumen-pro', name: 'واقعي سينمائي', tag: 'واقعي', cost: 3, desc: 'مشاهد واقعية بعدسات وحركة سينمائية.' },
+  { id: 'human-presenter', name: 'مقدّم بشري', tag: 'مقدّم', cost: 3, desc: 'شخصية بشرية ثابتة وتعبيرات طبيعية.' },
 ];
 
 export const ASPECTS: Aspect[] = [
-  { id: '9:16', label: '9:16', hint: 'Vertical', ratio: 9 / 16, sw: 9, sh: 16 },
-  { id: '1:1', label: '1:1', hint: 'Square', ratio: 1, sw: 1, sh: 1 },
-  { id: '16:9', label: '16:9', hint: 'Wide', ratio: 16 / 9, sw: 16, sh: 9 },
-  { id: '4:3', label: '4:3', hint: 'Classic', ratio: 4 / 3, sw: 4, sh: 3 },
+  { id: '9:16', label: '9:16', hint: 'عمودي', ratio: 9 / 16, sw: 9, sh: 16 },
+  { id: '1:1', label: '1:1', hint: 'مربع', ratio: 1, sw: 1, sh: 1 },
+  { id: '16:9', label: '16:9', hint: 'أفقي', ratio: 16 / 9, sw: 16, sh: 9 },
+  { id: '4:3', label: '4:3', hint: 'كلاسيكي', ratio: 4 / 3, sw: 4, sh: 3 },
 ];
 
-// API GenerateVideoBody accepts 20–60 seconds. Keep the Studio catalog aligned
-// so a valid UI selection can never be rejected by backend validation.
 export const DURATIONS = [20, 30, 40, 60];
 
 export const STYLES: StyleDef[] = [
+  { id: 'social-3d', name: '3D قصصي احترافي', from: '#ff9f7a', to: '#6f7cff' },
+  { id: 'cinematic', name: 'سينمائي', from: '#8b7bff', to: '#ff5d9e' },
   { id: 'documentary', name: 'واقعي طبيعي', from: '#7b8b86', to: '#d7c5a7' },
   { id: 'commercial', name: 'إعلان فاخر', from: '#d4af37', to: '#6d4cff' },
-  { id: 'cinematic', name: 'سينمائي', from: '#8b7bff', to: '#ff5d9e' },
   { id: 'arabic-drama', name: 'دراما عربية', from: '#b66a37', to: '#26344f' },
   { id: 'studio', name: 'استوديو', from: '#d6e7ff', to: '#5274a8' },
   { id: 'soft-daylight', name: 'ضوء نهاري', from: '#fff0b5', to: '#84b9e8' },
-  { id: 'social-3d', name: 'قصة 3D عربية', from: '#ff9f7a', to: '#6f7cff' },
 ];
 
 export interface CreateDraft {
@@ -44,10 +42,10 @@ export interface CreateDraft {
 
 export const DEFAULT_DRAFT: CreateDraft = {
   prompt: '',
-  model: 'lumen-pro',
-  style: 'documentary',
+  model: 'story-3d',
+  style: 'social-3d',
   aspect: '9:16',
-  duration: 40,
+  duration: 30,
   seed: Math.floor(Math.random() * 1e6),
   updatedAt: 0,
 };
