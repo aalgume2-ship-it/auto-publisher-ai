@@ -1,0 +1,1 @@
+trigger free Wan ZeroGPU production deployment
