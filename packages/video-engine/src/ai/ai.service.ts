@@ -409,7 +409,8 @@ export class AiService {
       );
     }
     const { synthesizeLocalVoice } = await import('../tts/local-tts.js');
-    const local = await synthesizeLocalVoice(text, language, { voicesDir: this.config.localMedia.voicesDir });
+    const { resolveVoicesDir } = await import('../media/local-dirs.js');
+    const local = await synthesizeLocalVoice(text, language, { voicesDir: resolveVoicesDir(this.config) });
     return { chunks: [local.mp3], provider: local.provider, mime: 'audio/mpeg' };
   }
 

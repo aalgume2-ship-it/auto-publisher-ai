@@ -13,6 +13,7 @@ import { createLogger } from '@aca/logger';
 import { AppModule } from './app.module.js';
 import { initTelemetry } from './common/telemetry/telemetry.js';
 import { registerLenientJsonBodyParser } from './common/http/json-body.js';
+import { registerRawBinaryBodyParser } from './common/http/raw-body.js';
 import { registerAuthUserComponent, registerProblemDetailsComponent } from './common/http/problem-details.openapi.js';
 import * as http from 'node:http';
 
@@ -96,6 +97,8 @@ async function bootstrap(): Promise<void> {
     { logger: false, rawBody: true },
   );
   registerLenientJsonBodyParser(app, { bodyLimitBytes: config.http.requestBodyLimitMb * 1024 * 1024 });
+  // raw media imports (voice packs / footage clips) — see local-media.controller
+  registerRawBinaryBodyParser(app, { bodyLimitBytes: 640 * 1024 * 1024 });
 
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
   app.enableShutdownHooks();

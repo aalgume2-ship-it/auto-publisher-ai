@@ -180,6 +180,7 @@ export const AppConfigSchema = z.object({
     .object({
       generation: boolFromEnv(false),
       voicesDir: z.string().min(1).optional(),
+      footageDir: z.string().min(1).optional(),
     })
     .default({}),
 
@@ -277,6 +278,7 @@ export const ENV_MAP = {
   ELEVENLABS_API_KEY: 'ai.elevenlabsApiKey',
   ACA_LOCAL_GENERATION: 'localMedia.generation',
   ACA_LOCAL_VOICES_DIR: 'localMedia.voicesDir',
+  ACA_LOCAL_FOOTAGE_DIR: 'localMedia.footageDir',
   S3_ENDPOINT: 's3.endpoint',
   S3_REGION: 's3.region',
   AWS_REGION: 's3.region',

@@ -24,6 +24,15 @@ import {
 } from '../src/tts/local-tts.js';
 import { renderLocalMotionClips } from '../src/render/local-motion.js';
 import { probeDurationMs } from '../src/render/compose.service.js';
+import {
+  matchFootage,
+  expandArabicTopics,
+  addFootageClip,
+  readFootageIndex,
+  removeFootageClip,
+  prepareFootageClip,
+  type FootageEntry,
+} from '../src/render/footage.js';
 
 const tmpDirs: string[] = [];
 async function freshDir(prefix: string): Promise<string> {
@@ -112,5 +121,80 @@ describe('renderLocalMotionClips (ffmpeg 4.1 compatibility)', () => {
       expect(ms).toBeGreaterThanOrEqual(1400);
       expect(ms).toBeLessThanOrEqual(2200);
     }
+  }, 180_000);
+});
+
+describe('footage library (real-clip scene matching)', () => {
+  const entries: FootageEntry[] = [
+    { file: 'blackhole.webm', tags: ['space', 'black-hole', 'galaxy'], durationMs: 5000 },
+    { file: 'forest.mp4', tags: ['forest', 'nature', 'trees'], durationMs: 60000 },
+    { file: 'ocean.mp4', tags: ['ocean', 'sea', 'water'], durationMs: 3000 },
+  ];
+
+  it('expands Arabic topic words into English tags', () => {
+    expect(expandArabicTopics('أسرار الفضاء والثقوب السوداء')).toContain('space');
+    expect(expandArabicTopics('جمال البحر والغابة')).toContain('ocean');
+    expect(expandArabicTopics('جمال البحر والغابة')).toContain('forest');
+  });
+
+  it('matches English prompts by tag overlap and ignores cinematography stopwords', () => {
+    expect(matchFootage(entries, 'a stunning galaxy voyage, 35mm tracking shot, no text')?.file).toBe('blackhole.webm');
+    expect(matchFootage(entries, 'peaceful morning in the forest with wildlife')?.file).toBe('forest.mp4');
+    expect(matchFootage(entries, 'IDENTITY LOCK: same exact main subject, wardrobe, 24mm establishing shot')).toBeNull();
+  });
+
+  it('matches Arabic prompts through the topic map', () => {
+    expect(matchFootage(entries, 'الفضاء والثقوب السوداء ومجرات الكون')?.file).toBe('blackhole.webm');
+  });
+
+  it('requires enough source duration for the scene window', () => {
+    // ocean.mp4 (3s) cannot cover a 4s scene
+    const ocean = matchFootage(entries, 'ocean waves on the shore');
+    expect(ocean?.file).toBe('ocean.mp4');
+    expect(ocean!.durationMs >= Math.min(4000, 4000)).toBe(false);
+  });
+
+  it('deprioritizes the most recently used clip', () => {
+    const first = matchFootage(entries, 'water waves and sea foam')!;
+    expect(first.file).toBe('ocean.mp4');
+    // with ocean recently used, a water+ocean prompt still picks ocean (only match), but a
+    // mixed prompt should prefer the non-recent clip when scores tie
+    const mixed = matchFootage(entries, 'sea water and forest trees', [first.file]);
+    expect(mixed?.file).not.toBe(first.file);
+  });
+
+  it('adds, indexes, removes a real clip file (ffprobe-validated)', async () => {
+    const libDir = await freshDir('footage-lib');
+    const srcDir = await freshDir('footage-src');
+    // stand-in "real" clip: a procedurally rendered mp4
+    const [standIn] = await renderLocalMotionClips([{ caption: 'x', durationMs: 2000 }], srcDir);
+    const entry = await addFootageClip(libDir, standIn!, 'my-space-clip.mp4', ['Space', 'cosmic']);
+    expect(entry.tags).toEqual(['space', 'cosmic']);
+    expect(entry.durationMs).toBeGreaterThanOrEqual(1800);
+    const index = await readFootageIndex(libDir);
+    expect(index).toHaveLength(1);
+    expect(index[0]!.file).toBe('my-space-clip.mp4');
+    expect(await removeFootageClip(libDir, 'my-space-clip.mp4')).toBe(true);
+    expect(await readFootageIndex(libDir)).toHaveLength(0);
+  }, 120_000);
+
+  it('prepares a scene-length vertical clip from a footage source with varied in-points', async () => {
+    const srcDir = await freshDir('prep-src');
+    const outDir = await freshDir('prep-out');
+    const [standIn] = await renderLocalMotionClips([{ caption: 'x', durationMs: 6000 }], srcDir);
+    const out1 = join(outDir, 'scene-000.mp4');
+    const out2 = join(outDir, 'scene-001.mp4');
+    await prepareFootageClip(standIn!, 2000, out1, 0);
+    await prepareFootageClip(standIn!, 2000, out2, 2);
+    for (const out of [out1, out2]) {
+      const ms = await probeDurationMs(out);
+      expect(ms).toBeGreaterThanOrEqual(1900);
+      expect(ms).toBeLessThanOrEqual(2400);
+    }
+    // same source + different variant ⇒ different segments (byte streams differ)
+    const { readFile: rf } = await import('node:fs/promises');
+    const b1 = await rf(out1);
+    const b2 = await rf(out2);
+    expect(b1.equals(b2)).toBe(false);
   }, 180_000);
 });

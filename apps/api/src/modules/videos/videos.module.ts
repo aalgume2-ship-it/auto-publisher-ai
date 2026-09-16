@@ -7,11 +7,12 @@ import { GenerationService } from './generation.service.js';
 import { AutopilotService } from './autopilot.service.js';
 import { VideosController } from './videos.controller.js';
 import { MediaController } from './media.controller.js';
+import { LocalMediaController } from './local-media.controller.js';
 import { VideosService } from './videos.service.js';
 
 @Module({
   imports: [ChannelsModule],
-  controllers: [VideosController, MediaController],
+  controllers: [VideosController, MediaController, LocalMediaController],
   providers: [
     VideosService,
     GenerationService,

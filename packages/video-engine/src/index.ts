@@ -41,5 +41,17 @@ export { ProviderRegistry, type ProviderStatusEntry, type ProviderCategory, type
 export { FFmpegEngine } from './ffmpeg/ffmpeg.engine.js';
 export { synthesizeLocalVoice, localEspeakAvailable, pcm16ToWav } from './tts/local-tts.js';
 export { renderLocalMotionClips } from './render/local-motion.js';
+export { resolveVoicesDir, resolveFootageDir } from './media/local-dirs.js';
+export {
+  readFootageIndex,
+  writeFootageIndex,
+  addFootageClip,
+  removeFootageClip,
+  matchFootage,
+  expandArabicTopics,
+  prepareFootageClip,
+  FOOTAGE_INDEX_FILE,
+  type FootageEntry,
+} from './render/footage.js';
 export type { RenderJobSpec, RenderJobResult, EncodingProfile, CaptionTrack, SubtitleTrack } from './types/render.types.js';
 export { RenderJobSpecSchema, EncodingProfileSchema } from './schemas/render.schema.js';
