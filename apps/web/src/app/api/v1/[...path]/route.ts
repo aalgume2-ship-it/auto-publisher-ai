@@ -12,8 +12,11 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+// Fallback only: the recovery ALB verified during the 2026-08 AWS incident.
+// Deployments SHOULD set API_UPSTREAM (Vercel env) — it now takes precedence,
+// so a redeployed/new API host never routes through a possibly-deleted ALB.
 const VERIFIED_PRODUCTION_UPSTREAM = 'http://autocreator-recovery-alb-979440653.eu-north-1.elb.amazonaws.com';
-const RAW_UPSTREAM = VERIFIED_PRODUCTION_UPSTREAM;
+const RAW_UPSTREAM = cleanOrigin(process.env.API_UPSTREAM ?? '') || VERIFIED_PRODUCTION_UPSTREAM;
 
 function cleanOrigin(s: string): string {
   return s.replace(/\/+$/, '').trim();
