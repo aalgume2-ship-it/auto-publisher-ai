@@ -39,5 +39,7 @@ export { DubbingService } from './dubbing/dubbing.service.js';
 export { RenderService } from './render/render.service.js';
 export { ProviderRegistry, type ProviderStatusEntry, type ProviderCategory, type ProviderState } from './providers/registry.js';
 export { FFmpegEngine } from './ffmpeg/ffmpeg.engine.js';
+export { synthesizeLocalVoice, localEspeakAvailable, pcm16ToWav } from './tts/local-tts.js';
+export { renderLocalMotionClips } from './render/local-motion.js';
 export type { RenderJobSpec, RenderJobResult, EncodingProfile, CaptionTrack, SubtitleTrack } from './types/render.types.js';
 export { RenderJobSpecSchema, EncodingProfileSchema } from './schemas/render.schema.js';

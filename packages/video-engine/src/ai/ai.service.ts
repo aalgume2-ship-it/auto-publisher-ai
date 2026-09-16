@@ -396,8 +396,21 @@ export class AiService {
     } catch (error) {
       this.logger.warn({ module: 'ai', error: error instanceof Error ? error.message : String(error) }, 'Edge neural TTS unavailable; using gTTS fallback');
     }
-    const chunks = await withRetry('tts-gtts', () => this.gtts(text, language.startsWith('ar') ? 'ar' : 'en'), this.logger);
-    return { chunks, provider: 'gtts', mime: 'audio/mpeg' };
+    try {
+      const chunks = await withRetry('tts-gtts', () => this.gtts(text, language.startsWith('ar') ? 'ar' : 'en'), this.logger);
+      return { chunks, provider: 'gtts', mime: 'audio/mpeg' };
+    } catch (error) {
+      // Final tier: fully offline synthesis (Piper voice packs when present,
+      // otherwise the bundled eSpeak-NG WASM). Keeps air-gapped / keyless
+      // installations producing narrated videos instead of hard-failing.
+      this.logger.warn(
+        { module: 'ai', error: error instanceof Error ? error.message : String(error) },
+        'gTTS unavailable; using offline local voice tier',
+      );
+    }
+    const { synthesizeLocalVoice } = await import('../tts/local-tts.js');
+    const local = await synthesizeLocalVoice(text, language, { voicesDir: this.config.localMedia.voicesDir });
+    return { chunks: [local.mp3], provider: local.provider, mime: 'audio/mpeg' };
   }
 
   private async edgeNeuralTts(text: string, language: string): Promise<Buffer[]> {

@@ -35,6 +35,7 @@ export const GenerateVideoBody = z
     // choice as the new canonical 40-second story so production remains
     // correct while the updated frontend propagates through its CDN.
     targetSeconds: z.number().int().min(20).max(60).default(40).transform((seconds) => (seconds === 45 ? 40 : seconds)),
+    language: z.string().min(2).max(8).default('ar'),
     publishNow: z.boolean().default(false),
     channelId: z.string().uuid().optional(),
   })
@@ -46,6 +47,7 @@ export const GenerateVideoBodyDoc = {
   properties: {
     keyword: { type: 'string', example: 'حقائق مدهشة عن الفضاء والثقوب السوداء' },
     targetSeconds: { type: 'integer', example: 40 },
+    language: { type: 'string', example: 'ar' },
     publishNow: { type: 'boolean', example: false },
     channelId: { type: 'string', format: 'uuid' },
   },

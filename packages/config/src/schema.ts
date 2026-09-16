@@ -167,6 +167,23 @@ export const AppConfigSchema = z.object({
     .default({}),
 
   /**
+   * Local (offline) media production. When `generation` is on, the pipeline
+   * runs with ZERO cloud dependencies: keyless template script, offline voice
+   * (Piper voice packs from `voicesDir` when present, otherwise the bundled
+   * eSpeak-NG WASM — Arabic `sem/ar` + English `en-us`), and per-shot motion
+   * backgrounds synthesized by ffmpeg itself (fractal zoom / cellular automata
+   * light fields with camera movement). Made for air-gapped installs, keyless
+   * demos and API outages — cloud providers stay preferred whenever they are
+   * actually reachable.
+   */
+  localMedia: z
+    .object({
+      generation: boolFromEnv(false),
+      voicesDir: z.string().min(1).optional(),
+    })
+    .default({}),
+
+  /**
    * Object storage (S3 / S3-compatible). When accessKeyId + bucket are set the
    * AssetStore writes media to S3 and reads it back from S3; otherwise it
    * falls back to the durable AssetBlob tier (Postgres bytea). Never both.
@@ -258,6 +275,8 @@ export const ENV_MAP = {
   STABILITY_API_KEY: 'ai.stabilityApiKey',
   REPLICATE_API_TOKEN: 'ai.replicateApiToken',
   ELEVENLABS_API_KEY: 'ai.elevenlabsApiKey',
+  ACA_LOCAL_GENERATION: 'localMedia.generation',
+  ACA_LOCAL_VOICES_DIR: 'localMedia.voicesDir',
   S3_ENDPOINT: 's3.endpoint',
   S3_REGION: 's3.region',
   AWS_REGION: 's3.region',
