@@ -14,11 +14,22 @@ const nextConfig = {
       {
         source: '/(.*)',
         headers: [
-          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          // NOTE: no X-Frame-Options — it blocked the hosted preview iframe
+          // and left the user staring at an endless loading screen.
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
         ],
       },
+    ];
+  },
+  async redirects() {
+    return [
+      // Users naturally try Arabic paths (/ar/login, /ar/videos…). Map them
+      // to the real pages instead of dead 404s.
+      { source: '/ar', destination: '/', permanent: false },
+      { source: '/ar/:path*', destination: '/:path*', permanent: false },
+      { source: '/studio', destination: '/video', permanent: false },
+      { source: '/videos', destination: '/video', permanent: false },
     ];
   },
 };
