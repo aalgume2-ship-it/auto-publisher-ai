@@ -56,7 +56,7 @@ function DashboardInner() {
             <h1 style={{ fontSize: 30, fontWeight: 800 }}>Your videos</h1>
             <p className="muted">Every render, saved and ready.</p>
           </div>
-          <Link className="btn btn-primary" href="/create"><Plus size={17} /> New video</Link>
+          <Link className="btn btn-primary" href="/campaign/new"><Plus size={17} /> New campaign</Link>
         </div>
 
         <span className="pill-note" style={{ marginBottom: 16 }}><Clapperboard size={13} /> Cloud library</span>
@@ -77,7 +77,7 @@ function DashboardInner() {
             <Clapperboard size={30} style={{ opacity: 0.4, marginBottom: 12 }} />
             <h2 style={{ fontSize: 20, fontWeight: 800 }}>No videos yet</h2>
             <p className="muted" style={{ margin: '8px 0 20px' }}>Create your first video — it will appear here once rendered.</p>
-            <Link className="btn btn-primary btn-lg" href="/create">Create your first video</Link>
+            <Link className="btn btn-primary btn-lg" href="/campaign/new">Create your first campaign</Link>
           </div>
         ) : (
           <div className="loader-cards">

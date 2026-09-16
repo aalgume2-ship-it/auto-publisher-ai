@@ -48,15 +48,15 @@ export default function StudioNav({ minimal = false }: { minimal?: boolean }) {
       <Logo />
 
       <div className="navlinks" style={{ marginInline: 'auto', gap: 6 }}>
-        <Link className="navlink active" href="/video">Create Video</Link>
-        <Link className="navlink" href="/edit">Edit Video</Link>
-        <Link className="navlink" href="/cinema">Motion Control</Link>
+        <Link className="navlink active" href="/campaign/new">Create Campaign</Link>
+        <Link className="navlink" href="/campaigns">My Campaigns</Link>
+        <Link className="navlink" href="/video">Video Studio</Link>
       </div>
 
       <div className="cta-row" style={{ gap: 7 }}>
-        <Link className="chip" href="/dashboard" style={{ textDecoration: 'none' }}><History size={14} /> History</Link>
-        {!minimal && <Link className="chip" href="/presets" style={{ textDecoration: 'none' }}><FolderKanban size={14} /> Presets</Link>}
-        {!minimal && <Link className="chip" href="/assets" style={{ textDecoration: 'none' }}><Images size={14} /> Assets</Link>}
+        <Link className="chip" href="/campaigns" style={{ textDecoration: 'none' }}><History size={14} /> Campaigns</Link>
+        {!minimal && <Link className="chip" href="/presets" style={{ textDecoration: 'none' }}><FolderKanban size={14} /> Templates</Link>}
+        {!minimal && <Link className="chip" href="/assets" style={{ textDecoration: 'none' }}><Images size={14} /> Brand Kit</Link>}
       </div>
     </motion.nav>
   );

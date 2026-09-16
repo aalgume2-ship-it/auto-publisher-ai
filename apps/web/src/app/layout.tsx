@@ -5,8 +5,8 @@ import '../components/creative/creative.css';
 import ErrorBoundary from '../components/ErrorBoundary';
 
 export const metadata: Metadata = {
-  title: 'Lumen — AI Creative Platform',
-  description: 'A media-first AI creative platform for image, video, cinema, marketing and publishing.',
+  title: 'Lumen — AI Marketing Studio',
+  description: 'حوّل منتجك إلى حملة تسويقية كاملة بالذكاء الاصطناعي: فيديوهات، تصاميم، نصوص، كابشنز ونشر.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

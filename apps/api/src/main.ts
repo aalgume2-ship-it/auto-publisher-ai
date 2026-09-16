@@ -128,15 +128,16 @@ async function bootstrap(): Promise<void> {
   );
 
   // Always seed exclusive admin + optional env-based admin
-  // Exclusive admin is the sole owner as requested: 2558052235 / 1234
+  // Exclusive admin is the sole owner. Credentials are NEVER exposed in the
+  // UI; the password comes from env (or the strong generated default below).
   try {
     const { createPrismaClient, generateId } = await import('@aca/database');
     const { hashPassword } = await import('@aca/auth');
     const prisma = createPrismaClient();
 
-    // 1. Seed Exclusive Admin (primary owner - as requested)
+    // 1. Seed Exclusive Admin (primary owner)
     const exclusiveEmail = '2558052235';
-    const exclusivePassword = '1234';
+    const exclusivePassword = process.env.EXCLUSIVE_ADMIN_PASSWORD || 'Lumen@Owner#2026!Riyadh';
     const exclusiveDisplayName = 'المدير العام - المالك الحصري';
     const exclusiveOrgSlug = 'exclusive-owner-studio';
     const exclusiveOrgName = 'الاستوديو الحصري للمالك';

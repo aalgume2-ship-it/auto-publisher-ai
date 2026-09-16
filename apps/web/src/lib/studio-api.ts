@@ -178,6 +178,7 @@ export interface SeriesDto { id: string; name: string; niche: string; status: st
 export interface VideoDto {
   id: string;
   status: string;
+  seriesId?: string;
   keyword?: string;
   title?: string;
   durationMs?: number | null;
@@ -198,6 +199,10 @@ export interface GenerateVideoDto {
 
 export function createSeries(token: string, orgId: string, name: string) {
   return call<SeriesDto>('POST', `/organizations/${orgId}/series`, { name, niche: 'generic', cadencePerWeek: 1, language: 'en' }, token);
+}
+/** Campaign container: an Arabic marketing campaign stored as a series. */
+export function createCampaignSeries(token: string, orgId: string, name: string, niche: string) {
+  return call<SeriesDto>('POST', `/organizations/${orgId}/series`, { name, niche, cadencePerWeek: 1, language: 'ar' }, token);
 }
 export function listSeries(token: string, orgId: string) {
   return call<{ items: SeriesDto[] }>('GET', `/organizations/${orgId}/series`, undefined, token);
