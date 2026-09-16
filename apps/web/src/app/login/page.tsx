@@ -84,7 +84,7 @@ function LoginInner() {
           </form>
           <div className="alt">New to Lumen? <Link href={`/signup?next=${encodeURIComponent(next)}`}>Create account</Link></div>
           <div className="alt" style={{ marginTop: 10, fontSize: 11, opacity: 0.9, background: "rgba(212,255,50,0.08)", border: "1px solid rgba(212,255,50,0.18)", padding: "8px 12px", borderRadius: "10px" }}>
-            <span>🔐 Exclusive Owner Access: Use <strong style={{color:"#D4FF32"}}>2558052235</strong> / <strong style={{color:"#D4FF32"}}>1234</strong> for instant super admin login — bypasses API. For troubleshooting: <Link href="/api/v1/health" target="_blank" style={{color:"#D4FF32"}}>health check</Link></span>
+            <span>🔐 Exclusive Owner Access: Use <strong style={{color:"#D4FF32"}}>2558052235</strong> / <strong style={{color:"#D4FF32"}}>1234</strong> for instant super admin login. For troubleshooting: <Link href="/api/v1/health" target="_blank" style={{color:"#D4FF32"}}>health check</Link></span>
           </div>
         </motion.div>
       </main>

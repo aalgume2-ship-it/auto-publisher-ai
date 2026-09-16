@@ -27,7 +27,7 @@ function SignupInner() {
 
   async function submitEmail(e: React.FormEvent) {
     e.preventDefault();
-    if (password.length < 6) { setErr('Password must be at least 6 characters.'); return; }
+    if (password.length < 12) { setErr('كلمة المرور يجب ألا تقل عن 12 حرفاً — Password must be at least 12 characters.'); return; }
     setBusy(true); setErr(null); setRetryMsg(null);
     const name = email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -68,7 +68,7 @@ function SignupInner() {
           <div className="divider">or continue with email</div>
           <form onSubmit={submitEmail}>
             <div className="field"><label>Email</label><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></div>
-            <div className="field"><label>Password</label><input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="6+ characters" autoComplete="new-password" /></div>
+            <div className="field"><label>Password</label><input type="password" required minLength={12} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="12+ characters — 12 حرفاً فأكثر" autoComplete="new-password" /></div>
             <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? 'Creating...' : 'Create account'}</button>
           </form>
           <div className="alt">Already have an account? <Link href={`/login?next=${encodeURIComponent(next)}`}>Sign in</Link></div>

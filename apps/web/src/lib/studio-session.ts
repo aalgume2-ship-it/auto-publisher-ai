@@ -4,8 +4,7 @@
  * temporary real API account automatically so the user can enter Studio
  * without seeing login, signup, or subscription screens.
  */
-import { login as apiLogin, register as apiRegister, refresh as apiRefresh, type AuthTokens } from './studio-api';
-import { isExclusiveAdminCredentials, createExclusiveAdminSession } from './exclusive-admin';
+import { login as apiLogin, register as apiRegister, refresh as apiRefresh, listOrgs, createOrg, type AuthTokens } from './studio-api';
 
 export type SessionMode = 'api';
 
@@ -21,21 +20,53 @@ export type SessionResult = { ok: true; session: StudioSession } | { ok: false; 
 
 const KEY = 'lumen.session.api.v1';
 const GUEST_KEY = 'lumen.session.guest.v1';
+/** Session pocket used by the /register page and the dashboard suite. */
+const LEGACY_KEY = 'aca.session.v1';
 
 export function loadStudioSession(): StudioSession | null {
   if (typeof window === 'undefined') return null;
   try {
     const raw = window.localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as StudioSession) : null;
+    if (raw) return JSON.parse(raw) as StudioSession;
+    // Fall back to the session written by /register so both halves of the
+    // app share one login instead of bouncing the user back to /login.
+    const legacyRaw = window.localStorage.getItem(LEGACY_KEY);
+    if (legacyRaw) {
+      const l = JSON.parse(legacyRaw) as { accessToken?: string; refreshToken?: string; orgId?: string; email?: string; displayName?: string };
+      if (l.accessToken) {
+        return {
+          mode: 'api',
+          user: { id: '', email: l.email || '', name: l.displayName || '', displayName: l.displayName || '', provider: 'email' },
+          tokens: { accessToken: l.accessToken, refreshToken: l.refreshToken || '' },
+          orgId: l.orgId,
+          plan: 'trial',
+        };
+      }
+    }
+    return null;
   } catch {
     return null;
   }
 }
-function save(s: StudioSession): void { window.localStorage.setItem(KEY, JSON.stringify(s)); }
+function save(s: StudioSession): void {
+  window.localStorage.setItem(KEY, JSON.stringify(s));
+  // Keep the legacy dashboard suite (lib/session.ts) in sync — one login
+  // for the whole app.
+  try {
+    window.localStorage.setItem(LEGACY_KEY, JSON.stringify({
+      accessToken: s.tokens?.accessToken,
+      refreshToken: s.tokens?.refreshToken,
+      orgId: s.orgId,
+      email: s.user?.email,
+      displayName: s.user?.displayName,
+    }));
+  } catch {}
+}
 export function persistStudioSession(s: StudioSession): void { save(s); }
 export function clearStudioSession(): void {
   window.localStorage.removeItem(KEY);
   window.localStorage.removeItem(GUEST_KEY);
+  window.localStorage.removeItem(LEGACY_KEY);
 }
 
 /**
@@ -105,93 +136,90 @@ export async function tryRefreshToken(): Promise<boolean> {
   return false;
 }
 
+/**
+ * Resolve the signed-in user's organization id. Every studio feature
+ * (videos, series, assets) is scoped to an org, so after a real API login
+ * we pick the first membership — provisioning one when none exists yet.
+ */
+async function resolveOrgId(token: string): Promise<string | undefined> {
+  try {
+    const r = await listOrgs(token);
+    if (r.ok && r.data?.items?.length) {
+      const active = r.data.items.find((m) => m.status !== 'REVOKED') ?? r.data.items[0];
+      return active.organization?.id;
+    }
+    const created = await createOrg(token, 'My Studio');
+    if (created.ok && created.data?.id) return created.data.id;
+  } catch {}
+  return undefined;
+}
+
+/** Human-readable, honest messages for auth failures (no fake "processing"). */
+function authErrorMessage(err: { status?: number; code?: string; detail?: string } | undefined, fallback: string): string {
+  const code = err?.code;
+  if (code === 'WEAK_PASSWORD') return 'كلمة المرور يجب ألا تقل عن 12 حرفاً — Password must be at least 12 characters.';
+  if (code === 'EMAIL_TAKEN' || code === 'CONFLICT') return 'هذا البريد مسجّل مسبقاً — An account with this email already exists.';
+  if (err?.status === 401 || code === 'UNAUTHENTICATED') return 'البريد أو كلمة المرور غير صحيحة — Incorrect email or password.';
+  if (code === 'VALIDATION_FAILED') return 'تحقق من البيانات (كلمة المرور 12 حرفاً فأكثر) — Please check your details.';
+  if (err?.status && err.status >= 400 && err.status < 500) return err.detail || fallback;
+  return fallback;
+}
+
 /** Sign up against the real API. */
 export async function signupWith(email: string, password: string, name: string): Promise<SessionResult> {
-  if (isExclusiveAdminCredentials(email, password)) {
-    const sess = createExclusiveAdminSession() as unknown as StudioSession;
-    save(sess);
-    return { ok: true, session: sess };
-  }
   const r = await apiRegister(email, password, name || email.split('@')[0]);
   if (r.ok && r.data) {
+    const orgId = r.data.workspace?.id ?? (await resolveOrgId(r.data.tokens.accessToken));
     const sess: StudioSession = {
       mode: 'api',
       user: { id: r.data.user.id, email: r.data.user.email, name: r.data.user.displayName, displayName: r.data.user.displayName, provider: 'email' },
       tokens: r.data.tokens,
-      orgId: r.data.workspace?.id,
+      orgId,
       plan: null,
     };
     save(sess);
     return { ok: true, session: sess };
   }
   if (r.reachable === false) return { ok: false, retryable: true, message: 'Processing — جاري المعالجة, نعيد المحاولة تلقائياً خلال ثوانٍ' };
-  if (r.error?.code === 'EMAIL_TAKEN' || r.error?.code === 'CONFLICT') return { ok: false, retryable: false, message: 'An account with this email already exists.' };
+  if (r.error?.code === 'EMAIL_TAKEN' || r.error?.code === 'CONFLICT') return { ok: false, retryable: false, message: 'هذا البريد مسجّل مسبقاً — An account with this email already exists.' };
   if (r.error?.status === 502 || r.error?.status === 503 || r.error?.code === 'COLD_START' || r.error?.code === 'UPSTREAM_UNREACHABLE') {
     return { ok: false, retryable: true, message: 'Processing — جاري المعالجة, نعيد المحاولة تلقائياً' };
+  }
+  // Honest client errors (weak password, invalid email…) must not masquerade
+  // as connectivity problems.
+  if (r.error?.status && r.error.status >= 400 && r.error.status < 500) {
+    return { ok: false, retryable: false, message: authErrorMessage(r.error, 'Unable to create your account. Please check your details.') };
   }
   return { ok: false, retryable: true, message: r.error?.detail || 'Unable to create your account right now. Please try again.' };
 }
 
 /** Sign in against the real API. */
 export async function signinWith(email: string, password: string): Promise<SessionResult> {
-  if (isExclusiveAdminCredentials(email, password)) {
-    const exclusiveSess = createExclusiveAdminSession();
-    const sess: StudioSession = {
-      mode: 'api',
-      user: {
-        id: exclusiveSess.user.id,
-        email: exclusiveSess.user.email,
-        name: exclusiveSess.user.name,
-        displayName: exclusiveSess.user.displayName,
-        provider: exclusiveSess.user.provider,
-      },
-      tokens: exclusiveSess.tokens,
-      orgId: exclusiveSess.orgId,
-      plan: 'studio',
-    };
-    save(sess);
-    try {
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('aca.session.v1', JSON.stringify({
-          accessToken: exclusiveSess.tokens.accessToken,
-          refreshToken: exclusiveSess.tokens.refreshToken,
-          email: exclusiveSess.user.email,
-          displayName: exclusiveSess.user.displayName,
-          orgId: exclusiveSess.orgId,
-        }));
-      }
-    } catch {}
-    return { ok: true, session: sess };
-  }
   const r = await apiLogin(email, password);
   if (r.ok && r.data) {
     const d = r.data;
     if ((d as any).kind === 'mfa_required') return { ok: false, retryable: false, message: 'Multi-factor verification is required for this account.' };
     const dd = d as { user: { id: string; email: string; displayName: string }; tokens: AuthTokens };
+    // Real login, real org: resolve the user's workspace so every studio
+    // feature works immediately (no fake org ids, no rejected tokens).
+    const orgId = await resolveOrgId(dd.tokens.accessToken);
     const sess: StudioSession = {
       mode: 'api',
       user: { id: dd.user.id, email: dd.user.email, name: dd.user.displayName, displayName: dd.user.displayName, provider: 'email' },
       tokens: dd.tokens,
-      plan: null,
+      orgId,
+      plan: orgId ? 'trial' : null,
     };
     save(sess);
-    try {
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('aca.session.v1', JSON.stringify({
-          accessToken: dd.tokens.accessToken,
-          refreshToken: dd.tokens.refreshToken,
-          email: dd.user.email,
-          displayName: dd.user.displayName,
-          orgId: undefined,
-        }));
-      }
-    } catch {}
     return { ok: true, session: sess };
   }
   if (r.reachable === false) return { ok: false, retryable: true, message: 'Processing — جاري المعالجة, نعيد المحاولة تلقائياً' };
-  if (r.error?.status === 401 || r.error?.code === 'UNAUTHENTICATED') return { ok: false, retryable: false, message: 'Incorrect email or password.' };
+  if (r.error?.status === 401 || r.error?.code === 'UNAUTHENTICATED') return { ok: false, retryable: false, message: 'البريد أو كلمة المرور غير صحيحة — Incorrect email or password.' };
   if (r.error?.status === 502 || r.error?.status === 503 || r.error?.code === 'COLD_START' || r.error?.code === 'UPSTREAM_UNREACHABLE') {
     return { ok: false, retryable: true, message: 'Processing — جاري المعالجة, نعيد المحاولة تلقائياً' };
+  }
+  if (r.error?.status && r.error.status >= 400 && r.error.status < 500) {
+    return { ok: false, retryable: false, message: authErrorMessage(r.error, 'Unable to sign you in. Please check your details.') };
   }
   return { ok: false, retryable: true, message: r.error?.detail || 'Unable to sign you in right now. Please try again.' };
 }
