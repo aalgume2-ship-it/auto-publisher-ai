@@ -7,7 +7,7 @@ import { motion } from 'framer-motion';
 import { Clapperboard, Plus } from 'lucide-react';
 import StudioNav from '../../components/studio/StudioNav';
 import { loadStudioSession } from '../../lib/studio-session';
-import { listVideos, type VideoDto } from '../../lib/studio-api';
+import { listVideos, playableVideoUrl, type VideoDto } from '../../lib/studio-api';
 
 const STATUS_LABEL: Record<string, string> = {
   QUEUED: 'Queued', PENDING: 'Queued', GENERATING: 'Generating', RENDERING: 'Rendering', UPLOADING: 'Uploading', READY: 'Completed',
@@ -65,16 +65,30 @@ function DashboardInner() {
           <div className="loader-cards">
             {videos.map((v, i) => {
               const ready = v.status === 'READY';
+              const label = v.title || v.keyword || 'Untitled video';
+              const thumb = playableVideoUrl(v.thumbnail || null);
+              const secs = v.durationMs ? Math.round(v.durationMs / 1000) : null;
               return (
                 <motion.div key={v.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: i * 0.04 }} className="glass hoverable" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 12, overflow: 'hidden', background: 'rgba(255,255,255,0.04)' }}>
+                    {thumb ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={thumb} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <div style={{ display: 'grid', placeItems: 'center', height: '100%' }}><Clapperboard size={26} style={{ opacity: 0.35 }} /></div>
+                    )}
+                    {secs !== null && (
+                      <span className="pill-note" style={{ position: 'absolute', right: 8, bottom: 8, fontSize: 11 }}>{secs}s</span>
+                    )}
+                  </div>
                   <div className="row between">
                     <span className={`chip ${ready ? 'on' : ''}`} style={{ pointerEvents: 'none' }}>{STATUS_LABEL[v.status] ?? 'Processing'}</span>
+                    <span className="sm muted">{new Date(v.createdAt).toLocaleDateString()}</span>
                   </div>
-                  <h3 style={{ fontWeight: 700, fontSize: 15 }}>{v.keyword || 'Untitled video'}</h3>
-                  <p className="sm muted" style={{ lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{v.keyword}</p>
+                  <h3 style={{ fontWeight: 700, fontSize: 15, lineHeight: 1.35 }}>{label}</h3>
                   <div className="row" style={{ marginTop: 'auto' }}>
                     {ready ? (
-                      <Link className="btn btn-primary" style={{ flex: 1 }} href={`/result?mode=api&videoId=${v.id}&orgId=${session!.orgId}`}>Open</Link>
+                      <Link className="btn btn-primary" style={{ flex: 1 }} href={`/result?mode=api&videoId=${v.id}&orgId=${session!.orgId}&w=720&h=1280&sec=${secs ?? 6}`}>Open</Link>
                     ) : (
                       <span className="sm muted">In progress…</span>
                     )}

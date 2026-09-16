@@ -24,21 +24,29 @@ function ResultInner() {
   const [src, setSrc] = useState<string | null>(sharedMedia);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [loadState, setLoadState] = useState<'loading' | 'noauth' | 'failed' | 'ok'>('loading');
+  const [retryTick, setRetryTick] = useState(0);
 
   const session = loadStudioSession();
   const token = session?.tokens?.accessToken;
 
   // Load the authenticated stream.
   useEffect(() => {
-    if (sharedMedia) { setSrc(sharedMedia); return; }
-    if (!videoId || !orgId || !token) return;
+    if (sharedMedia) { setSrc(sharedMedia); setLoadState('ok'); return; }
+    if (!videoId || !orgId) return;
+    if (!token) { setLoadState('noauth'); return; }
     let cancelled = false;
+    setLoadState('loading');
     (async () => {
-      const res = await fetchStreamBlob(orgId, videoId, token);
-      if (!cancelled && res) setSrc(res.url);
+      try {
+        const res = await fetchStreamBlob(orgId, videoId, token);
+        if (!cancelled) { if (res) { setSrc(res.url); setLoadState('ok'); } else { setLoadState('failed'); } }
+      } catch {
+        if (!cancelled) setLoadState('failed');
+      }
     })();
     return () => { cancelled = true; };
-  }, [videoId, orgId, token, sharedMedia]);
+  }, [videoId, orgId, token, sharedMedia, retryTick]);
 
   useEffect(() => { if (toast) { const t = window.setTimeout(() => setToast(null), 2200); return () => window.clearTimeout(t); } }, [toast]);
   function notify(msg: string) { setToast(msg); }
@@ -84,7 +92,7 @@ function ResultInner() {
     catch { notify('Copy not available'); }
   }
 
-  if (!videoId || !orgId) {
+  if ((!videoId || !orgId) && !sharedMedia) {
     return (
       <div dir="ltr" className="studio-root"><div className="aurora a1" /><div className="grain" /><StudioNav minimal />
         <main className="shell" style={{ paddingTop: 60, textAlign: 'center' }}>
@@ -105,6 +113,28 @@ function ResultInner() {
           <div className="stage" style={{ aspectRatio: `${Math.round(width)}/${Math.round(height)}` }}>
             {src ? (
               <video ref={videoRef} src={src} controls autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : loadState === 'noauth' ? (
+              <div className="overlay-mask" style={{ display: 'grid', placeItems: 'center', padding: 24, textAlign: 'center', background: 'rgba(10,10,16,0.72)' }}>
+                <div>
+                  <h3 style={{ fontSize: 22, fontWeight: 800, marginBottom: 8 }}>Sign in to view this render</h3>
+                  <p className="sm muted" style={{ marginBottom: 16 }}>This video belongs to your library. Sign in to stream it, or open it from your videos list.</p>
+                  <div className="row" style={{ justifyContent: 'center', gap: 10 }}>
+                    <button className="btn btn-primary" onClick={() => router.push(`/login?next=${encodeURIComponent(`/result?mode=api&videoId=${videoId}&orgId=${orgId}`)}`)}>Sign in</button>
+                    <button className="chip" onClick={() => router.push('/dashboard')}>My videos</button>
+                  </div>
+                </div>
+              </div>
+            ) : loadState === 'failed' ? (
+              <div className="overlay-mask" style={{ display: 'grid', placeItems: 'center', padding: 24, textAlign: 'center', background: 'rgba(10,10,16,0.72)' }}>
+                <div>
+                  <h3 style={{ fontSize: 22, fontWeight: 800, marginBottom: 8 }}>Couldn&apos;t load this render</h3>
+                  <p className="sm muted" style={{ marginBottom: 16 }}>The stream or share link may have expired. Try again, or open the video fresh from your library.</p>
+                  <div className="row" style={{ justifyContent: 'center', gap: 10 }}>
+                    <button className="btn btn-primary" onClick={() => setRetryTick(t => t + 1)}>Retry</button>
+                    <button className="chip" onClick={() => router.push('/dashboard')}>My videos</button>
+                  </div>
+                </div>
+              </div>
             ) : (
               <div className="overlay-mask"><div className="spinner magenta" /></div>
             )}

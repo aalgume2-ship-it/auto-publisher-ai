@@ -179,6 +179,10 @@ export interface VideoDto {
   id: string;
   status: string;
   keyword?: string;
+  title?: string;
+  durationMs?: number | null;
+  thumbnail?: string | null;
+  videoUrl?: string | null;
   failureReason?: string | null;
   seo?: { step?: string; progress?: number } | null;
   createdAt: string;
@@ -235,7 +239,7 @@ export async function fetchStreamBlob(orgId: string, videoId: string, token: str
     // Prefer the public Bunny CDN mirror when configured. It supports native
     // Range playback and avoids rebuilding a large MP4 in browser memory.
     const video = await getVideo(token, orgId, videoId);
-    const directUrl = video.ok ? video.data?.streamUrl : null;
+    const directUrl = video.ok ? (video.data?.streamUrl ?? video.data?.videoUrl) : null;
     const playableUrl = playableVideoUrl(directUrl);
     if (playableUrl) {
       return { blob: null, url: playableUrl };
