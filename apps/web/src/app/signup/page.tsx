@@ -14,15 +14,16 @@ function AppleIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fi
 function SignupInner() {
   const router = useRouter();
   const sp = useSearchParams();
-  const next = sp.get('next') || '/subscribe';
+  const next = sp.get('next') || '/dashboard';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [retryMsg, setRetryMsg] = useState<string | null>(null);
 
-  function redirectToSubscribe() {
-    router.push(next === '/subscribe' ? next : `/subscribe?next=${encodeURIComponent(next)}`);
+  function continueAfterSignup() {
+    // Accounts start on a free trial — go straight to the studio library.
+    router.push(next);
   }
 
   async function submitEmail(e: React.FormEvent) {
@@ -36,7 +37,7 @@ function SignupInner() {
     // look like a five-minute signup spinner and could submit duplicate POSTs.
     setRetryMsg('Processing — جاري إنشاء الحساب…');
     const res = await signupWith(email.trim().toLowerCase(), password, name);
-    if (res.ok) { setBusy(false); setRetryMsg(null); redirectToSubscribe(); return; }
+    if (res.ok) { setBusy(false); setRetryMsg(null); continueAfterSignup(); return; }
 
     setBusy(false);
     setRetryMsg(null);

@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Clapperboard, Plus } from 'lucide-react';
 import StudioNav from '../../components/studio/StudioNav';
-import { loadStudioSession } from '../../lib/studio-session';
+import { loadStudioSession, clearStudioSession } from '../../lib/studio-session';
 import { listVideos, playableVideoUrl, type VideoDto } from '../../lib/studio-api';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -18,6 +18,8 @@ function DashboardInner() {
   const router = useRouter();
   const session = useMemo(() => loadStudioSession(), []);
   const [videos, setVideos] = useState<VideoDto[] | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     if (!session) { router.replace('/login?next=/dashboard'); return; }
@@ -29,11 +31,20 @@ function DashboardInner() {
     let cancelled = false;
     (async () => {
       const r = await listVideos(session.tokens!.accessToken, session.orgId!);
-      if (!cancelled) setVideos(r.ok && r.data ? r.data.items : []);
+      if (cancelled) return;
+      if (r.ok && r.data) { setVideos(r.data.items); return; }
+      // Expired or rejected token → clean re-login instead of a misleading
+      // "No videos yet" screen.
+      if (r.error?.status === 401 || r.error?.code === 'UNAUTHENTICATED') {
+        clearStudioSession();
+        router.replace('/login?next=/dashboard');
+        return;
+      }
+      setLoadFailed(true);
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session]);
+  }, [session, retryTick]);
 
   return (
     <div dir="ltr" className="studio-root">
@@ -50,11 +61,18 @@ function DashboardInner() {
 
         <span className="pill-note" style={{ marginBottom: 16 }}><Clapperboard size={13} /> Cloud library</span>
 
-        {videos === null ? (
+        {videos === null && !loadFailed ? (
           <div className="loader-cards">
             <div className="skel" style={{ height: 180 }} /><div className="skel" style={{ height: 180 }} /><div className="skel" style={{ height: 180 }} />
           </div>
-        ) : videos.length === 0 ? (
+        ) : loadFailed && videos === null ? (
+          <div className="glass" style={{ padding: 40, textAlign: 'center' }}>
+            <Clapperboard size={30} style={{ opacity: 0.4, marginBottom: 12 }} />
+            <h2 style={{ fontSize: 20, fontWeight: 800 }}>تعذّر تحميل المكتبة</h2>
+            <p className="muted" style={{ margin: '8px 0 20px' }}>Couldn&apos;t load your videos. Check that the API is running, then retry.</p>
+            <button className="btn btn-primary btn-lg" onClick={() => { setLoadFailed(false); setVideos(null); setRetryTick(t => t + 1); }}>إعادة المحاولة — Retry</button>
+          </div>
+        ) : videos !== null && videos.length === 0 ? (
           <div className="glass" style={{ padding: 40, textAlign: 'center' }}>
             <Clapperboard size={30} style={{ opacity: 0.4, marginBottom: 12 }} />
             <h2 style={{ fontSize: 20, fontWeight: 800 }}>No videos yet</h2>
@@ -63,7 +81,7 @@ function DashboardInner() {
           </div>
         ) : (
           <div className="loader-cards">
-            {videos.map((v, i) => {
+            {videos!.map((v, i) => {
               const ready = v.status === 'READY';
               const label = v.title || v.keyword || 'Untitled video';
               const thumb = playableVideoUrl(v.thumbnail || null);

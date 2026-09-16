@@ -27,7 +27,22 @@ export function loadStudioSession(): StudioSession | null {
   if (typeof window === 'undefined') return null;
   try {
     const raw = window.localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw) as StudioSession;
+    if (raw) {
+      const s = JSON.parse(raw) as StudioSession;
+      // Self-heal: sessions forged by the old fake exclusive-admin path are
+      // rejected by the API (401 on every call). Discard them so the user is
+      // cleanly routed back to login instead of staring at a stuck page.
+      const forgedAdmin =
+        s?.orgId === 'exclusive-owner-studio-id' ||
+        s?.user?.id === 'exclusive-admin-001' ||
+        (s?.tokens?.accessToken || '').endsWith('exclusive-admin-signature');
+      if (forgedAdmin) {
+        window.localStorage.removeItem(KEY);
+        window.localStorage.removeItem(LEGACY_KEY);
+        return null;
+      }
+      return s;
+    }
     // Fall back to the session written by /register so both halves of the
     // app share one login instead of bouncing the user back to /login.
     const legacyRaw = window.localStorage.getItem(LEGACY_KEY);
@@ -175,7 +190,8 @@ export async function signupWith(email: string, password: string, name: string):
       user: { id: r.data.user.id, email: r.data.user.email, name: r.data.user.displayName, displayName: r.data.user.displayName, provider: 'email' },
       tokens: r.data.tokens,
       orgId,
-      plan: null,
+      // Start on a free trial immediately — no paywall stop after signup.
+      plan: orgId ? 'trial' : null,
     };
     save(sess);
     return { ok: true, session: sess };
