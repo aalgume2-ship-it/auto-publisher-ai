@@ -42,14 +42,14 @@ function SignupInner() {
     setBusy(false);
     setRetryMsg(null);
     if (res.retryable) {
-      setErr('تعذر الاتصال بخدمة الحساب الآن. تأكد من تشغيل الـ API ثم حاول مرة أخرى.');
+      setErr('تعذر الاتصال بخدمة الحساب الآن — حاول مرة أخرى بعد لحظات.');
     } else {
       setErr(res.message);
     }
   }
 
   return (
-    <div dir="ltr" className="studio-root">
+    <div dir="rtl" className="studio-root">
       <div className="aurora a1" /><div className="aurora a2" /><div className="grain" />
       <StudioNav minimal />
       <main className="shell">
@@ -66,13 +66,13 @@ function SignupInner() {
               <AppleIcon /> Apple
             </button>
           </div>
-          <div className="divider">or continue with email</div>
+          <div className="divider">أو سجّل بالبريد الإلكتروني</div>
           <form onSubmit={submitEmail}>
-            <div className="field"><label>Email</label><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></div>
-            <div className="field"><label>Password</label><input type="password" required minLength={12} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="12+ characters — 12 حرفاً فأكثر" autoComplete="new-password" /></div>
-            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? 'Creating...' : 'Create account'}</button>
+            <div className="field"><label>البريد الإلكتروني</label><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" dir="ltr" style={{ textAlign: 'start' }} /></div>
+            <div className="field"><label>كلمة المرور</label><input type="password" required minLength={12} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="12 حرفًا فأكثر" dir="ltr" style={{ textAlign: 'start' }} autoComplete="new-password" /></div>
+            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? 'جاري الإنشاء…' : 'إنشاء الحساب'}</button>
           </form>
-          <div className="alt">Already have an account? <Link href={`/login?next=${encodeURIComponent(next)}`}>Sign in</Link></div>
+          <div className="alt">عندك حساب؟ <Link href={`/login?next=${encodeURIComponent(next)}`}>سجّل دخولك</Link></div>
         </motion.div>
       </main>
     </div>

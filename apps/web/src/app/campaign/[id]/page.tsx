@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import CampaignHeader from '../../../components/marketing/CampaignHeader';
 import { loadStudioSession } from '../../../lib/studio-session';
-import { getVideo, playableVideoUrl, type VideoDto } from '../../../lib/studio-api';
+import { getVideo, listSeries, listVideos, playableVideoUrl, type VideoDto } from '../../../lib/studio-api';
 import {
   buildCampaignPackage, AD_STYLE_LABELS, BUSINESS_TYPE_LABELS, PLATFORM_LABELS,
   type BusinessType, type AdStyle,
@@ -91,13 +91,42 @@ function CampaignInner() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!seriesId) return;
-    try {
-      const raw = localStorage.getItem(`lumen.campaign.${seriesId}`);
-      if (raw) setMeta(JSON.parse(raw) as CampaignMeta);
-    } catch { /* ignore */ }
-    setLoading(false);
-  }, [seriesId]);
+    if (!seriesId) { setLoading(false); return; }
+    let cancelled = false;
+    (async () => {
+      let m: CampaignMeta | null = null;
+      try {
+        const raw = localStorage.getItem(`lumen.campaign.${seriesId}`);
+        if (raw) m = JSON.parse(raw) as CampaignMeta;
+      } catch { /* ignore */ }
+      // No local meta (another device / created via API): rebuild the
+      // campaign view from the account itself — series + its videos.
+      if (!m && session?.tokens?.accessToken && session.orgId) {
+        try {
+          const [s, v] = await Promise.all([
+            listSeries(session.tokens.accessToken, session.orgId),
+            listVideos(session.tokens.accessToken, session.orgId),
+          ]);
+          const series = s.data?.items?.find((x) => x.id === seriesId);
+          const vids = (v.data?.items ?? []).filter((x) => x.seriesId === seriesId);
+          if (series || vids.length) {
+            m = {
+              name: (series?.name ?? vids[0]?.keyword ?? 'حملة').replace(/^حملة:?\s*/, ''),
+              type: 'product',
+              offer: vids[0]?.keyword || series?.name || '',
+              style: 'luxury',
+              platforms: ['instagram', 'tiktok', 'snapchat'],
+              image: null,
+              videoIds: vids.map((x) => x.id),
+              createdAt: Date.now(),
+            };
+          }
+        } catch { /* ignore */ }
+      }
+      if (!cancelled) { setMeta(m); setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [seriesId, session]);
 
   const poll = useCallback(async () => {
     if (!session?.tokens?.accessToken || !session.orgId || !seriesId) return;
@@ -279,8 +308,8 @@ function CampaignInner() {
           </>
         ) : (
           <div className="glass" style={{ padding: 40, textAlign: 'center' }}>
-            <h1 style={{ fontSize: 24, fontWeight: 800 }}>الحملة غير موجودة في هذا المتصفح</h1>
-            <p className="muted" style={{ margin: '10px 0 20px' }}>ربما أنشأت الحملة من جهاز آخر. مع ذلك، فيديوهات الحملة محفوظة في حسابك.</p>
+            <h1 style={{ fontSize: 24, fontWeight: 800 }}>لم نجد هذه الحملة</h1>
+            <p className="muted" style={{ margin: '10px 0 20px' }}>تأكد من تسجيل الدخول بالحساب الصحيح، أو أنشئ حملة جديدة الآن.</p>
             <div className="row" style={{ justifyContent: 'center', gap: 10 }}>
               <button className="btn btn-primary" onClick={() => router.push('/campaigns')}>حملاتي</button>
               <button className="chip" onClick={() => router.push('/campaign/new')}>إنشاء حملة</button>

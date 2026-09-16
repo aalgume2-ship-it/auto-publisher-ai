@@ -59,13 +59,13 @@ function LoginInner() {
   }
 
   return (
-    <div dir="ltr" className="studio-root">
+    <div dir="rtl" className="studio-root">
       <div className="aurora a1" /><div className="aurora a2" /><div className="grain" />
       <StudioNav minimal />
       <main className="shell">
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="glass auth-wrap">
-          <h1>Welcome back</h1>
-          <p className="hint">Sign in to keep creating.</p>
+          <h1>مرحبًا بعودتك 👋</h1>
+          <p className="hint">سجّل دخولك لتكمل من حيث توقفت.</p>
           {err && <div className="alert err" style={{ marginBottom: 14 }}>{err}</div>}
           {retryMsg && <div className="alert" style={{ marginBottom: 14, background: 'var(--accent-soft)', border: '1px solid var(--accent-border)', color: '#eaffc7', padding: '10px 14px', borderRadius: 10, fontSize: 13 }}>{retryMsg}</div>}
           <div className="soc-row">
@@ -76,13 +76,13 @@ function LoginInner() {
               <AppleIcon /> Apple
             </button>
           </div>
-          <div className="divider">or continue with email / admin code</div>
+          <div className="divider">أو سجّل الدخول بالبريد الإلكتروني</div>
           <form onSubmit={submitEmail}>
-            <div className="field"><label>Email / Phone</label><input type="text" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="username" /></div>
-            <div className="field"><label>Password</label><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your password" autoComplete="current-password" /></div>
-            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? (retryMsg ? 'Processing...' : 'Signing in...') : 'Sign in'}</button>
+            <div className="field"><label>البريد الإلكتروني</label><input type="text" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="username" dir="ltr" style={{ textAlign: 'start' }} /></div>
+            <div className="field"><label>كلمة المرور</label><input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••••••" autoComplete="current-password" dir="ltr" style={{ textAlign: 'start' }} /></div>
+            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? (retryMsg ? 'جاري المعالجة…' : 'جاري تسجيل الدخول…') : 'تسجيل الدخول'}</button>
           </form>
-          <div className="alt">New to Lumen? <Link href={`/signup?next=${encodeURIComponent(next)}`}>Create account</Link></div>
+          <div className="alt">أول مرة في Lumen؟ <Link href={`/signup?next=${encodeURIComponent(next)}`}>أنشئ حسابك</Link></div>
         </motion.div>
       </main>
     </div>
