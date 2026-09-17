@@ -80,16 +80,12 @@ if (patched === 0) console.log('▸ adapter-pg already patched');
 
 // ── 4) make vendored media binaries executable ──────────────────────────────
 // pnpm sometimes restores npm tarballs without the +x bit; ffmpeg/ffprobe are
-// spawned directly by the video engine, so restore it.
-for (const prefix of ['@ffmpeg-installer', '@ffprobe-installer']) {
-  for (const dir of readdirSync(pnpmDir).filter((d) => d.startsWith(prefix + '+'))) {
-    const base = join(pnpmDir, dir, 'node_modules');
-    for (const sub of readdirSync(base)) {
-      const bin = join(base, sub, sub.includes('@ffmpeg-installer') ? 'ffmpeg' : 'ffprobe');
-      if (existsSync(bin)) {
-        try { execSync(`chmod +x ${JSON.stringify(bin)}`); console.log(`▸ chmod +x ${sub}`); } catch { /* best effort */ }
-      }
-    }
-  }
-}
+// spawned directly by the video engine, so restore it. NB: the binaries live
+// at .../@ffprobe-installer/linux-x64/ffprobe (platform subdir).
+try {
+  execSync(
+    `find ${JSON.stringify(join(root, 'node_modules'))} -type f \\( -name ffmpeg -o -name ffprobe \\) -exec chmod +x {} +`,
+  );
+  console.log('▸ chmod +x ffmpeg/ffprobe binaries');
+} catch { /* best effort */ }
 console.log('✓ offline-prisma ready');
