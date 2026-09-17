@@ -107,6 +107,18 @@ const ARABIC_TOPIC_MAP: Record<string, string> = {
   'التفاح': 'apple fruit food',
   'الزهور': 'flowers garden nature',
   'حديقة': 'garden flowers park',
+  'عطر': 'perfume fragrance luxury abstract',
+  'عطور': 'perfume fragrance luxury abstract',
+  'العطر': 'perfume fragrance luxury abstract',
+  'صيف': 'summer sunny bright warm',
+  'الصيف': 'summer sunny bright warm',
+  'عود': 'oud incense smoke luxury',
+  'بخور': 'incense smoke oud',
+  'مسك': 'musk perfume fragrance',
+  'ذهب': 'gold luxury elegant',
+  'فخامة': 'luxury elegant premium',
+  'حرير': 'silk fabric elegant',
+  'لمعان': 'sparkle shine glow',
 };
 
 const STOPWORDS = new Set([
