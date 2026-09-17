@@ -29,7 +29,8 @@ case "${1:-status}" in
     echo "══ starting services ══════════════════════════════════════════"
     start_one api    "$RUN/api.pid"    "$RUN/api.log"    env PORT=4000 EXCLUSIVE_ADMIN_PASSWORD="$EXCLUSIVE_ADMIN_PASSWORD" node infra/scripts/run-api.mjs
     start_one worker "$RUN/worker.pid" "$RUN/worker.log" env PORT=4300 ACA_LOCAL_GENERATION=1 node --env-file="$ROOT/.env.local" apps/worker/dist/main.js
-    start_one web    "$RUN/web.pid"    "$RUN/web.log"    env API_UPSTREAM=http://127.0.0.1:4000 PORT=4500 node apps/web/node_modules/next/dist/bin/next start -p 4500 -H 0.0.0.0
+    # next start must run from apps/web (it resolves ./.next relative to cwd)
+    start_one web    "$RUN/web.pid"    "$RUN/web.log"    bash -c 'cd apps/web && exec env API_UPSTREAM=http://127.0.0.1:4000 PORT=4500 node node_modules/next/dist/bin/next start -p 4500 -H 0.0.0.0'
 
     echo "  ▸ waiting for API health…"
     for _ in $(seq 1 60); do
@@ -38,6 +39,14 @@ case "${1:-status}" in
     done
     curl -sf http://127.0.0.1:4000/health >/dev/null 2>&1 || { echo "  ✖ API never became healthy — see $RUN/api.log" >&2; exit 1; }
     echo "  ✓ API healthy"
+
+    echo "  ▸ waiting for web server…"
+    for _ in $(seq 1 30); do
+      if curl -sf -o /dev/null http://127.0.0.1:4500/ 2>/dev/null; then break; fi
+      sleep 1
+    done
+    curl -sf -o /dev/null http://127.0.0.1:4500/ 2>/dev/null || { echo "  ✖ web never answered on :4500 — see $RUN/web.log" >&2; exit 1; }
+    echo "  ✓ web answering on :4500"
 
     echo "  ▸ importing footage library…"
     node infra/scripts/import-footage.mjs http://127.0.0.1:4500 || echo "  ⚠ footage import had failures (continuing)"

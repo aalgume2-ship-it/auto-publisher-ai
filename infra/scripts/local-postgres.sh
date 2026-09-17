@@ -38,9 +38,29 @@ case "$cmd" in
       "$PGBIN/pg_ctl" -D "$DATA" -l "$ROOT/.data/pg17.log" -o "-p $PORT -c listen_addresses=127.0.0.1" start >/dev/null
       sleep 1
     fi
-    if ! (echo "SELECT 1" | "$PGBIN/postgres" -h 127.0.0.1 -p "$PORT" -U aca -d autocreator -t >/dev/null 2>&1); then
-      (echo "CREATE DATABASE autocreator;" | "$PGBIN/postgres" -h 127.0.0.1 -p "$PORT" -U aca -d postgres) || true
-      echo "▸ postgres: database autocreator ensured"
+    # create the database if missing (no psql client ships with the embedded
+    # binaries — use the repo's pg package over node)
+    if ! node -e "
+      const pg = require(require.resolve('pg', { paths: ['$ROOT/packages/database', '$ROOT/node_modules'] }));
+      (async () => {
+        const c = new pg.Client({ host: '127.0.0.1', port: $PORT, user: 'aca', database: 'autocreator' });
+        await c.connect();
+        await c.query('SELECT 1');
+        await c.end();
+      })().catch(() => process.exit(1));
+    " 2>/dev/null; then
+      node -e "
+        const pg = require(require.resolve('pg', { paths: ['$ROOT/packages/database', '$ROOT/node_modules'] }));
+        (async () => {
+          const c = new pg.Client({ host: '127.0.0.1', port: $PORT, user: 'aca', database: 'postgres' });
+          await c.connect();
+          await c.query('CREATE DATABASE autocreator');
+          await c.end();
+          console.log('▸ postgres: database autocreator created');
+        })().catch((e) => { console.error('  ✖ create database failed:', e.message); process.exit(1); });
+      "
+    else
+      echo "  ▸ postgres: database autocreator already exists"
     fi
     echo "✓ postgres listening on 127.0.0.1:$PORT"
     ;;

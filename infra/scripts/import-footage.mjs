@@ -47,7 +47,9 @@ const have = new Set((status?.footage ?? []).map((f) => f.file));
 for (const file of readdirSync(dir).filter((f) => f.endsWith('.mp4'))) {
   if (have.has(file)) { console.log(`  ✓ ${file} (already imported)`); continue; }
   const tags = TAGS[file] ?? 'abstract';
-  const res = await fetch(`${BASE}/api/v1/organizations/${orgId}/local-media/footage?fileName=${encodeURIComponent(file)}&tags=${encodeURIComponent(tags)}`, {
+  // trailing slash: the endpoint 308-redirects the bare path and undici cannot
+  // replay a binary body across redirects (detached ArrayBuffer).
+  const res = await fetch(`${BASE}/api/v1/organizations/${orgId}/local-media/footage/?fileName=${encodeURIComponent(file)}&tags=${encodeURIComponent(tags)}`, {
     method: 'POST',
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/octet-stream' },
     body: readFileSync(join(dir, file)),

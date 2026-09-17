@@ -15,7 +15,7 @@
  *    the database" (prisma/prisma#27403). Idempotent.
  */
 import { execSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -46,8 +46,12 @@ for (const [tgz, dir] of [
 }
 
 // ── 3) patch @prisma/adapter-pg (catalog type OIDs) ─────────────────────────
-const pgEntry = execSync('node -p "require.resolve(\'@prisma/adapter-pg/package.json\', { paths: [process.cwd()] })"', { cwd: root, encoding: 'utf8' }).trim();
-const pgDir = dirname(pgEntry);
+// NB: located via the .pnpm store because the package's `exports` map does
+// not expose ./package.json to require.resolve.
+const pgDirs = readdirSync(pnpmDir).filter((d) => d.startsWith('@prisma+adapter-pg@')).sort();
+if (pgDirs.length === 0) throw new Error('@prisma/adapter-pg not installed — run pnpm install first');
+const pgDir = join(pnpmDir, pgDirs.at(-1), 'node_modules', '@prisma', 'adapter-pg');
+console.log('▸ adapter-pg:', pgDir.replace(root + '/', ''));
 let patched = 0;
 for (const f of ['dist/index.js', 'dist/index.mjs']) {
   const p = join(pgDir, f);
@@ -73,4 +77,19 @@ for (const f of ['dist/index.js', 'dist/index.mjs']) {
   }
 }
 if (patched === 0) console.log('▸ adapter-pg already patched');
+
+// ── 4) make vendored media binaries executable ──────────────────────────────
+// pnpm sometimes restores npm tarballs without the +x bit; ffmpeg/ffprobe are
+// spawned directly by the video engine, so restore it.
+for (const prefix of ['@ffmpeg-installer', '@ffprobe-installer']) {
+  for (const dir of readdirSync(pnpmDir).filter((d) => d.startsWith(prefix + '+'))) {
+    const base = join(pnpmDir, dir, 'node_modules');
+    for (const sub of readdirSync(base)) {
+      const bin = join(base, sub, sub.includes('@ffmpeg-installer') ? 'ffmpeg' : 'ffprobe');
+      if (existsSync(bin)) {
+        try { execSync(`chmod +x ${JSON.stringify(bin)}`); console.log(`▸ chmod +x ${sub}`); } catch { /* best effort */ }
+      }
+    }
+  }
+}
 console.log('✓ offline-prisma ready');
