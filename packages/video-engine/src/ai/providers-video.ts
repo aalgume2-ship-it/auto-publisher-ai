@@ -1,9 +1,12 @@
 /**
  * AI moving-picture providers — REAL text/image→video backends.
- * All providers return actual MP4 motion, never Ken Burns stills.
+ * All providers return actual MP4 motion, never Ken Burns stills. Pictory and
+ * D-ID are optional server-side adapters: submit a job, poll its status, then
+ * download the resulting MP4 into the same compose/storage path as every
+ * other provider.
  */
 export interface VideoProviderDef {
-  id: 'hf-ltx' | 'pollinations' | 'runway' | 'luma' | 'fal-kling';
+  id: 'hf-ltx' | 'pollinations' | 'pictory' | 'd-id' | 'runway' | 'luma' | 'fal-kling';
   label: string;
   model: string;
   consoleUrl: string;
@@ -33,6 +36,26 @@ export const VIDEO_PROVIDERS: readonly VideoProviderDef[] = [
     envKey: 'POLLINATIONS_API_KEY',
     supportsFirstFrame: false,
     supportedDurations: [5, 10],
+  },
+  {
+    id: 'pictory',
+    label: 'Pictory AI Studio — storyboard / stock-ready video',
+    model: 'ai-storyboard',
+    consoleUrl: 'https://app.pictory.ai/api-access',
+    priceHint: 'pay-as-you-go; text-to-video with storyboard-friendly scenes',
+    envKey: 'PICTORY_API_KEY',
+    supportsFirstFrame: false,
+    supportedDurations: [5, 8, 10],
+  },
+  {
+    id: 'd-id',
+    label: 'D-ID — talking presenter / avatar',
+    model: 'talks',
+    consoleUrl: 'https://studio.d-id.com/account',
+    priceHint: 'pay-as-you-go; presenter video from an image and campaign script',
+    envKey: 'D_ID_API_KEY',
+    supportsFirstFrame: true,
+    supportedDurations: [5, 10, 15],
   },
   {
     id: 'runway',
@@ -78,6 +101,8 @@ export interface ClipRequest {
   prompt: string;
   firstFrameUrl: string | null;
   windowSec: number;
+  /** Spoken text for presenter providers such as D-ID. */
+  narration?: string | undefined;
 }
 
 const POLL_INTERVAL_MS = 6_000;
@@ -186,6 +211,159 @@ async function gradioGenerate(base: string, apiName: string, data: unknown[], ta
 function compactMotionPrompt(req: ClipRequest, max = 300): string {
   const core = req.prompt.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
   return `${core}, premium photorealistic live-action commercial cinematography, identity locked across frames, anatomically correct face hands and body, continuous natural subject motion, deliberate cinematic camera movement, foreground parallax, realistic lens behavior and natural motion blur, consistent lighting wardrobe age face and body proportions, strong temporal consistency, physically plausible movement, rich dynamic range, natural skin texture, cinematic depth of field, no animation, no illustration, no morphing, no duplicate subject, no distorted hands, no text, no subtitles, no logo, no watermark, no still frame`;
+}
+
+type ProviderJobPayload = {
+  id: string | null;
+  status: string | null;
+  url: string | null;
+  error: string | null;
+};
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function firstString(...values: unknown[]): string | null {
+  return values.find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim() ?? null;
+}
+
+/** Normalize Pictory's v1 job envelope for contract tests and polling. */
+export function parsePictoryJob(value: unknown): ProviderJobPayload {
+  const root = record(value);
+  const data = record(root['data']);
+  const body = Object.keys(data).length > 0 ? data : root;
+  const failure = record(body['error']);
+  return {
+    id: firstString(body['jobId'], body['job_id'], body['id']),
+    status: firstString(body['status'], body['state'])?.toLowerCase() ?? null,
+    url: firstString(body['url'], body['videoUrl'], body['videoURL'], record(body['video'])['url']),
+    error: firstString(body['message'], body['errorMessage'], failure['message'], failure['detail'], typeof body['error'] === 'string' ? body['error'] : null),
+  };
+}
+
+/** Normalize D-ID's talks response (and webhook-shaped response) for polling. */
+export function parseDidTalk(value: unknown): ProviderJobPayload {
+  const root = record(value);
+  const data = record(root['data']);
+  const body = Object.keys(data).length > 0 ? data : root;
+  const failure = record(body['error']);
+  return {
+    id: firstString(body['id'], body['talkId'], body['talk_id']),
+    status: firstString(body['status'], body['state'])?.toLowerCase() ?? null,
+    url: firstString(body['result_url'], body['resultUrl'], body['video_url'], body['videoUrl'], record(body['result'])['url']),
+    error: firstString(body['description'], body['message'], failure['description'], failure['message'], typeof body['error'] === 'string' ? body['error'] : null),
+  };
+}
+
+function pictoryHeaders(apiKey: string): Record<string, string> {
+  return { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' };
+}
+
+async function pictorySubmit(apiKey: string, req: ClipRequest): Promise<string> {
+  const story = `${req.narration ?? ''} ${req.prompt}`.replace(/\s+/g, ' ').trim().slice(0, 5_000);
+  const body = {
+    videoName: `autocreator-${Date.now()}`,
+    aiStoryboard: { enabled: true },
+    aspectRatio: '9:16',
+    voiceOver: { enabled: false },
+    scenes: [{ story, createSceneOnEndOfSentence: true }],
+  };
+  const { status, data } = await http('https://api.pictory.ai/pictoryapis/v2/video/storyboard/render', {
+    method: 'POST',
+    headers: pictoryHeaders(apiKey),
+    body: JSON.stringify(body),
+  });
+  const job = parsePictoryJob(data);
+  if (![200, 201, 202].includes(status) || !job.id) {
+    throw new Error(`pictory submit ${status}: ${job.error ?? 'no job id'}`);
+  }
+  return job.id;
+}
+
+async function pictoryPoll(apiKey: string, jobId: string): Promise<string> {
+  const deadline = Date.now() + CLIP_TIMEOUT_MS;
+  for (;;) {
+    const { status: httpStatus, data } = await http(`https://api.pictory.ai/pictoryapis/v1/jobs/${encodeURIComponent(jobId)}`, {
+      headers: { authorization: apiKey, accept: 'application/json' },
+    });
+    const job = parsePictoryJob(data);
+    const status = job.status ?? '';
+    if (['completed', 'complete', 'succeeded', 'success', 'done'].includes(status) && job.url) return job.url;
+    if (['failed', 'failure', 'error', 'cancelled', 'canceled'].includes(status)) {
+      throw new Error(`pictory job failed: ${job.error ?? status}`);
+    }
+    if (httpStatus === 401 || httpStatus === 403) throw new Error(`pictory poll ${httpStatus}: key rejected mid-job`);
+    if (Date.now() > deadline) throw new Error('pictory job timed out after 8 min');
+    await sleep(12_000);
+  }
+}
+
+function didHeaders(apiKey: string): Record<string, string> {
+  // D-ID's /talks API documents Basic auth; the stored secret is the raw key,
+  // so the API-specific base64 envelope is created only in process memory.
+  const basic = Buffer.from(`${apiKey}:`, 'utf8').toString('base64');
+  return { authorization: `Basic ${basic}`, 'content-type': 'application/json', accept: 'application/json' };
+}
+
+async function didSubmit(apiKey: string, req: ClipRequest): Promise<string> {
+  const script = (req.narration ?? req.prompt).replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 4_000);
+  if (script.length < 2) throw new Error('d-id requires non-empty presenter text');
+  const defaultPresenter = 'https://d-id-public-bucket.s3.us-west-2.amazonaws.com/alice.jpg';
+  // D-ID validates the source URL extension. Generated Pollinations URLs do
+  // not expose a .jpg suffix, so use the documented presenter when the image
+  // URL cannot pass that contract; public uploaded/avatar URLs with an image
+  // suffix still flow through unchanged.
+  const sourceUrl = req.firstFrameUrl && /\.(?:jpe?g|png)(?:[?#]|$)/i.test(req.firstFrameUrl)
+    ? req.firstFrameUrl
+    : defaultPresenter;
+  const body = {
+    source_url: sourceUrl,
+    script: {
+      type: 'text',
+      input: script,
+      ssml: false,
+      subtitles: false,
+      provider: { type: 'microsoft', voice_id: 'ar-SA-HamedNeural' },
+    },
+    config: { fluent: true, pad_audio: 0, result_format: 'mp4', stitch: true },
+  };
+  const { status, data } = await http('https://api.d-id.com/talks', {
+    method: 'POST',
+    headers: didHeaders(apiKey),
+    body: JSON.stringify(body),
+  });
+  const talk = parseDidTalk(data);
+  if (![200, 201, 202].includes(status) || !talk.id) {
+    throw new Error(`d-id submit ${status}: ${talk.error ?? 'no talk id'}`);
+  }
+  return talk.id;
+}
+
+async function didPoll(apiKey: string, talkId: string): Promise<string> {
+  const deadline = Date.now() + CLIP_TIMEOUT_MS;
+  for (;;) {
+    const { status: httpStatus, data } = await http(`https://api.d-id.com/talks/${encodeURIComponent(talkId)}`, {
+      headers: didHeaders(apiKey),
+    });
+    const talk = parseDidTalk(data);
+    const status = talk.status ?? '';
+    if (['done', 'completed', 'complete', 'succeeded', 'success'].includes(status) && talk.url) return talk.url;
+    if (['error', 'failed', 'failure', 'rejected', 'cancelled', 'canceled'].includes(status)) {
+      throw new Error(`d-id talk failed: ${talk.error ?? status}`);
+    }
+    if (httpStatus === 401 || httpStatus === 403) throw new Error(`d-id poll ${httpStatus}: key rejected mid-talk`);
+    if (Date.now() > deadline) throw new Error('d-id talk timed out after 8 min');
+    await sleep(POLL_INTERVAL_MS);
+  }
+}
+
+async function downloadProviderVideo(provider: string, videoUrl: string): Promise<Buffer> {
+  const res = await fetch(videoUrl, { headers: { 'user-agent': 'autocreator-pipeline/1.0' } });
+  if (!res.ok) throw new Error(`${provider} cdn ${res.status}: clip download failed`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length < 30_000) throw new Error(`${provider} returned a suspiciously small clip`);
+  return buf;
 }
 
 async function hfLtx23Generate(req: ClipRequest): Promise<Buffer> {
@@ -338,15 +516,17 @@ async function falPoll(apiKey:string,urls:{statusUrl:string;responseUrl:string})
 export async function generateClip(cred:VideoCredential,req:ClipRequest):Promise<Buffer>{
   if(cred.def.id==='hf-ltx') return serializeKeylessVideo(()=>hfLtxGenerate(req));
   if(cred.def.id==='pollinations') return pollinationsGenerate(cred.apiKey,req);
+  if (cred.def.id === 'pictory') {
+    return downloadProviderVideo('pictory', await pictoryPoll(cred.apiKey, await pictorySubmit(cred.apiKey, req)));
+  }
+  if (cred.def.id === 'd-id') {
+    return downloadProviderVideo('d-id', await didPoll(cred.apiKey, await didSubmit(cred.apiKey, req)));
+  }
   let videoUrl:string;
   if(cred.def.id==='runway') videoUrl=await runwayPoll(cred.apiKey,await runwaySubmit(cred.apiKey,req));
   else if(cred.def.id==='luma') videoUrl=await lumaPoll(cred.apiKey,await lumaSubmit(cred.apiKey,req));
   else videoUrl=await falPoll(cred.apiKey,await falSubmit(cred.apiKey,req));
-  const res=await fetch(videoUrl,{headers:{'user-agent':'autocreator-pipeline/1.0'}});
-  if(!res.ok) throw new Error(`${cred.def.id} cdn ${res.status}: clip download failed`);
-  const buf=Buffer.from(await res.arrayBuffer());
-  if(buf.length<30_000) throw new Error(`${cred.def.id} returned a suspiciously small clip`);
-  return buf;
+  return downloadProviderVideo(cred.def.id, videoUrl);
 }
 
 export async function generateRunwaySpeech(apiKey:string,text:string,languageCode='ar'):Promise<Buffer>{
@@ -368,6 +548,18 @@ export async function validateVideoKey(def:VideoProviderDef,apiKey:string):Promi
     const d=(data??{}) as {valid?:boolean};
     if(status===401||status===403||d.valid===false) throw new Error(`key rejected by ${def.label}: HTTP ${status}`);
     if(status>=500) throw new Error(`${def.label} validation endpoint unreachable (HTTP ${status})`);
+    return;
+  }
+  if (def.id === 'pictory') {
+    const { status } = await http('https://api.pictory.ai/pictoryapis/v2/projects', { headers: { authorization: apiKey, accept: 'application/json' } });
+    if (status === 401 || status === 403) throw new Error(`key rejected by ${def.label}: HTTP ${status}`);
+    if (status >= 500) throw new Error(`${def.label} validation endpoint unreachable (HTTP ${status})`);
+    return;
+  }
+  if (def.id === 'd-id') {
+    const { status } = await http('https://api.d-id.com/talks/00000000-0000-4000-8000-000000000000', { headers: didHeaders(apiKey) });
+    if (status === 401 || status === 403) throw new Error(`key rejected by ${def.label}: HTTP ${status}`);
+    if (status >= 500) throw new Error(`${def.label} validation endpoint unreachable (HTTP ${status})`);
     return;
   }
   const bogus='00000000-0000-4000-8000-000000000000';

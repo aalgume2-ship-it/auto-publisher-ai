@@ -169,14 +169,22 @@ export class OrgCredentialsService {
   /** env fallback for a moving-picture provider. */
   private envVideoKeyFor(def: VideoProviderDef): string | null {
     const ai = this.config.ai;
-    const map: Record<string, string | undefined> = { runway: ai.runwayApiKey, luma: ai.lumaApiKey, 'fal-kling': ai.falKey };
+    const map: Record<string, string | undefined> = {
+      pictory: ai.pictoryApiKey,
+      'd-id': ai.didApiKey,
+      runway: ai.runwayApiKey,
+      luma: ai.lumaApiKey,
+      'fal-kling': ai.falKey,
+    };
     const v = map[def.id];
     return v && v.length > 0 ? v : null;
   }
 
   /** The video-clip credential (moving scenes). Null ⇒ stills mode (legit default). */
   async resolveVideo(orgId: string): Promise<VideoCredential | null> {
+    const envOnly = (id: string): boolean => id === 'pictory' || id === 'd-id';
     for (const def of VIDEO_PROVIDERS) {
+      if (envOnly(def.id)) continue;
       const stored = await this.readSecret(orgId, 'VIDEO_ENGINE', def.id);
       if (stored?.secret) return { def, apiKey: stored.secret, source: 'org' };
     }

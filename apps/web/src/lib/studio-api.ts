@@ -207,8 +207,33 @@ export function createCampaignSeries(token: string, orgId: string, name: string,
 export function listSeries(token: string, orgId: string) {
   return call<{ items: SeriesDto[] }>('GET', `/organizations/${orgId}/series`, undefined, token);
 }
-export function generateVideo(token: string, orgId: string, seriesId: string, keyword: string, targetSeconds: number) {
-  return call<GenerateVideoDto>('POST', `/organizations/${orgId}/series/${seriesId}/videos`, { keyword, targetSeconds }, token);
+export function generateVideo(
+  token: string,
+  orgId: string,
+  seriesId: string,
+  keyword: string,
+  targetSeconds: number,
+  videoProvider: string = 'auto',
+) {
+  return call<GenerateVideoDto>('POST', `/organizations/${orgId}/series/${seriesId}/videos`, { keyword, targetSeconds, videoProvider }, token);
+}
+
+export interface CampaignVideoProvider {
+  id: string;
+  label: string;
+  priceHint: string;
+  configured: boolean;
+  source: 'org' | 'env' | null;
+  active: boolean;
+}
+
+export function getVideoProviders(token: string, orgId: string) {
+  return call<{ video: { items: CampaignVideoProvider[] } }>(
+    'GET',
+    `/organizations/${orgId}/settings/integrations`,
+    undefined,
+    token,
+  );
 }
 export function listVideos(token: string, orgId: string) {
   return call<{ items: VideoDto[] }>('GET', `/organizations/${orgId}/videos`, undefined, token);

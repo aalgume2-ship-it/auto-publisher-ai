@@ -5,13 +5,15 @@
  *   - Runway  Veo 3.1 Fast + native audio (dev.runwayml.com)
  *   - Luma    Dream Machine Ray  (lumalabs.ai dream-machine/v1)
  *   - Kling   v2.1 Master        (hosted via fal.ai queue)
- * A scene still (Pollinations URL) is passed as the FIRST FRAME so every clip
- * stays coherent with the rest of the cut; text-only is supported when no
- * still exists. No keyless video provider exists today (verified 2026-08-03),
- * so these resolve from the org vault (Settings) or env — fail-closed.
+ *   - Pictory AI Storyboard       (stock/storyboard text video)
+ *   - D-ID Talks                  (presenter/avatar from an image + script)
+ * The API side keeps only masked credential metadata; the worker performs the
+ * submit → poll → download workflow. Existing tenant-managed providers resolve
+ * from the org vault; Pictory and D-ID are platform-managed Render env vars and
+ * never block the local fallback.
  */
 export interface VideoProviderDef {
-  id: 'runway' | 'luma' | 'fal-kling';
+  id: 'pictory' | 'd-id' | 'runway' | 'luma' | 'fal-kling';
   label: string;
   model: string;
   consoleUrl: string;
@@ -22,6 +24,26 @@ export interface VideoProviderDef {
 }
 
 export const VIDEO_PROVIDERS: readonly VideoProviderDef[] = [
+  {
+    id: 'pictory',
+    label: 'Pictory AI Studio — storyboard / stock-ready video',
+    model: 'ai-storyboard',
+    consoleUrl: 'https://app.pictory.ai/api-access',
+    priceHint: 'pay-as-you-go; text-to-video with storyboard-friendly scenes',
+    envKey: 'PICTORY_API_KEY',
+    supportsFirstFrame: false,
+    supportedDurations: [5, 8, 10],
+  },
+  {
+    id: 'd-id',
+    label: 'D-ID — talking presenter / avatar',
+    model: 'talks',
+    consoleUrl: 'https://studio.d-id.com/account',
+    priceHint: 'pay-as-you-go; presenter video from an image and campaign script',
+    envKey: 'D_ID_API_KEY',
+    supportsFirstFrame: true,
+    supportedDurations: [5, 10, 15],
+  },
   {
     id: 'runway',
     label: 'Runway Veo 3.1 Fast + native audio',
@@ -239,7 +261,16 @@ export async function generateClip(cred: VideoCredential, req: ClipRequest): Pro
 export async function validateVideoKey(def: VideoProviderDef, apiKey: string): Promise<void> {
   const bogus = '00000000-0000-4000-8000-000000000000';
   let status: number;
-  if (def.id === 'runway') {
+  if (def.id === 'pictory') {
+    ({ status } = await http('https://api.pictory.ai/pictoryapis/v2/projects', {
+      headers: { authorization: apiKey, accept: 'application/json' },
+    }));
+  } else if (def.id === 'd-id') {
+    const basic = Buffer.from(`${apiKey}:`, 'utf8').toString('base64');
+    ({ status } = await http(`https://api.d-id.com/talks/${bogus}`, {
+      headers: { authorization: `Basic ${basic}`, accept: 'application/json' },
+    }));
+  } else if (def.id === 'runway') {
     ({ status } = await http(`https://api.dev.runwayml.com/v1/tasks/${bogus}`, {
       headers: { ...bearer(apiKey), 'x-runway-version': '2024-11-06' },
     }));

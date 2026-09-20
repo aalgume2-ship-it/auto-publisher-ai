@@ -458,15 +458,23 @@ export class AiService {
   }
 
   async resolveBunnyStorage(orgId: string) { return this.creds.resolveBunnyStorage(orgId); }
-  async resolveVideoCred(orgId: string): Promise<VideoCredential | null> { return this.creds.resolveVideo(orgId); }
+  async resolveVideoCred(orgId: string, requestedProvider?: string): Promise<VideoCredential | null> {
+    return this.creds.resolveVideo(orgId, requestedProvider);
+  }
 
-  async generateSceneClip(cred: VideoCredential, visualPrompt: string, firstFrameUrl: string | null, windowSec: number): Promise<Buffer> {
+  async generateSceneClip(
+    cred: VideoCredential,
+    visualPrompt: string,
+    firstFrameUrl: string | null,
+    windowSec: number,
+    narration?: string,
+  ): Promise<Buffer> {
     if (cred.def.id === 'hf-ltx') {
       // Only genuine model-generated motion is accepted. Never convert a still
       // image into a fake success using zoom/pan. Wan + LTX + Omni handle failover.
-      return generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec });
+      return generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec, narration });
     }
-    return withRetry(`clip-${cred.def.id}`, () => generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec }), this.logger);
+    return withRetry(`clip-${cred.def.id}`, () => generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec, narration }), this.logger);
   }
 
   sceneImageUrl(visualPrompt: string, seed: number): string {

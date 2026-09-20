@@ -33,5 +33,10 @@ services:
         generateValue: true  # Render generates a persistent random secret
       - key: ACA_LOCAL_GENERATION
         value: "1"
+      # Optional integrations. Leave blank to keep the free local fallback.
+      - key: PICTORY_API_KEY
+        sync: false
+      - key: D_ID_API_KEY
+        sync: false
       - key: NODE_ENV
         value: production

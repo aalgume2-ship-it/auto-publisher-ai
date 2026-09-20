@@ -17,7 +17,6 @@ import { type VideoComposer, workDirFor } from '../render/compose.service.js';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { providerNotConfigured } from '../errors.js';
 
 const VOICE_PROVIDER_TTS: Record<string, { provider: string; providerVoiceId: string; name: string }> = {
   'edge-neural': { provider: 'edge-neural', providerVoiceId: 'ar-SA-HamedNeural', name: 'Microsoft Neural Arabic — Hamed' },
@@ -86,24 +85,26 @@ export class GenerationService {
           data: { status, seo: JSON.parse(JSON.stringify({ ...seoState, step, progress })) },
         });
 
-      // A still-image slideshow is not text-to-video. Fail fast and visibly
-      // unless an actual moving-video provider is configured — except in
-      // explicit offline mode (ACA_LOCAL_GENERATION=1), where every shot is a
-      // locally-synthesized ffmpeg MOTION background (fractal zoom / cellular
-      // light fields + camera movement), still never a static slideshow.
-      const localMode = this.config.localMedia.generation;
-      const videoCred = await this.ai.resolveVideoCred(video.orgId);
-      if (!videoCred && !localMode) {
-        throw providerNotConfigured(
-          ['POLLINATIONS_API_KEY', 'RUNWAY_API_KEY', 'LUMA_API_KEY', 'FAL_KEY'],
-          'AI generation provider is not configured',
-        );
-      }
+      // The campaign can pin a provider without exposing any secret to the
+      // browser. `local` is an explicit, free fallback; if a requested
+      // optional provider has no key, the same local motion path is used
+      // instead of breaking the worker. Existing callers without a choice keep
+      // the established automatic provider order.
+      const requestedProvider = typeof (video.seo as { videoProvider?: unknown } | null)?.videoProvider === 'string'
+        ? (video.seo as { videoProvider: string }).videoProvider
+        : undefined;
+      const explicitLocal = requestedProvider === 'local';
+      const forceLocal = this.config.localMedia.generation && (!requestedProvider || requestedProvider === 'auto');
+      const videoCred = explicitLocal || forceLocal
+        ? null
+        : await this.ai.resolveVideoCred(video.orgId, requestedProvider && requestedProvider !== 'auto' ? requestedProvider : undefined);
+      const localMode = explicitLocal || forceLocal || !videoCred;
       if (videoCred && !localMode) {
         seoState['videoProvider'] = videoCred.def.id;
       } else {
-        seoState['videoProvider'] = 'local-motion';
+        seoState['videoProvider'] = requestedProvider && requestedProvider !== 'local' ? 'local-fallback' : 'local-motion';
       }
+      if (requestedProvider) seoState['videoProviderRequested'] = requestedProvider;
       await markStep('script', 8);
 
       /* 1 ── script (real LLM) */
@@ -362,7 +363,7 @@ export class GenerationService {
               let lastClipError: unknown = null;
               for (let clipTry = 1; clipTry <= 2; clipTry += 1) {
                 try {
-                  buf = await this.ai.generateSceneClip(videoCred!, scene.visualPrompt, firstFrameUrls[i] ?? null, w.durationMs / 1000);
+                  buf = await this.ai.generateSceneClip(videoCred!, scene.visualPrompt, firstFrameUrls[i] ?? null, w.durationMs / 1000, scene.narration);
                   break;
                 } catch (error) {
                   lastClipError = error;

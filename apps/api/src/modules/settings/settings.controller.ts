@@ -80,8 +80,8 @@ export class SettingsController {
   @UseZod({ params: VideoProviderParamsSchema, body: SaveAiKeyBodySchema })
   @ApiOperation({
     operationId: 'saveVideoKey',
-    summary: 'Validate an AI VIDEO provider key (Runway / Luma / Kling-via-fal) WITHOUT spending a generation credit, then store it encrypted — enables moving-scene clips',
-    description: 'Probe: bogus task id ⇒ 401/403 rejects the key; 200/404/422/429 proves it. 400 when the provider rejects.',
+    summary: 'Validate a tenant-managed video provider key (Runway / Luma / Kling-via-fal) WITHOUT spending a generation credit, then store it encrypted',
+    description: 'Pictory and D-ID are platform-managed through Render environment variables and deliberately have no tenant key form. For tenant-managed providers, 401/403 rejects the key; a provider success, not-found, or rate-limit response proves it.',
   })
   @ApiParam({ name: 'orgId', format: 'uuid' })
   @ApiParam({ name: 'provider', enum: ['runway', 'luma', 'fal-kling'] })

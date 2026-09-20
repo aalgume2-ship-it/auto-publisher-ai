@@ -126,7 +126,7 @@ export class VideosService {
         targetPlatforms: ['youtube'],
         tags: [],
         status: 'QUEUED',
-        seo: { keyword: body.keyword, targetSeconds: body.targetSeconds },
+        seo: { keyword: body.keyword, targetSeconds: body.targetSeconds, videoProvider: body.videoProvider },
         createdById: userId,
       },
     });

@@ -167,39 +167,63 @@ export class OrgCredentialsService {
   /** env fallback for a moving-picture provider. */
   private envVideoKeyFor(def: VideoProviderDef): string | null {
     const ai = this.config.ai;
-    const map: Record<string, string | undefined> = { pollinations: ai.pollinationsApiKey, runway: ai.runwayApiKey, luma: ai.lumaApiKey, 'fal-kling': ai.falKey };
+    const map: Record<string, string | undefined> = {
+      pollinations: ai.pollinationsApiKey,
+      pictory: ai.pictoryApiKey,
+      'd-id': ai.didApiKey,
+      runway: ai.runwayApiKey,
+      luma: ai.lumaApiKey,
+      'fal-kling': ai.falKey,
+    };
     const v = map[def.id];
     return v && v.length > 0 ? v : null;
   }
 
-  /** The video-clip credential (moving scenes). Null ⇒ stills mode (legit default). */
-  async resolveVideo(orgId: string): Promise<VideoCredential | null> {
-    // Prefer Pollinations for the zero/low-cost path. A single Pollinations key
-    // can be stored either under VIDEO_ENGINE or LLM and is reused safely.
-    const pollinations = VIDEO_PROVIDERS.find((d) => d.id === 'pollinations');
-    if (pollinations) {
-      const videoStored = await this.readSecret(orgId, 'VIDEO_ENGINE', 'pollinations');
-      if (videoStored?.secret) return { def: pollinations, apiKey: videoStored.secret, source: 'org' };
-      const llmStored = await this.readSecret(orgId, 'LLM', 'pollinations');
-      if (llmStored?.secret) return { def: pollinations, apiKey: llmStored.secret, source: 'org' };
-      const env = this.envVideoKeyFor(pollinations);
-      if (env) return { def: pollinations, apiKey: env, source: 'env' };
-    }
-    // A configured professional provider must always beat the shared keyless
-    // fallback. The previous order made a saved Runway/Luma/Kling key
-    // unreachable and silently downgraded every render to public ZeroGPU.
-    for (const def of VIDEO_PROVIDERS) {
-      if (def.id === 'hf-ltx' || def.id === 'pollinations') continue;
-      const stored = await this.readSecret(orgId, 'VIDEO_ENGINE', def.id);
-      if (stored?.secret) return { def, apiKey: stored.secret, source: 'org' };
-    }
-    for (const def of VIDEO_PROVIDERS) {
-      if (def.id === 'hf-ltx' || def.id === 'pollinations') continue;
+  /**
+   * Resolve a moving-picture credential. A requested provider is strict: it
+   * never silently switches to a different paid service. When no provider is
+   * requested, the existing automatic order is preserved (Pollinations first,
+   * then configured providers, then the free keyless route).
+   */
+  async resolveVideo(orgId: string, requestedProvider?: string): Promise<VideoCredential | null> {
+    const findCredential = async (def: VideoProviderDef): Promise<VideoCredential | null> => {
+      // Pictory and D-ID are platform integrations: their secrets belong in
+      // Render environment variables, never in a tenant-facing key form or
+      // the organization vault.
+      const envOnly = def.id === 'pictory' || def.id === 'd-id';
+      if (!envOnly) {
+        const stored = await this.readSecret(orgId, 'VIDEO_ENGINE', def.id);
+        if (stored?.secret) return { def, apiKey: stored.secret, source: 'org' };
+        // A Pollinations key has historically been accepted in the LLM namespace;
+        // keep that compatibility only for Pollinations.
+        if (def.id === 'pollinations') {
+          const llmStored = await this.readSecret(orgId, 'LLM', 'pollinations');
+          if (llmStored?.secret) return { def, apiKey: llmStored.secret, source: 'org' };
+        }
+      }
       const env = this.envVideoKeyFor(def);
-      if (env) return { def, apiKey: env, source: 'env' };
+      return env ? { def, apiKey: env, source: 'env' } : null;
+    };
+
+    if (requestedProvider && requestedProvider !== 'auto' && requestedProvider !== 'local') {
+      const requested = VIDEO_PROVIDERS.find((def) => def.id === requestedProvider);
+      return requested ? findCredential(requested) : null;
     }
-    // Free, keyless fallback: real text-to-video on Lightricks' public ZeroGPU Space.
-    const hfLtx = VIDEO_PROVIDERS.find((d) => d.id === 'hf-ltx');
+
+    // Prefer Pollinations for the zero/low-cost path when it is configured.
+    const pollinations = VIDEO_PROVIDERS.find((def) => def.id === 'pollinations');
+    if (pollinations) {
+      const configured = await findCredential(pollinations);
+      if (configured) return configured;
+    }
+    // A configured professional provider must always beat the free route.
+    for (const def of VIDEO_PROVIDERS) {
+      if (def.id === 'hf-ltx' || def.id === 'pollinations') continue;
+      const configured = await findCredential(def);
+      if (configured) return configured;
+    }
+    // Free, keyless fallback: real text-to-video on Lightricks' public Space.
+    const hfLtx = VIDEO_PROVIDERS.find((def) => def.id === 'hf-ltx');
     if (hfLtx) return { def: hfLtx, apiKey: '', source: 'keyless' };
     return null;
   }

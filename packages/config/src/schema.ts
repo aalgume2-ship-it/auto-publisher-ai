@@ -154,10 +154,12 @@ export const AppConfigSchema = z.object({
       geminiApiKey: z.string().min(1).optional(),
       openrouterApiKey: z.string().min(1).optional(),
       pollinationsApiKey: z.string().min(1).optional(),
-      // moving-picture providers (no free tier exists today — org vault or env)
+      // moving-picture providers (org vault or env; optional integrations stay graceful)
       runwayApiKey: z.string().min(1).optional(),
       lumaApiKey: z.string().min(1).optional(),
       falKey: z.string().min(1).optional(),
+      pictoryApiKey: z.string().min(1).optional(),
+      didApiKey: z.string().min(1).optional(),
       // image providers (org vault or env; pollinations stays the keyless default)
       stabilityApiKey: z.string().min(1).optional(),
       replicateApiToken: z.string().min(1).optional(),
@@ -273,6 +275,8 @@ export const ENV_MAP = {
   RUNWAY_API_KEY: 'ai.runwayApiKey',
   LUMA_API_KEY: 'ai.lumaApiKey',
   FAL_KEY: 'ai.falKey',
+  PICTORY_API_KEY: 'ai.pictoryApiKey',
+  D_ID_API_KEY: 'ai.didApiKey',
   STABILITY_API_KEY: 'ai.stabilityApiKey',
   REPLICATE_API_TOKEN: 'ai.replicateApiToken',
   ELEVENLABS_API_KEY: 'ai.elevenlabsApiKey',

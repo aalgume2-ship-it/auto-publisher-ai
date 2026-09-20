@@ -8,7 +8,14 @@
 export { PipelineError, providerNotConfigured, type PipelineErrorCode } from './errors.js';
 export { OrgCredentialsService, type VaultCapability } from './vault/org-credentials.js';
 export { LLM_PROVIDERS, LLM_PROVIDER_MAP, chatCompletion, type LlmCredential, type LlmProviderDef } from './ai/providers.js';
-export { VIDEO_PROVIDERS, VIDEO_PROVIDER_MAP, type VideoCredential, type VideoProviderDef } from './ai/providers-video.js';
+export {
+  VIDEO_PROVIDERS,
+  VIDEO_PROVIDER_MAP,
+  parseDidTalk,
+  parsePictoryJob,
+  type VideoCredential,
+  type VideoProviderDef,
+} from './ai/providers-video.js';
 export { getPrompt, renderUserPrompt } from './ai/prompts/registry.js';
 export {
   AiService,

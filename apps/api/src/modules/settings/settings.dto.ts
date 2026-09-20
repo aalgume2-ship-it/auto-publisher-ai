@@ -61,6 +61,13 @@ export const IntegrationsDoc = {
         items: { type: 'array', items: AiProviderItemDoc },
       },
     },
+    video: {
+      type: 'object',
+      properties: {
+        active: { type: 'object', nullable: true, properties: { provider: { type: 'string' }, source: { type: 'string', enum: ['org', 'env'] } } },
+        items: { type: 'array', items: AiProviderItemDoc },
+      },
+    },
     youtube: {
       type: 'object',
       properties: {

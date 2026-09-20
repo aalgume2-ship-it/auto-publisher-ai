@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import {
@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import CampaignHeader from '../../../components/marketing/CampaignHeader';
 import { loadStudioSession } from '../../../lib/studio-session';
-import { createCampaignSeries, generateVideo } from '../../../lib/studio-api';
+import { createCampaignSeries, generateVideo, getVideoProviders, type CampaignVideoProvider } from '../../../lib/studio-api';
 import {
   BUSINESS_TYPE_LABELS, AD_STYLE_LABELS, PLATFORM_LABELS,
   buildCampaignPackage, type BusinessType, type AdStyle,
@@ -25,7 +25,16 @@ const TYPES: { id: BusinessType; icon: typeof Package }[] = [
 const STYLES: AdStyle[] = ['luxury', 'youth', 'saudi', 'trend', 'formal', 'ugc', 'cinematic'];
 const PLATFORMS = ['instagram', 'tiktok', 'snapchat', 'whatsapp', 'facebook', 'youtube'];
 
-const STEP_TITLES = ['ماذا تسوّق؟', 'ارفع صورة المنتج', 'اكتب العرض', 'أين تريد نشره؟', 'اختر أسلوب الإعلان'];
+const STEP_TITLES = ['ماذا تسوّق؟', 'ارفع صورة المنتج', 'اكتب العرض', 'أين تريد نشره؟', 'اختر أسلوب الإعلان', 'محرك الفيديو'];
+
+const LOCAL_PROVIDER: CampaignVideoProvider = {
+  id: 'local',
+  label: 'Local Motion — مجاني وبدون مفتاح',
+  priceHint: 'fallback مجاني؛ معالجة محلية داخل الموقع',
+  configured: true,
+  source: null,
+  active: false,
+};
 
 function WizardInner() {
   const router = useRouter();
@@ -36,8 +45,25 @@ function WizardInner() {
   const [offer, setOffer] = useState('');
   const [platforms, setPlatforms] = useState<string[]>(['instagram', 'tiktok', 'snapchat']);
   const [style, setStyle] = useState<AdStyle>('luxury');
+  const [videoProvider, setVideoProvider] = useState('local');
+  const [videoProviders, setVideoProviders] = useState<CampaignVideoProvider[]>([LOCAL_PROVIDER]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    const session = loadStudioSession();
+    if (!session?.tokens?.accessToken || !session.orgId) return;
+    void getVideoProviders(session.tokens.accessToken, session.orgId).then((result) => {
+      if (!result.ok || !result.data?.video?.items) return;
+      // Optional providers are shown only after the API confirms a vault/env
+      // key exists. The free local choice is always visible and remains the
+      // safe default when Render has no optional secrets.
+      const optional = result.data.video.items.filter((item) =>
+        ['pictory', 'd-id'].includes(item.id) && item.configured,
+      );
+      setVideoProviders([LOCAL_PROVIDER, ...optional]);
+    });
+  }, []);
 
   const canNext = useMemo(() => {
     if (step === 2) return name.trim().length >= 2 && offer.trim().length >= 5;
@@ -88,14 +114,14 @@ function WizardInner() {
       // 2) Kick off the three ad videos on the proven generation pipeline.
       const videoIds: string[] = [];
       for (const angle of pkg.videoAngles) {
-        const v = await generateVideo(token, session.orgId, seriesId, angle.keyword, 20);
+        const v = await generateVideo(token, session.orgId, seriesId, angle.keyword, 20, videoProvider);
         const id = v.data?.video?.id || v.data?.id;
         if (id) videoIds.push(id);
       }
 
       // 3) Persist campaign meta for the detail page.
       localStorage.setItem(`lumen.campaign.${seriesId}`, JSON.stringify({
-        name: name.trim(), type, offer: offer.trim(), style, platforms,
+        name: name.trim(), type, offer: offer.trim(), style, platforms, videoProvider,
         image, videoIds, createdAt: Date.now(),
       }));
 
@@ -193,6 +219,31 @@ function WizardInner() {
               ))}
             </div>
           )}
+          {step === 5 && (
+            <div style={{ display: 'grid', gap: 12, marginTop: 18 }}>
+              <p className="muted" style={{ margin: 0 }}>
+                اختر كيف تتحرك المشاهد. لا تظهر الخدمات المدفوعة هنا إلا إذا كان مفتاحها محفوظاً في الخزنة أو في Render.
+              </p>
+              {videoProviders.map((provider) => (
+                <button
+                  key={provider.id}
+                  type="button"
+                  onClick={() => setVideoProvider(provider.id)}
+                  className="glass hoverable"
+                  style={{ padding: 16, textAlign: 'start', border: videoProvider === provider.id ? '1.5px solid #D4FF32' : undefined, cursor: 'pointer' }}
+                >
+                  <div className="row between" style={{ gap: 12 }}>
+                    <div>
+                      <b style={{ display: 'block', fontSize: 15 }}>{provider.label}</b>
+                      <span className="sm muted">{provider.priceHint}</span>
+                    </div>
+                    {videoProvider === provider.id && <Check size={18} color="#D4FF32" />}
+                  </div>
+                </button>
+              ))}
+              {videoProviders.length === 1 && <span className="sm muted">أضف مفتاح Pictory أو D-ID من الإعدادات لإظهاره هنا. سيبقى المحرك المحلي متاحاً دائماً.</span>}
+            </div>
+          )}
 
           {err && <div className="alert err" style={{ marginTop: 18 }}>{err}</div>}
 
@@ -200,7 +251,7 @@ function WizardInner() {
             <button className="chip" style={{ visibility: step === 0 ? 'hidden' : 'visible' }} onClick={() => setStep(s => s - 1)} disabled={busy}>
               <ChevronLeft size={14} style={{ transform: 'rotate(180deg)' }} /> السابق
             </button>
-            {step < 4 ? (
+            {step < 5 ? (
               <button className="btn btn-primary btn-lg" disabled={!canNext} onClick={() => setStep(s => s + 1)}>التالي</button>
             ) : (
               <button className="btn btn-primary btn-lg" disabled={busy || !canNext} onClick={createCampaign}>
