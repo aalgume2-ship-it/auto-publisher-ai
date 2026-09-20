@@ -1,0 +1,37 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Render Blueprint — AutoCreator AI free tier (ONE service: API + Worker)
+#
+# How to use (see infra/free/README-FREE-AR.md for the full Arabic guide):
+#   1. Render → New → Blueprint → pick this repo (branch shown below)
+#   2. Fill the secrets it asks for (DATABASE_URL, REDIS_URL,
+#      EXCLUSIVE_ADMIN_PASSWORD) — Render generates AUTH_JWT_SECRET itself
+#   3. Apply — first build takes ~10 minutes
+#
+# Free plan notes:
+#   - 750 instance-hours/month ≈ one service running 24/7
+#   - sleeps after 15 min without traffic; first request then takes ~50s
+#     (the web app is cold-start hardened with Arabic retry messages)
+#   - keep it awake 24/7 with a free cron ping (cron-job.org → /health)
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  - type: web
+    name: autocreator
+    runtime: docker
+    dockerfilePath: ./Dockerfile.free
+    plan: free
+    branch: arena/01a0a952-auto-publisher-ai
+    healthCheckPath: /health/ready
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        sync: false          # ← Neon connection string (postgresql://...)
+      - key: REDIS_URL
+        sync: false          # ← Redis Cloud URL (redis(s)://...)
+      - key: EXCLUSIVE_ADMIN_PASSWORD
+        sync: false          # ← owner login password (you choose it)
+      - key: AUTH_JWT_SECRET
+        generateValue: true  # Render generates a persistent random secret
+      - key: ACA_LOCAL_GENERATION
+        value: "1"
+      - key: NODE_ENV
+        value: production

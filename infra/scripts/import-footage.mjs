@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 /**
  * import-footage — uploads the offline footage clips (rendered by
- * gen-footage.sh) into the org's local media library through the running
- * web proxy, exactly like a browser would. Idempotent: existing files are
- * skipped.
+ * gen-footage.sh) into the org's local media library. Works against BOTH the
+ * web proxy (/api/v1, auto-detected) and the API directly (/v1). Idempotent.
  *
  * Usage: node infra/scripts/import-footage.mjs [baseUrl]
  * Env:   OWNER_ID / OWNER_PASSWORD
@@ -29,7 +28,14 @@ const TAGS = {
 const root = join(import.meta.dirname, '..', '..');
 const dir = join(root, '.data', 'footage-gen');
 
-const login = await fetch(`${BASE}/api/v1/auth/login`, {
+let PREFIX = '/api/v1';
+try {
+  const r = await fetch(`${BASE}/health/ready`);
+  if (r.ok) PREFIX = '/v1'; // direct API — no web proxy
+} catch { /* proxy default */ }
+console.log(`▸ using ${BASE}${PREFIX}`);
+
+const login = await fetch(`${BASE}${PREFIX}/auth/login`, {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
   body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
@@ -37,11 +43,11 @@ const login = await fetch(`${BASE}/api/v1/auth/login`, {
 const token = login?.tokens?.accessToken;
 if (!token) throw new Error('login failed');
 
-const orgs = await fetch(`${BASE}/api/v1/organizations/`, { headers: { authorization: `Bearer ${token}` } }).then((r) => r.json());
+const orgs = await fetch(`${BASE}${PREFIX}/organizations`, { headers: { authorization: `Bearer ${token}` } }).then((r) => r.json());
 const orgId = orgs?.items?.[0]?.organization?.id;
 if (!orgId) throw new Error('no organization found');
 
-const status = await fetch(`${BASE}/api/v1/organizations/${orgId}/local-media/`, { headers: { authorization: `Bearer ${token}` } }).then((r) => r.json());
+const status = await fetch(`${BASE}${PREFIX}/organizations/${orgId}/local-media`, { headers: { authorization: `Bearer ${token}` } }).then((r) => r.json());
 const have = new Set((status?.footage ?? []).map((f) => f.file));
 
 for (const file of readdirSync(dir).filter((f) => f.endsWith('.mp4'))) {
@@ -49,7 +55,7 @@ for (const file of readdirSync(dir).filter((f) => f.endsWith('.mp4'))) {
   const tags = TAGS[file] ?? 'abstract';
   // trailing slash: the endpoint 308-redirects the bare path and undici cannot
   // replay a binary body across redirects (detached ArrayBuffer).
-  const res = await fetch(`${BASE}/api/v1/organizations/${orgId}/local-media/footage/?fileName=${encodeURIComponent(file)}&tags=${encodeURIComponent(tags)}`, {
+  const res = await fetch(`${BASE}${PREFIX}/organizations/${orgId}/local-media/footage${PREFIX === '/v1' ? '' : '/'}/?fileName=${encodeURIComponent(file)}&tags=${encodeURIComponent(tags)}`, {
     method: 'POST',
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/octet-stream' },
     body: readFileSync(join(dir, file)),
