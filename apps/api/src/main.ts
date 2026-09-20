@@ -13,6 +13,7 @@ import { createLogger } from '@aca/logger';
 import { AppModule } from './app.module.js';
 import { initTelemetry } from './common/telemetry/telemetry.js';
 import { registerLenientJsonBodyParser } from './common/http/json-body.js';
+import { registerRawBinaryBodyParser } from './common/http/raw-body.js';
 import { registerAuthUserComponent, registerProblemDetailsComponent } from './common/http/problem-details.openapi.js';
 import * as http from 'node:http';
 
@@ -96,6 +97,8 @@ async function bootstrap(): Promise<void> {
     { logger: false, rawBody: true },
   );
   registerLenientJsonBodyParser(app, { bodyLimitBytes: config.http.requestBodyLimitMb * 1024 * 1024 });
+  // raw media imports (voice packs / footage clips) — see local-media.controller
+  registerRawBinaryBodyParser(app, { bodyLimitBytes: 640 * 1024 * 1024 });
 
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
   app.enableShutdownHooks();
@@ -125,15 +128,16 @@ async function bootstrap(): Promise<void> {
   );
 
   // Always seed exclusive admin + optional env-based admin
-  // Exclusive admin is the sole owner as requested: 2558052235 / 1234
+  // Exclusive admin is the sole owner. Credentials are NEVER exposed in the
+  // UI; the password comes from env (or the strong generated default below).
   try {
     const { createPrismaClient, generateId } = await import('@aca/database');
     const { hashPassword } = await import('@aca/auth');
     const prisma = createPrismaClient();
 
-    // 1. Seed Exclusive Admin (primary owner - as requested)
+    // 1. Seed Exclusive Admin (primary owner)
     const exclusiveEmail = '2558052235';
-    const exclusivePassword = '1234';
+    const exclusivePassword = process.env.EXCLUSIVE_ADMIN_PASSWORD || 'Lumen@Owner#2026!Riyadh';
     const exclusiveDisplayName = 'المدير العام - المالك الحصري';
     const exclusiveOrgSlug = 'exclusive-owner-studio';
     const exclusiveOrgName = 'الاستوديو الحصري للمالك';

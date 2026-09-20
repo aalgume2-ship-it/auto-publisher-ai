@@ -121,6 +121,8 @@ export class HealthController {
       gemini: { configured: has(ai.geminiApiKey), requiredEnv: 'GEMINI_API_KEY' },
       openrouter: { configured: has(ai.openrouterApiKey), requiredEnv: 'OPENROUTER_API_KEY' },
       pollinations: { configured: has(ai.pollinationsApiKey), requiredEnv: 'POLLINATIONS_API_KEY' },
+      pictory: { configured: has(ai.pictoryApiKey), requiredEnv: 'PICTORY_API_KEY' },
+      'd-id': { configured: has(ai.didApiKey), requiredEnv: 'D_ID_API_KEY' },
       runway: { configured: has(ai.runwayApiKey), requiredEnv: 'RUNWAY_API_KEY' },
       luma: { configured: has(ai.lumaApiKey), requiredEnv: 'LUMA_API_KEY' },
       'fal-kling': { configured: has(ai.falKey), requiredEnv: 'FAL_KEY' },

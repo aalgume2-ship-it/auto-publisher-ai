@@ -1,0 +1,63 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# AutoCreator AI — FREE-TIER combined image (API + Worker in one container)
+#
+# Runs on Render's free web service (750h/month ≈ 24/7 for one service):
+#   - apps/api   on $PORT (Render assigns it, health at /health/ready)
+#   - apps/worker on :4300 (BullMQ + ffmpeg local generation pipeline)
+#   - infra/free/start-all.mjs supervises both, pushes the Prisma schema on
+#     boot, and regenerates the footage library + demo campaign (idempotent).
+#
+# Data plane (all free tiers, set as Render env vars):
+#   DATABASE_URL  → Neon Postgres (videos persist as Postgres blobs via the
+#                   asset-store fallback when no S3_BUCKET_* is configured)
+#   REDIS_URL     → Redis Cloud 30MB (BullMQ queues)
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:22-bookworm-slim AS base
+ENV NODE_ENV=production
+RUN apt-get update -y \
+ && apt-get install -y --no-install-recommends openssl ca-certificates ffmpeg \
+ && rm -rf /var/lib/apt/lists/* \
+ && corepack enable \
+ && corepack prepare pnpm@9.15.9 --activate
+
+FROM base AS builder
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json prisma.config.ts ./
+COPY packages/eslint-config/package.json ./packages/eslint-config/
+COPY packages/typescript-config/package.json ./packages/typescript-config/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/config/package.json ./packages/config/
+COPY packages/logger/package.json ./packages/logger/
+COPY packages/database/package.json ./packages/database/
+COPY packages/auth/package.json ./packages/auth/
+COPY packages/events/package.json ./packages/events/
+COPY packages/video-engine/package.json ./packages/video-engine/
+COPY apps/api/package.json ./apps/api/
+COPY apps/worker/package.json ./apps/worker/
+COPY apps/web/package.json ./apps/web/
+
+RUN pnpm install --no-frozen-lockfile --ignore-scripts --prod=false
+
+COPY . .
+
+# Offline prisma kit: WASM engines + adapter-pg catalog patch + media binary
+# exec bits. Works regardless of whether binaries.prisma.sh is reachable.
+RUN node infra/scripts/offline-prisma.mjs \
+ && pnpm exec turbo run build --filter=!@aca/web
+
+# ── runner ───────────────────────────────────────────────────────────────────
+FROM base AS runner
+WORKDIR /app
+ENV NODE_ENV=production \
+    ACA_LOCAL_GENERATION=1 \
+    ACA_STORAGE_DIR=/tmp/aca-storage \
+    WORKER_PORT=4300
+
+COPY --from=builder /app ./
+
+EXPOSE 10000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||10000)+'/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+CMD ["node", "infra/free/start-all.mjs"]

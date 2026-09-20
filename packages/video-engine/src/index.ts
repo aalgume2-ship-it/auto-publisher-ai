@@ -8,7 +8,14 @@
 export { PipelineError, providerNotConfigured, type PipelineErrorCode } from './errors.js';
 export { OrgCredentialsService, type VaultCapability } from './vault/org-credentials.js';
 export { LLM_PROVIDERS, LLM_PROVIDER_MAP, chatCompletion, type LlmCredential, type LlmProviderDef } from './ai/providers.js';
-export { VIDEO_PROVIDERS, VIDEO_PROVIDER_MAP, type VideoCredential, type VideoProviderDef } from './ai/providers-video.js';
+export {
+  VIDEO_PROVIDERS,
+  VIDEO_PROVIDER_MAP,
+  parseDidTalk,
+  parsePictoryJob,
+  type VideoCredential,
+  type VideoProviderDef,
+} from './ai/providers-video.js';
 export { getPrompt, renderUserPrompt } from './ai/prompts/registry.js';
 export {
   AiService,
@@ -39,5 +46,19 @@ export { DubbingService } from './dubbing/dubbing.service.js';
 export { RenderService } from './render/render.service.js';
 export { ProviderRegistry, type ProviderStatusEntry, type ProviderCategory, type ProviderState } from './providers/registry.js';
 export { FFmpegEngine } from './ffmpeg/ffmpeg.engine.js';
+export { synthesizeLocalVoice, localEspeakAvailable, pcm16ToWav } from './tts/local-tts.js';
+export { renderLocalMotionClips } from './render/local-motion.js';
+export { resolveVoicesDir, resolveFootageDir } from './media/local-dirs.js';
+export {
+  readFootageIndex,
+  writeFootageIndex,
+  addFootageClip,
+  removeFootageClip,
+  matchFootage,
+  expandArabicTopics,
+  prepareFootageClip,
+  FOOTAGE_INDEX_FILE,
+  type FootageEntry,
+} from './render/footage.js';
 export type { RenderJobSpec, RenderJobResult, EncodingProfile, CaptionTrack, SubtitleTrack } from './types/render.types.js';
 export { RenderJobSpecSchema, EncodingProfileSchema } from './schemas/render.schema.js';

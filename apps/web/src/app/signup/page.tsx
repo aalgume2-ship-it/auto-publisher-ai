@@ -14,20 +14,21 @@ function AppleIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fi
 function SignupInner() {
   const router = useRouter();
   const sp = useSearchParams();
-  const next = sp.get('next') || '/subscribe';
+  const next = sp.get('next') || '/dashboard';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [retryMsg, setRetryMsg] = useState<string | null>(null);
 
-  function redirectToSubscribe() {
-    router.push(next === '/subscribe' ? next : `/subscribe?next=${encodeURIComponent(next)}`);
+  function continueAfterSignup() {
+    // Accounts start on a free trial — go straight to the studio library.
+    router.push(next);
   }
 
   async function submitEmail(e: React.FormEvent) {
     e.preventDefault();
-    if (password.length < 6) { setErr('Password must be at least 6 characters.'); return; }
+    if (password.length < 12) { setErr('كلمة المرور يجب ألا تقل عن 12 حرفاً — Password must be at least 12 characters.'); return; }
     setBusy(true); setErr(null); setRetryMsg(null);
     const name = email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -36,19 +37,19 @@ function SignupInner() {
     // look like a five-minute signup spinner and could submit duplicate POSTs.
     setRetryMsg('Processing — جاري إنشاء الحساب…');
     const res = await signupWith(email.trim().toLowerCase(), password, name);
-    if (res.ok) { setBusy(false); setRetryMsg(null); redirectToSubscribe(); return; }
+    if (res.ok) { setBusy(false); setRetryMsg(null); continueAfterSignup(); return; }
 
     setBusy(false);
     setRetryMsg(null);
     if (res.retryable) {
-      setErr('تعذر الاتصال بخدمة الحساب الآن. تأكد من تشغيل الـ API ثم حاول مرة أخرى.');
+      setErr('تعذر الاتصال بخدمة الحساب الآن — حاول مرة أخرى بعد لحظات.');
     } else {
       setErr(res.message);
     }
   }
 
   return (
-    <div dir="ltr" className="studio-root">
+    <div dir="rtl" className="studio-root">
       <div className="aurora a1" /><div className="aurora a2" /><div className="grain" />
       <StudioNav minimal />
       <main className="shell">
@@ -65,13 +66,13 @@ function SignupInner() {
               <AppleIcon /> Apple
             </button>
           </div>
-          <div className="divider">or continue with email</div>
+          <div className="divider">أو سجّل بالبريد الإلكتروني</div>
           <form onSubmit={submitEmail}>
-            <div className="field"><label>Email</label><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></div>
-            <div className="field"><label>Password</label><input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="6+ characters" autoComplete="new-password" /></div>
-            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? 'Creating...' : 'Create account'}</button>
+            <div className="field"><label>البريد الإلكتروني</label><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" dir="ltr" style={{ textAlign: 'start' }} /></div>
+            <div className="field"><label>كلمة المرور</label><input type="password" required minLength={12} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="12 حرفًا فأكثر" dir="ltr" style={{ textAlign: 'start' }} autoComplete="new-password" /></div>
+            <button className="btn btn-primary btn-lg btn-block" disabled={busy} type="submit">{busy ? 'جاري الإنشاء…' : 'إنشاء الحساب'}</button>
           </form>
-          <div className="alt">Already have an account? <Link href={`/login?next=${encodeURIComponent(next)}`}>Sign in</Link></div>
+          <div className="alt">عندك حساب؟ <Link href={`/login?next=${encodeURIComponent(next)}`}>سجّل دخولك</Link></div>
         </motion.div>
       </main>
     </div>

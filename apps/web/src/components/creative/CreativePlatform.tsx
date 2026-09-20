@@ -5,7 +5,7 @@ import { Menu, Sparkles, Coins, ArrowUpRight, Play, LockKeyhole, ChevronRight } 
 import { useState, type ReactNode } from 'react';
 import type { CreativeItem } from './catalog';
 
-const nav = [['Explore','/'],['Image','/image'],['Video','/video'],['Audio','/audio'],['Edit','/edit'],['Layers','/layers'],['Cinema Studio','/cinema'],['Viral Presets','/presets'],['Supercomputer','/automation'],['Marketing Studio','/marketing']] as const;
+const nav = [['Create Campaign','/campaign/new'],['My Campaigns','/campaigns'],['Templates','/presets'],['Brand Kit','/assets']] as const;
 
 function itemHref(item: CreativeItem): string {
   const qs = new URLSearchParams();
@@ -23,17 +23,16 @@ export function TopNav(){
   return <header className="cp-top">
     <Link href="/" className="cp-logo"><span><Sparkles size={17}/></span>Lumen</Link>
     <button type="button" className="cp-menu" onClick={()=>setOpen(!open)} aria-label="Open navigation" aria-expanded={open}><Menu/></button>
-    <nav className={open?'open':''}>{nav.map(([label,href])=><Link className={(path===href||href!=='/'&&path.startsWith(href))?'active':''} href={href} key={href} onClick={()=>setOpen(false)}>{label}</Link>)}</nav>
+    <nav className={open?'open':''}>{nav.map(([label,href])=><Link className={(path===href||path.startsWith(href))?'active':''} href={href} key={href} onClick={()=>setOpen(false)}>{label}</Link>)}</nav>
     <div className="cp-actions">
-      <Link href="/dashboard/billing" className="cp-credit"><Coins size={14}/> Credits</Link>
-      <Link href="/dashboard/billing">Pricing</Link>
-      <Link href="/marketing">Enterprise</Link>
-      <Link href="/dashboard" className="cp-avatar" aria-label="Open dashboard">L</Link>
+      <Link href="/subscribe" className="cp-credit"><Coins size={14}/> Credits</Link>
+      <Link href="/subscribe">Pricing</Link>
+      <Link href="/campaigns" className="cp-avatar" aria-label="My campaigns">L</Link>
     </div>
   </header>
 }
 
-export function PlatformShell({children}: {children:ReactNode}){return <div className="cp-root" dir="ltr"><TopNav/><main className="cp-main">{children}</main><footer className="cp-footer"><span>Lumen Creative Intelligence</span><span>Original tools for image, video, audio and automated publishing.</span></footer></div>}
+export function PlatformShell({children}: {children:ReactNode}){return <div className="cp-root" dir="ltr"><TopNav/><main className="cp-main">{children}</main><footer className="cp-footer"><span>Lumen — AI Marketing Studio</span><span>Turn one product into a full marketing campaign.</span></footer></div>}
 export function CapabilityBadge({available=true,label}:{available?:boolean;label?:string}){return <span className={available?'cp-cap available':'cp-cap'}>{available?null:<LockKeyhole size={11}/>} {label??(available?'Available':'Coming soon')}</span>}
 export function MediaCard({item,large=false}:{item:CreativeItem;large?:boolean}){return <Link href={itemHref(item)} className={`cp-media ${large?'large':''}`} aria-label={`Open ${item.title}`}><img src={item.image} alt={item.title}/><div className="cp-shade"/><div className="cp-media-top">{item.badge&&<span>{item.badge}</span>}<i><ArrowUpRight size={17}/></i></div><div className="cp-media-copy"><small>{item.category}</small><h3>{item.title}</h3><p>{item.description}</p><b><Play size={13} fill="currentColor"/> Use this look</b></div></Link>}
 export function SectionRail({title,items}:{title:string;items:CreativeItem[]}){const first=items[0]; return <section className="cp-section"><div className="cp-section-head"><div><h2>{title}</h2><p>Curated starting points for your next creation.</p></div>{first?<Link href={itemHref(first)}>View all <ChevronRight size={15}/></Link>:null}</div><div className="cp-rail">{items.map((x)=><MediaCard item={x} key={x.title}/>)}</div></section>}

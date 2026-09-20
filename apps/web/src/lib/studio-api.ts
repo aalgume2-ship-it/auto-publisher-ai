@@ -178,7 +178,12 @@ export interface SeriesDto { id: string; name: string; niche: string; status: st
 export interface VideoDto {
   id: string;
   status: string;
+  seriesId?: string;
   keyword?: string;
+  title?: string;
+  durationMs?: number | null;
+  thumbnail?: string | null;
+  videoUrl?: string | null;
   failureReason?: string | null;
   seo?: { step?: string; progress?: number } | null;
   createdAt: string;
@@ -195,11 +200,40 @@ export interface GenerateVideoDto {
 export function createSeries(token: string, orgId: string, name: string) {
   return call<SeriesDto>('POST', `/organizations/${orgId}/series`, { name, niche: 'generic', cadencePerWeek: 1, language: 'en' }, token);
 }
+/** Campaign container: an Arabic marketing campaign stored as a series. */
+export function createCampaignSeries(token: string, orgId: string, name: string, niche: string) {
+  return call<SeriesDto>('POST', `/organizations/${orgId}/series`, { name, niche, cadencePerWeek: 1, language: 'ar' }, token);
+}
 export function listSeries(token: string, orgId: string) {
   return call<{ items: SeriesDto[] }>('GET', `/organizations/${orgId}/series`, undefined, token);
 }
-export function generateVideo(token: string, orgId: string, seriesId: string, keyword: string, targetSeconds: number) {
-  return call<GenerateVideoDto>('POST', `/organizations/${orgId}/series/${seriesId}/videos`, { keyword, targetSeconds }, token);
+export function generateVideo(
+  token: string,
+  orgId: string,
+  seriesId: string,
+  keyword: string,
+  targetSeconds: number,
+  videoProvider: string = 'auto',
+) {
+  return call<GenerateVideoDto>('POST', `/organizations/${orgId}/series/${seriesId}/videos`, { keyword, targetSeconds, videoProvider }, token);
+}
+
+export interface CampaignVideoProvider {
+  id: string;
+  label: string;
+  priceHint: string;
+  configured: boolean;
+  source: 'org' | 'env' | null;
+  active: boolean;
+}
+
+export function getVideoProviders(token: string, orgId: string) {
+  return call<{ video: { items: CampaignVideoProvider[] } }>(
+    'GET',
+    `/organizations/${orgId}/settings/integrations`,
+    undefined,
+    token,
+  );
 }
 export function listVideos(token: string, orgId: string) {
   return call<{ items: VideoDto[] }>('GET', `/organizations/${orgId}/videos`, undefined, token);
@@ -235,7 +269,7 @@ export async function fetchStreamBlob(orgId: string, videoId: string, token: str
     // Prefer the public Bunny CDN mirror when configured. It supports native
     // Range playback and avoids rebuilding a large MP4 in browser memory.
     const video = await getVideo(token, orgId, videoId);
-    const directUrl = video.ok ? video.data?.streamUrl : null;
+    const directUrl = video.ok ? (video.data?.streamUrl ?? video.data?.videoUrl) : null;
     const playableUrl = playableVideoUrl(directUrl);
     if (playableUrl) {
       return { blob: null, url: playableUrl };

@@ -154,15 +154,35 @@ export const AppConfigSchema = z.object({
       geminiApiKey: z.string().min(1).optional(),
       openrouterApiKey: z.string().min(1).optional(),
       pollinationsApiKey: z.string().min(1).optional(),
-      // moving-picture providers (no free tier exists today — org vault or env)
+      // moving-picture providers (org vault or env; optional integrations stay graceful)
       runwayApiKey: z.string().min(1).optional(),
       lumaApiKey: z.string().min(1).optional(),
       falKey: z.string().min(1).optional(),
+      pictoryApiKey: z.string().min(1).optional(),
+      didApiKey: z.string().min(1).optional(),
       // image providers (org vault or env; pollinations stays the keyless default)
       stabilityApiKey: z.string().min(1).optional(),
       replicateApiToken: z.string().min(1).optional(),
       // voice providers (org vault or env; gTTS stays the keyless default)
       elevenlabsApiKey: z.string().min(1).optional(),
+    })
+    .default({}),
+
+  /**
+   * Local (offline) media production. When `generation` is on, the pipeline
+   * runs with ZERO cloud dependencies: keyless template script, offline voice
+   * (Piper voice packs from `voicesDir` when present, otherwise the bundled
+   * eSpeak-NG WASM — Arabic `sem/ar` + English `en-us`), and per-shot motion
+   * backgrounds synthesized by ffmpeg itself (fractal zoom / cellular automata
+   * light fields with camera movement). Made for air-gapped installs, keyless
+   * demos and API outages — cloud providers stay preferred whenever they are
+   * actually reachable.
+   */
+  localMedia: z
+    .object({
+      generation: boolFromEnv(false),
+      voicesDir: z.string().min(1).optional(),
+      footageDir: z.string().min(1).optional(),
     })
     .default({}),
 
@@ -255,9 +275,14 @@ export const ENV_MAP = {
   RUNWAY_API_KEY: 'ai.runwayApiKey',
   LUMA_API_KEY: 'ai.lumaApiKey',
   FAL_KEY: 'ai.falKey',
+  PICTORY_API_KEY: 'ai.pictoryApiKey',
+  D_ID_API_KEY: 'ai.didApiKey',
   STABILITY_API_KEY: 'ai.stabilityApiKey',
   REPLICATE_API_TOKEN: 'ai.replicateApiToken',
   ELEVENLABS_API_KEY: 'ai.elevenlabsApiKey',
+  ACA_LOCAL_GENERATION: 'localMedia.generation',
+  ACA_LOCAL_VOICES_DIR: 'localMedia.voicesDir',
+  ACA_LOCAL_FOOTAGE_DIR: 'localMedia.footageDir',
   S3_ENDPOINT: 's3.endpoint',
   S3_REGION: 's3.region',
   AWS_REGION: 's3.region',

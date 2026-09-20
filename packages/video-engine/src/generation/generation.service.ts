@@ -15,14 +15,16 @@ import { type AssetStore } from '../media/asset-store.js';
 import { uploadMp4ToBunnyStorage } from '../media/bunny-storage.js';
 import { type VideoComposer, workDirFor } from '../render/compose.service.js';
 import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { providerNotConfigured } from '../errors.js';
 
 const VOICE_PROVIDER_TTS: Record<string, { provider: string; providerVoiceId: string; name: string }> = {
   'edge-neural': { provider: 'edge-neural', providerVoiceId: 'ar-SA-HamedNeural', name: 'Microsoft Neural Arabic — Hamed' },
   gtts: { provider: 'gtts', providerVoiceId: 'ar-male-1', name: 'صوت عربي فصيح (gTTS)' },
   openai: { provider: 'openai', providerVoiceId: 'alloy', name: 'OpenAI Alloy (HD)' },
   'runway-eleven-v3': { provider: 'runway', providerVoiceId: 'Elias-ar-eleven-v3', name: 'Runway Eleven v3 — Elias Arabic' },
+  'piper-local': { provider: 'piper-local', providerVoiceId: 'local-vits', name: 'Piper Neural (محلي)' },
+  'espeak-local': { provider: 'espeak-local', providerVoiceId: 'local-espeak', name: 'eSpeak-NG (محلي)' },
 };
 
 /** Order-preserving async pool (network concurrency without rate-limit storms). */
@@ -83,16 +85,26 @@ export class GenerationService {
           data: { status, seo: JSON.parse(JSON.stringify({ ...seoState, step, progress })) },
         });
 
-      // A still-image slideshow is not text-to-video. Fail fast and visibly
-      // unless an actual moving-video provider is configured.
-      const videoCred = await this.ai.resolveVideoCred(video.orgId);
-      if (!videoCred) {
-        throw providerNotConfigured(
-          ['POLLINATIONS_API_KEY', 'RUNWAY_API_KEY', 'LUMA_API_KEY', 'FAL_KEY'],
-          'AI generation provider is not configured',
-        );
+      // The campaign can pin a provider without exposing any secret to the
+      // browser. `local` is an explicit, free fallback; if a requested
+      // optional provider has no key, the same local motion path is used
+      // instead of breaking the worker. Existing callers without a choice keep
+      // the established automatic provider order.
+      const requestedProvider = typeof (video.seo as { videoProvider?: unknown } | null)?.videoProvider === 'string'
+        ? (video.seo as { videoProvider: string }).videoProvider
+        : undefined;
+      const explicitLocal = requestedProvider === 'local';
+      const forceLocal = this.config.localMedia.generation && (!requestedProvider || requestedProvider === 'auto');
+      const videoCred = explicitLocal || forceLocal
+        ? null
+        : await this.ai.resolveVideoCred(video.orgId, requestedProvider && requestedProvider !== 'auto' ? requestedProvider : undefined);
+      const localMode = explicitLocal || forceLocal || !videoCred;
+      if (videoCred && !localMode) {
+        seoState['videoProvider'] = videoCred.def.id;
+      } else {
+        seoState['videoProvider'] = requestedProvider && requestedProvider !== 'local' ? 'local-fallback' : 'local-motion';
       }
-      seoState['videoProvider'] = videoCred.def.id;
+      if (requestedProvider) seoState['videoProviderRequested'] = requestedProvider;
       await markStep('script', 8);
 
       /* 1 ── script (real LLM) */
@@ -148,7 +160,7 @@ export class GenerationService {
       const vmeta = VOICE_PROVIDER_TTS[tts.provider] ?? VOICE_PROVIDER_TTS['gtts']!;
       const voice = await this.prisma.voice.upsert({
         where: { provider_providerVoiceId: { provider: vmeta.provider, providerVoiceId: vmeta.providerVoiceId } },
-        create: { id: generateId(), provider: vmeta.provider, providerVoiceId: vmeta.providerVoiceId, name: vmeta.name, gender: 'male', languages: ['ar'] },
+        create: { id: generateId(), provider: vmeta.provider, providerVoiceId: vmeta.providerVoiceId, name: vmeta.name, gender: 'male', languages: [video.language] },
         update: {},
       });
       const { audioPath, durationMs: voiceMs } = await this.composer.concatAudio(tts.chunks, wd);
@@ -186,7 +198,9 @@ export class GenerationService {
       });
 
       /* 3 ── per-scene visuals (moving AI clips when a video key exists) */
-      const engine = `${provider}-${tts.provider}-${videoCred.def.id}-clips`;
+      const engine = localMode
+        ? `${provider}-${tts.provider}-local-motion-clips`
+        : `${provider}-${tts.provider}-${videoCred!.def.id}-clips`;
       const sceneWords = productionScenes.map((s) => s.narration.split(/\s+/).filter(Boolean).length);
       const totalWords = sceneWords.reduce((a, b) => a + b, 0) || 1;
       // The requested story duration is the source of truth. The moving
@@ -205,7 +219,7 @@ export class GenerationService {
         windows.push({ startMs: cursor, durationMs });
         await markStep(`scenes ${i + 1}/${productionScenes.length}`, 30 + Math.round(((i + 1) / productionScenes.length) * 20));
         let imageAssetId: string | null = null;
-        if (videoCred.def.supportsFirstFrame) {
+        if (!localMode && videoCred!.def.supportsFirstFrame) {
           if (i > 0) await new Promise((r) => setTimeout(r, 3_000));
           const img = await this.ai.generateSceneImage(scene.visualPrompt, 1000 + i * 77);
           const imgStored = await this.store.put(video.orgId, `scene-${i}.jpg`, img.data);
@@ -246,26 +260,43 @@ export class GenerationService {
         cursor += durationMs;
       }
 
-      /* 3.5 ── moving clips (only when a video provider key is configured) */
+      /* 3.5 ── moving clips: cloud AI provider, or local ffmpeg motion in offline mode */
+      let footageUsedCount = 0;
       {
         await markStep(`clips 0/${productionScenes.length}`, 52);
-        let clipAttemptsDone = 0;
         const clipErrors: string[] = [];
-        await mapPool(productionScenes, 2, async (scene, i) => {
-          try {
-            const w = windows[i]!;
-            let buf: Buffer | null = null;
-            let lastClipError: unknown = null;
-            for (let clipTry = 1; clipTry <= 2; clipTry += 1) {
-              try {
-                buf = await this.ai.generateSceneClip(videoCred, scene.visualPrompt, firstFrameUrls[i] ?? null, w.durationMs / 1000);
-                break;
-              } catch (error) {
-                lastClipError = error;
-                if (clipTry < 2) await new Promise((resolve) => setTimeout(resolve, 1_800));
-              }
+
+        if (localMode) {
+          // Offline mode, tier 1 — REAL footage from the local library when a
+          // scene matches an imported clip (stock footage / user uploads).
+          // Tier 2 — uniquely-parameterized ffmpeg motion shots for anything
+          // unmatched. Either way: real motion video, zero network, zero keys.
+          const { resolveFootageDir } = await import('../media/local-dirs.js');
+          const footageDir = resolveFootageDir(this.config);
+          const { readFootageIndex, matchFootage, prepareFootageClip } = await import('../render/footage.js');
+          const footageEntries = await readFootageIndex(footageDir);
+          const footagePlan: Array<{ i: number; file: string }> = [];
+          const proceduralIdx: number[] = [];
+          const recent: string[] = [];
+          for (let i = 0; i < productionScenes.length; i += 1) {
+            const scene = productionScenes[i]!;
+            const match = matchFootage(footageEntries, `${keyword} ${scene.narration} ${scene.visualPrompt}`, recent);
+            if (match && match.durationMs >= Math.min(4000, windows[i]!.durationMs)) {
+              footagePlan.push({ i, file: match.file });
+              recent.push(match.file);
+              if (recent.length > 2) recent.shift();
+            } else {
+              proceduralIdx.push(i);
             }
-            if (!buf) throw (lastClipError instanceof Error ? lastClipError : new Error(String(lastClipError)));
+          }
+
+          let clipsDone = 0;
+          const reportClip = async () => {
+            clipsDone += 1;
+            await markStep(`clips ${clipsDone}/${productionScenes.length}`, 52 + Math.round((clipsDone / productionScenes.length) * 18));
+          };
+
+          const storeClipAsset = async (i: number, buf: Buffer, provider: string, prompt: string) => {
             const clipStored = await this.store.put(video.orgId, `clip-${i}.mp4`, buf);
             const clipAsset = await this.prisma.asset.create({
               data: {
@@ -277,21 +308,96 @@ export class GenerationService {
                 cdnPath: 'pending',
                 mimeType: 'video/mp4',
                 bytes: BigInt(buf.length),
-                durationMs: w.durationMs,
+                durationMs: windows[i]!.durationMs,
                 width: 720,
                 height: 1280,
-                metadata: { prompt: scene.visualPrompt, provider: videoCred.def.id, firstFrameStill: firstFrameUrls[i] ? `scene-${i}.jpg` : null },
+                metadata: { prompt, provider, firstFrameStill: null },
               },
             });
             await this.prisma.asset.update({ where: { id: clipAsset.id }, data: { cdnPath: `/v1/organizations/${video.orgId}/assets/${clipAsset.id}/content` } });
-            movingScenes[i] = { clipPath: this.store.fullPath(clipStored.storageKey), caption: scene.narration, durationMs: w.durationMs };
-          } catch (err) {
-            clipErrors[i] = err instanceof Error ? err.message : String(err);
-          } finally {
-            clipAttemptsDone += 1;
-            await markStep(`clips ${clipAttemptsDone}/${productionScenes.length}`, 52 + Math.round((clipAttemptsDone / productionScenes.length) * 18));
+            movingScenes[i] = { clipPath: this.store.fullPath(clipStored.storageKey), caption: productionScenes[i]!.narration, durationMs: windows[i]!.durationMs };
+          };
+
+          if (footagePlan.length > 0) {
+            const motionDir2 = `${wd}/footage-prepared`;
+            await (await import('node:fs/promises')).mkdir(motionDir2, { recursive: true });
+            for (const plan of footagePlan) {
+              try {
+                const outPath = `${motionDir2}/scene-${String(plan.i).padStart(3, '0')}.mp4`;
+                await prepareFootageClip(join(footageDir, plan.file), windows[plan.i]!.durationMs, outPath, plan.i);
+                const buf = await readFile(outPath);
+                await storeClipAsset(plan.i, buf, 'local-footage', `footage:${plan.file}`);
+                footageUsedCount += 1;
+                await reportClip();
+              } catch (err) {
+                clipErrors[plan.i] = err instanceof Error ? err.message : String(err);
+                proceduralIdx.push(plan.i); // degrade to procedural instead of failing the video
+              }
+            }
           }
-        });
+
+          if (proceduralIdx.length > 0) {
+            const { renderLocalMotionClips } = await import('../render/local-motion.js');
+            const motionDir = `${wd}/local-motion`;
+            const clipPaths = await renderLocalMotionClips(
+              proceduralIdx.map((i) => ({ caption: productionScenes[i]!.narration, durationMs: windows[i]!.durationMs })),
+              motionDir,
+            );
+            for (let k = 0; k < clipPaths.length; k += 1) {
+              const i = proceduralIdx[k]!;
+              try {
+                const buf = await readFile(clipPaths[k]!);
+                await storeClipAsset(i, buf, 'local-motion', productionScenes[i]!.visualPrompt);
+                await reportClip();
+              } catch (err) {
+                clipErrors[i] = err instanceof Error ? err.message : String(err);
+              }
+            }
+          }
+        } else {
+          let clipAttemptsDone = 0;
+          await mapPool(productionScenes, 2, async (scene, i) => {
+            try {
+              const w = windows[i]!;
+              let buf: Buffer | null = null;
+              let lastClipError: unknown = null;
+              for (let clipTry = 1; clipTry <= 2; clipTry += 1) {
+                try {
+                  buf = await this.ai.generateSceneClip(videoCred!, scene.visualPrompt, firstFrameUrls[i] ?? null, w.durationMs / 1000, scene.narration);
+                  break;
+                } catch (error) {
+                  lastClipError = error;
+                  if (clipTry < 2) await new Promise((resolve) => setTimeout(resolve, 1_800));
+                }
+              }
+              if (!buf) throw (lastClipError instanceof Error ? lastClipError : new Error(String(lastClipError)));
+              const clipStored = await this.store.put(video.orgId, `clip-${i}.mp4`, buf);
+              const clipAsset = await this.prisma.asset.create({
+                data: {
+                  id: generateId(),
+                  orgId: video.orgId,
+                  type: 'VIDEO_CLIP',
+                  source: 'GENERATED',
+                  storageKey: clipStored.storageKey,
+                  cdnPath: 'pending',
+                  mimeType: 'video/mp4',
+                  bytes: BigInt(buf.length),
+                  durationMs: w.durationMs,
+                  width: 720,
+                  height: 1280,
+                  metadata: { prompt: scene.visualPrompt, provider: videoCred!.def.id, firstFrameStill: firstFrameUrls[i] ? `scene-${i}.jpg` : null },
+                },
+              });
+              await this.prisma.asset.update({ where: { id: clipAsset.id }, data: { cdnPath: `/v1/organizations/${video.orgId}/assets/${clipAsset.id}/content` } });
+              movingScenes[i] = { clipPath: this.store.fullPath(clipStored.storageKey), caption: scene.narration, durationMs: w.durationMs };
+            } catch (err) {
+              clipErrors[i] = err instanceof Error ? err.message : String(err);
+            } finally {
+              clipAttemptsDone += 1;
+              await markStep(`clips ${clipAttemptsDone}/${productionScenes.length}`, 52 + Math.round((clipAttemptsDone / productionScenes.length) * 18));
+            }
+          });
+        }
 
         // Quality rule: every narration shot must have its own generated moving clip.
         // Never recycle clip 1 under later narration; that creates the repeated-shot
@@ -318,7 +424,11 @@ export class GenerationService {
         throw new Error(`real AI video generation incomplete: ${movingScenes.length}/${productionScenes.length} moving scenes`);
       }
       const requestsNoText = /بدون\s+(?:نص|نصوص|كتابة)|no\s+(?:text|captions|subtitles)/iu.test(keyword);
-      const professionalRunway = videoCred.def.id === 'runway';
+      const professionalRunway = !localMode && videoCred!.def.id === 'runway';
+      if (localMode && footageUsedCount > 0) {
+        seoState['videoProvider'] = footageUsedCount === productionScenes.length ? 'local-footage' : 'local-mixed';
+        seoState['footageClips'] = footageUsedCount;
+      }
       seoState['voiceProvider'] = tts.provider;
       seoState['nativeAudio'] = professionalRunway;
       seoState['burnedCaptions'] = !(requestsNoText || professionalRunway);

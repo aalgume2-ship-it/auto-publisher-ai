@@ -79,11 +79,18 @@ export class SettingsService {
     const bunnyStored = await this.creds.readSecret(orgId, 'PUBLISHER', 'bunny-storage');
     const videoEnvConfigured = (id: string): boolean => {
       const ai = this.config.ai as Record<string, string | undefined>;
-      const v = { runway: ai['runwayApiKey'], luma: ai['lumaApiKey'], 'fal-kling': ai['falKey'] }[id];
+      const v = {
+        pictory: ai['pictoryApiKey'],
+        'd-id': ai['didApiKey'],
+        runway: ai['runwayApiKey'],
+        luma: ai['lumaApiKey'],
+        'fal-kling': ai['falKey'],
+      }[id];
       return typeof v === 'string' && v.length > 0;
     };
     const videoItems = VIDEO_PROVIDERS.map((def) => {
-      const row = videoStoredMap.get(def.id);
+      const platformManaged = def.id === 'pictory' || def.id === 'd-id';
+      const row = platformManaged ? undefined : videoStoredMap.get(def.id);
       const env = videoEnvConfigured(def.id);
       return {
         id: def.id,
@@ -148,6 +155,9 @@ export class SettingsService {
   }
 
   async saveVideoKey(orgId: string, providerId: string, apiKey: string) {
+    if (providerId === 'pictory' || providerId === 'd-id') {
+      throw badKey(`${providerId} is managed only through Render environment variables (${providerId === 'pictory' ? 'PICTORY_API_KEY' : 'D_ID_API_KEY'}); it is never stored in the organization vault.`);
+    }
     const def = VIDEO_PROVIDER_MAP.get(providerId);
     if (!def) throw badKey(`مزود فيديو غير معروف: ${providerId}`);
     try {

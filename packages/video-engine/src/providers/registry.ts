@@ -55,7 +55,8 @@ export class ProviderRegistry {
       }
       const cfgKey = (ai as unknown as Record<string, string | undefined>)[envKeyToConfig(def.envKey)];
       const envKeyValue = cfgKey && cfgKey.length > 0 ? cfgKey : undefined;
-      const orgHint = videoVault.find((v) => v.provider === def.id)?.hint;
+      const envOnly = def.id === 'pictory' || def.id === 'd-id';
+      const orgHint = envOnly ? undefined : videoVault.find((v) => v.provider === def.id)?.hint;
       const state: ProviderState = envKeyValue || orgHint ? 'configured' : 'not_configured';
       const e: ProviderStatusEntry = {
         id: def.id, category: 'VIDEO', label: def.label, model: def.model, envKey: def.envKey,
@@ -149,6 +150,8 @@ export class ProviderRegistry {
 /** env var name → AppConfig.ai field name (for the env-side status check). */
 function envKeyToConfig(envKey: string): string {
   const map: Record<string, string> = {
+    PICTORY_API_KEY: 'pictoryApiKey',
+    D_ID_API_KEY: 'didApiKey',
     RUNWAY_API_KEY: 'runwayApiKey',
     LUMA_API_KEY: 'lumaApiKey',
     FAL_KEY: 'falKey',

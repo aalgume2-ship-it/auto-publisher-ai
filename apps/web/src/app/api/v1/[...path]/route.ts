@@ -12,8 +12,11 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+// Fallback only: the recovery ALB verified during the 2026-08 AWS incident.
+// Deployments SHOULD set API_UPSTREAM (Vercel env) — it now takes precedence,
+// so a redeployed/new API host never routes through a possibly-deleted ALB.
 const VERIFIED_PRODUCTION_UPSTREAM = 'http://autocreator-recovery-alb-979440653.eu-north-1.elb.amazonaws.com';
-const RAW_UPSTREAM = VERIFIED_PRODUCTION_UPSTREAM;
+const RAW_UPSTREAM = cleanOrigin(process.env.API_UPSTREAM ?? '') || VERIFIED_PRODUCTION_UPSTREAM;
 
 function cleanOrigin(s: string): string {
   return s.replace(/\/+$/, '').trim();
@@ -113,6 +116,12 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
   headers.delete('host');
   headers.delete('connection');
   headers.delete('transfer-encoding');
+  // curl-style clients send `Expect: 100-continue` on >1MiB bodies; undici
+  // refuses to forward it (UND_ERR_NOT_SUPPORTED), so drop it before proxying.
+  headers.delete('expect');
+  // undici computes the correct content-length for ArrayBuffer bodies itself;
+  // forwarding the inbound one trips its body-size guard on >1MiB uploads.
+  headers.delete('content-length');
   if (!headers.has('accept')) headers.set('accept', 'application/json');
 
   const maxAttempts = isHealth ? 2 : 3;
@@ -189,6 +198,7 @@ async function proxy(request: NextRequest, segments: string[]): Promise<NextResp
 
       return new NextResponse(payload, { status: upstreamRes.status, headers: responseHeaders });
     } catch (err) {
+      console.error('[api-proxy] upstream fetch failed:', err instanceof Error ? err.message : err, '| cause:', (err as { cause?: unknown })?.cause);
       if (attempt < maxAttempts - 1) {
         await new Promise((r) => setTimeout(r, baseDelayMs * (attempt + 1)));
         continue;

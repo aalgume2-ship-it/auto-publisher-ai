@@ -27,6 +27,9 @@ function resolveFfmpeg(): string {
   return 'ffmpeg';
 }
 
+/** Public so sibling modules (local TTS/motion) reuse the exact same binary. */
+export { resolveFfmpeg as resolveFfmpegPath };
+
 function resolveFfprobe(): string {
   const env = process.env.FFPROBE_PATH;
   if (env && existsSync(env)) return env;

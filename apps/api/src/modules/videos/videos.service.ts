@@ -122,11 +122,11 @@ export class VideosService {
         projectId: seriesId,
         title: body.keyword.slice(0, 120),
         description: null,
-        language: 'ar',
+        language: body.language,
         targetPlatforms: ['youtube'],
         tags: [],
         status: 'QUEUED',
-        seo: { keyword: body.keyword, targetSeconds: body.targetSeconds },
+        seo: { keyword: body.keyword, targetSeconds: body.targetSeconds, videoProvider: body.videoProvider },
         createdById: userId,
       },
     });

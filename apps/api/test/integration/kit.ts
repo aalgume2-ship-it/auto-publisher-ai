@@ -12,6 +12,7 @@ import { AppModule } from '../../src/app.module.js';
 import { DNS_VERIFIER, type DnsVerifier } from '../../src/modules/organizations/domains.service.js';
 import { signSessionJwt, type SessionClaims } from '../../src/common/auth/session-jwt.js';
 import { registerLenientJsonBodyParser } from '../../src/common/http/json-body.js';
+import { registerRawBinaryBodyParser } from '../../src/common/http/raw-body.js';
 
 export const IT = process.env['ACA_API_IT'] === '1';
 
@@ -34,6 +35,7 @@ export async function bootApp(db: DbClient): Promise<ItApp> {
   const app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
   // mirror main.ts exactly: lenient empty-body JSON (2MB = config schema default)
   registerLenientJsonBodyParser(app, { bodyLimitBytes: 2 * 1024 * 1024 });
+  registerRawBinaryBodyParser(app, { bodyLimitBytes: 64 * 1024 * 1024 });
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
   await app.init();
   await app.getHttpAdapter().getInstance().ready();

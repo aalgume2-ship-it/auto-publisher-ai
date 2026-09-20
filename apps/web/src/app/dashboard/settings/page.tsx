@@ -233,7 +233,8 @@ export default function SettingsPage() {
           <GlassCard>
             <SectionHeader eyebrow="Video Engines" title="Moving-scene providers." body="Switch from still-image composition to animated scene generation with a verified provider key." />
             {data?.video.active && <div className="alert ok">Active engine: <strong>{data.video.items.find((i) => i.id === data.video.active?.provider)?.label}</strong></div>}
-            <div className="field"><label>Video provider</label><select value={videoProvider} onChange={(e) => setVideoProvider(e.target.value)}>{(data?.video.items ?? []).map((i) => <option key={i.id} value={i.id}>{i.label} — {i.priceHint}</option>)}</select></div>
+            <div className="field"><label>Video provider</label><select value={videoProvider} onChange={(e) => setVideoProvider(e.target.value)}>{(data?.video.items ?? []).filter((i) => !['pictory', 'd-id'].includes(i.id)).map((i) => <option key={i.id} value={i.id}>{i.label} — {i.priceHint}</option>)}</select></div>
+            <p className="form-note">Pictory وD-ID اختياريان ويُفعّلان من Render Environment فقط؛ لا تُلصق مفاتيحهما في الموقع. بعد التفعيل سيظهران في شاشة إنشاء الحملة.</p>
             <div className="field"><label>API key</label><input dir="ltr" type="password" placeholder="Paste video provider key" value={videoKey} onChange={(e) => setVideoKey(e.target.value)} /></div>
             <button className="btn btn-primary btn-block" onClick={() => void saveVideoKey()} disabled={busy === `video:${videoProvider}`}><Video size={16} /> {busy === `video:${videoProvider}` ? 'Validating…' : 'Validate & Save'}</button>
             <p className="form-note">{chosenVideo?.priceHint}</p>

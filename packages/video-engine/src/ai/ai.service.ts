@@ -396,8 +396,22 @@ export class AiService {
     } catch (error) {
       this.logger.warn({ module: 'ai', error: error instanceof Error ? error.message : String(error) }, 'Edge neural TTS unavailable; using gTTS fallback');
     }
-    const chunks = await withRetry('tts-gtts', () => this.gtts(text, language.startsWith('ar') ? 'ar' : 'en'), this.logger);
-    return { chunks, provider: 'gtts', mime: 'audio/mpeg' };
+    try {
+      const chunks = await withRetry('tts-gtts', () => this.gtts(text, language.startsWith('ar') ? 'ar' : 'en'), this.logger);
+      return { chunks, provider: 'gtts', mime: 'audio/mpeg' };
+    } catch (error) {
+      // Final tier: fully offline synthesis (Piper voice packs when present,
+      // otherwise the bundled eSpeak-NG WASM). Keeps air-gapped / keyless
+      // installations producing narrated videos instead of hard-failing.
+      this.logger.warn(
+        { module: 'ai', error: error instanceof Error ? error.message : String(error) },
+        'gTTS unavailable; using offline local voice tier',
+      );
+    }
+    const { synthesizeLocalVoice } = await import('../tts/local-tts.js');
+    const { resolveVoicesDir } = await import('../media/local-dirs.js');
+    const local = await synthesizeLocalVoice(text, language, { voicesDir: resolveVoicesDir(this.config) });
+    return { chunks: [local.mp3], provider: local.provider, mime: 'audio/mpeg' };
   }
 
   private async edgeNeuralTts(text: string, language: string): Promise<Buffer[]> {
@@ -444,15 +458,23 @@ export class AiService {
   }
 
   async resolveBunnyStorage(orgId: string) { return this.creds.resolveBunnyStorage(orgId); }
-  async resolveVideoCred(orgId: string): Promise<VideoCredential | null> { return this.creds.resolveVideo(orgId); }
+  async resolveVideoCred(orgId: string, requestedProvider?: string): Promise<VideoCredential | null> {
+    return this.creds.resolveVideo(orgId, requestedProvider);
+  }
 
-  async generateSceneClip(cred: VideoCredential, visualPrompt: string, firstFrameUrl: string | null, windowSec: number): Promise<Buffer> {
+  async generateSceneClip(
+    cred: VideoCredential,
+    visualPrompt: string,
+    firstFrameUrl: string | null,
+    windowSec: number,
+    narration?: string,
+  ): Promise<Buffer> {
     if (cred.def.id === 'hf-ltx') {
       // Only genuine model-generated motion is accepted. Never convert a still
       // image into a fake success using zoom/pan. Wan + LTX + Omni handle failover.
-      return generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec });
+      return generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec, narration });
     }
-    return withRetry(`clip-${cred.def.id}`, () => generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec }), this.logger);
+    return withRetry(`clip-${cred.def.id}`, () => generateClip(cred, { prompt: visualPrompt, firstFrameUrl, windowSec, narration }), this.logger);
   }
 
   sceneImageUrl(visualPrompt: string, seed: number): string {
